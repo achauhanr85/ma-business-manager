@@ -1,78 +1,83 @@
 import Map "mo:core/Map";
-import List "mo:core/List";
-import Nat "mo:core/Nat";
-import Principal "mo:core/Principal";
+import Runtime "mo:core/Runtime";
 import Common "../types/common";
 import CatalogTypes "../types/catalog";
+import UserTypes "../types/users";
 
 module {
   public type CategoryStore = Map.Map<Common.CategoryId, CatalogTypes.Category>;
   public type ProductStore = Map.Map<Common.ProductId, CatalogTypes.Product>;
 
-  public func getCategories(store : CategoryStore, caller : Common.UserId) : [CatalogTypes.Category] {
-    let result = List.empty<CatalogTypes.Category>();
-    for ((_, cat) in store.entries()) {
-      if (Principal.equal(cat.owner, caller)) {
-        result.add(cat);
-      };
-    };
-    result.toArray();
+  func callerProfileKey(userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId) : Common.ProfileKey {
+    switch (userStore.get(caller)) {
+      case (?up) up.profile_key;
+      case null Runtime.trap("Caller has no profile");
+    }
   };
 
-  public func createCategory(store : CategoryStore, caller : Common.UserId, nextId : Nat, input : CatalogTypes.CategoryInput) : Common.CategoryId {
-    let id = nextId;
+  public func getCategories(store : CategoryStore, userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId) : [CatalogTypes.Category] {
+    let profileKey = callerProfileKey(userStore, caller);
+    let result = store.entries()
+      .filter(func((_id, cat)) { cat.profile_key == profileKey })
+      .map(func((_id, cat) : (Common.CategoryId, CatalogTypes.Category)) : CatalogTypes.Category { cat });
+    result.toArray()
+  };
+
+  public func createCategory(store : CategoryStore, userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId, nextId : Nat, input : CatalogTypes.CategoryInput) : Common.CategoryId {
+    let profileKey = callerProfileKey(userStore, caller);
     let cat : CatalogTypes.Category = {
-      id;
+      id = nextId;
       name = input.name;
       description = input.description;
+      profile_key = profileKey;
       owner = caller;
     };
-    store.add(id, cat);
-    id;
+    store.add(nextId, cat);
+    nextId
   };
 
-  public func updateCategory(store : CategoryStore, caller : Common.UserId, id : Common.CategoryId, input : CatalogTypes.CategoryInput) : Bool {
+  public func updateCategory(store : CategoryStore, userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId, id : Common.CategoryId, input : CatalogTypes.CategoryInput) : Bool {
+    let profileKey = callerProfileKey(userStore, caller);
     switch (store.get(id)) {
-      case (?cat) {
-        if (not Principal.equal(cat.owner, caller)) return false;
-        store.add(id, { cat with name = input.name; description = input.description });
-        true;
-      };
       case null false;
-    };
+      case (?existing) {
+        if (existing.profile_key != profileKey) return false;
+        store.add(id, { existing with name = input.name; description = input.description });
+        true
+      };
+    }
   };
 
-  public func deleteCategory(store : CategoryStore, caller : Common.UserId, id : Common.CategoryId) : Bool {
+  public func deleteCategory(store : CategoryStore, userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId, id : Common.CategoryId) : Bool {
+    let profileKey = callerProfileKey(userStore, caller);
     switch (store.get(id)) {
-      case (?cat) {
-        if (not Principal.equal(cat.owner, caller)) return false;
+      case null false;
+      case (?existing) {
+        if (existing.profile_key != profileKey) return false;
         store.remove(id);
-        true;
+        true
       };
-      case null false;
-    };
+    }
   };
 
-  public func getProducts(store : ProductStore, caller : Common.UserId) : [CatalogTypes.Product] {
-    let result = List.empty<CatalogTypes.Product>();
-    for ((_, prod) in store.entries()) {
-      if (Principal.equal(prod.owner, caller)) {
-        result.add(prod);
-      };
-    };
-    result.toArray();
+  public func getProducts(store : ProductStore, userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId) : [CatalogTypes.Product] {
+    let profileKey = callerProfileKey(userStore, caller);
+    let result = store.entries()
+      .filter(func((_id, prod)) { prod.profile_key == profileKey })
+      .map(func((_id, prod) : (Common.ProductId, CatalogTypes.Product)) : CatalogTypes.Product { prod });
+    result.toArray()
   };
 
-  public func createProduct(store : ProductStore, caller : Common.UserId, nextId : Nat, input : CatalogTypes.ProductInput) : ?Common.ProductId {
-    // Validate SKU uniqueness per caller
-    let skuExists = store.any(func(_, prod) {
-      Principal.equal(prod.owner, caller) and prod.sku == input.sku
+  /// Returns ?ProductId on success; null if SKU already exists for this profile
+  public func createProduct(store : ProductStore, userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId, nextId : Nat, input : CatalogTypes.ProductInput) : ?Common.ProductId {
+    let profileKey = callerProfileKey(userStore, caller);
+    // Validate SKU uniqueness per profile
+    let skuTaken = store.entries().any(func((_id, prod)) {
+      prod.profile_key == profileKey and prod.sku == input.sku
     });
-    if (skuExists) return null;
-
-    let id = nextId;
+    if (skuTaken) return null;
     let prod : CatalogTypes.Product = {
-      id;
+      id = nextId;
       sku = input.sku;
       name = input.name;
       category_id = input.category_id;
@@ -80,25 +85,28 @@ module {
       earn_base = input.earn_base;
       mrp = input.mrp;
       hsn_code = input.hsn_code;
+      profile_key = profileKey;
       owner = caller;
     };
-    store.add(id, prod);
-    ?id;
+    store.add(nextId, prod);
+    ?nextId
   };
 
-  public func updateProduct(store : ProductStore, caller : Common.UserId, id : Common.ProductId, input : CatalogTypes.ProductInput) : Bool {
+  public func updateProduct(store : ProductStore, userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId, id : Common.ProductId, input : CatalogTypes.ProductInput) : Bool {
+    let profileKey = callerProfileKey(userStore, caller);
     switch (store.get(id)) {
-      case (?prod) {
-        if (not Principal.equal(prod.owner, caller)) return false;
-        // Check SKU uniqueness if changed
-        if (prod.sku != input.sku) {
-          let skuExists = store.any(func(_, p) {
-            Principal.equal(p.owner, caller) and p.sku == input.sku and p.id != id
+      case null false;
+      case (?existing) {
+        if (existing.profile_key != profileKey) return false;
+        // Check SKU uniqueness if it changed
+        if (existing.sku != input.sku) {
+          let skuTaken = store.entries().any(func((pid, prod)) {
+            prod.profile_key == profileKey and prod.sku == input.sku and pid != id
           });
-          if (skuExists) return false;
+          if (skuTaken) return false;
         };
         store.add(id, {
-          prod with
+          id = existing.id;
           sku = input.sku;
           name = input.name;
           category_id = input.category_id;
@@ -106,21 +114,23 @@ module {
           earn_base = input.earn_base;
           mrp = input.mrp;
           hsn_code = input.hsn_code;
+          profile_key = existing.profile_key;
+          owner = existing.owner;
         });
-        true;
+        true
       };
-      case null false;
-    };
+    }
   };
 
-  public func deleteProduct(store : ProductStore, caller : Common.UserId, id : Common.ProductId) : Bool {
+  public func deleteProduct(store : ProductStore, userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId, id : Common.ProductId) : Bool {
+    let profileKey = callerProfileKey(userStore, caller);
     switch (store.get(id)) {
-      case (?prod) {
-        if (not Principal.equal(prod.owner, caller)) return false;
-        store.remove(id);
-        true;
-      };
       case null false;
-    };
+      case (?existing) {
+        if (existing.profile_key != profileKey) return false;
+        store.remove(id);
+        true
+      };
+    }
   };
 };

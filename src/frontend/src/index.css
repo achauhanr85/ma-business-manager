@@ -133,4 +133,44 @@
   .text-balance {
     text-wrap: balance;
   }
+
+  /* Dynamic theme color support for profile branding */
+  .theme-color-preview {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* Form input focus state with smooth transition */
+  .input-focus {
+    @apply focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-smooth;
+  }
+
+  /* Badge utility for warehouse locations and status tags */
+  .badge-location {
+    @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-secondary text-secondary-foreground;
+  }
+
+  .badge-status {
+    @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-accent text-accent-foreground;
+  }
+
+  /* Form section background with subtle sage wash */
+  .form-section {
+    @apply p-4 rounded-lg bg-secondary/10 border border-border;
+  }
+
+  /* Stagger animation for list items */
+  @keyframes stagger-fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .stagger-item {
+    animation: stagger-fade-in 0.4s ease-out backwards;
+  }
 }

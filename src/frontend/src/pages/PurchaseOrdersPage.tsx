@@ -301,7 +301,11 @@ function CreatePODialog({ open, onOpenChange }: CreatePODialogProps) {
     }));
 
     try {
-      await createPO.mutateAsync({ vendor: vendor.trim(), items: poItems });
+      await createPO.mutateAsync({
+        vendor: vendor.trim(),
+        items: poItems,
+        warehouse_name: "Main Warehouse",
+      });
       toast.success("Purchase order created successfully!");
       resetForm();
       onOpenChange(false);

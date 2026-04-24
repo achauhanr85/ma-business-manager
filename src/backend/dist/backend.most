@@ -1,4 +1,4 @@
-// Version: 1.0.0
+// Version: 3.0.0
 type BatchId__34059046 = Nat;
 type CategoryId__14729845 = Nat;
 type Category__403107212 =
@@ -6,7 +6,22 @@ type Category__403107212 =
     description : Text;
     id : CategoryId__14729845;
     name : Text;
-    owner : UserId__158757552
+    owner : UserId__158757552;
+    profile_key : ProfileKey__816367989
+  };
+type CustomerId__1015005394 = Nat;
+type Customer__225412617 =
+  {
+    address : Text;
+    created_at : Timestamp__301639476;
+    email : Text;
+    id : CustomerId__1015005394;
+    last_purchase_at : Timestamp__301639476;
+    lifetime_revenue : Float;
+    name : Text;
+    phone : Text;
+    profile_key : ProfileKey__816367989;
+    total_sales : Nat
   };
 type Data__791452850<K, V> =
   {var count : Nat__490723111; kvs : [var ?(K, V)]};
@@ -18,14 +33,119 @@ type InventoryBatch__1022194201 =
     id : BatchId__34059046;
     owner : UserId__158757552;
     product_id : ProductId__160010635;
+    profile_key : ProfileKey__816367989;
     var quantity_remaining : Nat;
-    unit_cost : Float
+    unit_cost : Float;
+    warehouse_name : WarehouseName__270980106
+  };
+type InventoryMovement__919462560 =
+  {
+    from_warehouse : WarehouseName__270980106;
+    id : MovementId__248287148;
+    moved_at : Timestamp__301639476;
+    moved_by : UserId__158757552;
+    product_id : ProductId__160010635;
+    profile_key : ProfileKey__816367989;
+    quantity : Nat;
+    to_warehouse : WarehouseName__270980106
   };
 type Leaf__809889148<K, V> = {data : Data__791452850<K, V>};
+type List__415060402<T> = List__790383201<T>;
+type List__790383201<T> =
+  {
+    var blockIndex : Nat__490723111;
+    var blocks : [var [var ?T]];
+    var elementIndex : Nat__490723111
+  };
+type Map__158565046<K, V> = Map__297112838<K, V>;
+type Map__297112838<K, V> =
+  {var root : Node__46230540<K, V>; var size : Nat__490723111};
+type Map__605269027<K, V> = Map__158565046<K, V>;
+type MovementId__248287148 = Nat;
 type Nat__490723111 = Nat__920180692;
 type Nat__920180692 = Nat;
 type Node__46230540<K, V> =
   {#internal : Internal__8484328<K, V>; #leaf : Leaf__809889148<K, V>};
+type OldBatchId__43896954 = Nat;
+type OldCategoryId__129021267 = Nat;
+type OldCategory__901310687 =
+  {
+    description : Text;
+    id : OldCategoryId__129021267;
+    name : Text;
+    owner : OldUserId__580276348
+  };
+type OldInventoryBatch__613662252 =
+  {
+    date_received : OldTimestamp__27916213;
+    id : OldBatchId__43896954;
+    owner : OldUserId__580276348;
+    product_id : OldProductId__233768222;
+    var quantity_remaining : Nat;
+    unit_cost : Float
+  };
+type OldPOStatus__586290449 = {#Pending; #Received};
+type OldProductId__233768222 = Nat;
+type OldProduct__278484740 =
+  {
+    category_id : OldCategoryId__129021267;
+    earn_base : Float;
+    hsn_code : Text;
+    id : OldProductId__233768222;
+    mrp : Float;
+    name : Text;
+    owner : OldUserId__580276348;
+    sku : Text;
+    volume_points : Float
+  };
+type OldProfile__14094539 =
+  {
+    business_address : Text;
+    business_name : Text;
+    email : Text;
+    fssai_number : Text;
+    owner : OldUserId__580276348;
+    phone_number : Text
+  };
+type OldPurchaseOrderId__46382071 = Nat;
+type OldPurchaseOrderItem__843366489 =
+  {
+    po_id : OldPurchaseOrderId__46382071;
+    product_id : OldProductId__233768222;
+    quantity : Nat;
+    unit_cost : Float
+  };
+type OldPurchaseOrder__547702421 =
+  {
+    id : OldPurchaseOrderId__46382071;
+    owner : OldUserId__580276348;
+    status : OldPOStatus__586290449;
+    timestamp : OldTimestamp__27916213;
+    vendor : Text
+  };
+type OldSaleId__91081417 = Nat;
+type OldSaleItem__751652278 =
+  {
+    actual_sale_price : Float;
+    mrp_snapshot : Float;
+    product_id : OldProductId__233768222;
+    product_name_snapshot : Text;
+    quantity : Nat;
+    sale_id : OldSaleId__91081417;
+    unit_cost_snapshot : Float;
+    volume_points_snapshot : Float
+  };
+type OldSale__972883563 =
+  {
+    id : OldSaleId__91081417;
+    owner : OldUserId__580276348;
+    timestamp : OldTimestamp__27916213;
+    total_profit : Float;
+    total_revenue : Float;
+    total_volume_points : Float
+  };
+type OldTimestamp__27916213 = Int;
+type OldUserId__580276348 = Principal;
 type POStatus__1053906800 = {#Pending; #Received};
 type ProductId__160010635 = Nat;
 type Product__389207432 =
@@ -37,17 +157,24 @@ type Product__389207432 =
     mrp : Float;
     name : Text;
     owner : UserId__158757552;
+    profile_key : ProfileKey__816367989;
     sku : Text;
     volume_points : Float
   };
+type ProfileKey__816367989 = Text;
 type Profile__901378260 =
   {
     business_address : Text;
     business_name : Text;
+    created_at : Timestamp__301639476;
     email : Text;
     fssai_number : Text;
+    is_archived : Bool;
+    logo_url : Text;
     owner : UserId__158757552;
-    phone_number : Text
+    phone_number : Text;
+    profile_key : ProfileKey__816367989;
+    theme_color : Text
   };
 type PurchaseOrderId__946010564 = Nat;
 type PurchaseOrderItem__1029531786 =
@@ -61,9 +188,11 @@ type PurchaseOrder__593248081 =
   {
     id : PurchaseOrderId__946010564;
     owner : UserId__158757552;
+    profile_key : ProfileKey__816367989;
     status : POStatus__1053906800;
     timestamp : Timestamp__301639476;
-    vendor : Text
+    vendor : Text;
+    warehouse_name : WarehouseName__270980106
   };
 type SaleId__807252808 = Nat;
 type SaleItem__404363257 =
@@ -79,8 +208,12 @@ type SaleItem__404363257 =
   };
 type Sale__289909216 =
   {
+    customer_id : CustomerId__1015005394;
+    customer_name : Text;
     id : SaleId__807252808;
     owner : UserId__158757552;
+    profile_key : ProfileKey__816367989;
+    sold_by : UserId__158757552;
     timestamp : Timestamp__301639476;
     total_profit : Float;
     total_revenue : Float;
@@ -88,7 +221,46 @@ type Sale__289909216 =
   };
 type Timestamp__301639476 = Int;
 type UserId__158757552 = Principal;
-actor {
+type UserProfile__277265826 =
+  {
+    display_name : Text;
+    joined_at : Timestamp__301639476;
+    principal : UserId__158757552;
+    profile_key : ProfileKey__816367989;
+    role : UserRole__451090586;
+    warehouse_name : WarehouseName__270980106
+  };
+type UserRole__451090586 = {#admin; #subAdmin; #superAdmin};
+type WarehouseName__270980106 = Text;
+actor ({
+  in batchStore :
+    Map__605269027<OldBatchId__43896954, OldInventoryBatch__613662252>;
+  in categoryStore :
+    Map__605269027<OldCategoryId__129021267, OldCategory__901310687>;
+  stable customerStore :
+    {
+      var root : Node__46230540<CustomerId__1015005394, Customer__225412617>;
+      var size : Nat__490723111
+    };
+  stable var nextBatchId : Nat;
+  stable var nextCategoryId : Nat;
+  stable var nextCustomerId : Nat;
+  stable var nextMovementId : Nat;
+  stable var nextPOBatchId : Nat;
+  stable var nextPOId : Nat;
+  stable var nextProductId : Nat;
+  stable var nextSaleId : Nat;
+  in poItemStore : List__415060402<OldPurchaseOrderItem__843366489>;
+  in poStore :
+    Map__605269027<OldPurchaseOrderId__46382071, OldPurchaseOrder__547702421>;
+  in productStore :
+    Map__605269027<OldProductId__233768222, OldProduct__278484740>;
+  in profileStore :
+    Map__605269027<OldUserId__580276348, OldProfile__14094539>;
+  in saleItemStore : List__415060402<OldSaleItem__751652278>;
+  in saleStore : Map__605269027<OldSaleId__91081417, OldSale__972883563>;
+  stable var superAdminPrincipal : ?UserId__158757552
+}, {
   stable batchStore :
     {
       var root : Node__46230540<BatchId__34059046, InventoryBatch__1022194201>;
@@ -99,16 +271,31 @@ actor {
       var root : Node__46230540<CategoryId__14729845, Category__403107212>;
       var size : Nat__490723111
     };
+  stable customerStore :
+    {
+      var root : Node__46230540<CustomerId__1015005394, Customer__225412617>;
+      var size : Nat__490723111
+    };
+  stable movementStore :
+    {
+      var root :
+        Node__46230540<MovementId__248287148, InventoryMovement__919462560>;
+      var size : Nat__490723111
+    };
   stable var nextBatchId : Nat;
   stable var nextCategoryId : Nat;
+  stable var nextCustomerId : Nat;
+  stable var nextMovementId : Nat;
+  stable var nextPOBatchId : Nat;
   stable var nextPOId : Nat;
   stable var nextProductId : Nat;
   stable var nextSaleId : Nat;
   stable poItemStore :
     {
-      var blockIndex : Nat__490723111;
-      var blocks : [var [var ?PurchaseOrderItem__1029531786]];
-      var elementIndex : Nat__490723111
+      var root :
+        Node__46230540<PurchaseOrderId__946010564,
+                        [PurchaseOrderItem__1029531786]>;
+      var size : Nat__490723111
     };
   stable poStore :
     {
@@ -123,18 +310,23 @@ actor {
     };
   stable profileStore :
     {
-      var root : Node__46230540<UserId__158757552, Profile__901378260>;
+      var root : Node__46230540<ProfileKey__816367989, Profile__901378260>;
       var size : Nat__490723111
     };
   stable saleItemStore :
     {
-      var blockIndex : Nat__490723111;
-      var blocks : [var [var ?SaleItem__404363257]];
-      var elementIndex : Nat__490723111
+      var root : Node__46230540<SaleId__807252808, [SaleItem__404363257]>;
+      var size : Nat__490723111
     };
   stable saleStore :
     {
       var root : Node__46230540<SaleId__807252808, Sale__289909216>;
       var size : Nat__490723111
+    };
+  stable var superAdminPrincipal : ?UserId__158757552;
+  stable userStore :
+    {
+      var root : Node__46230540<UserId__158757552, UserProfile__277265826>;
+      var size : Nat__490723111
     }
-};
+}) ;

@@ -1,29 +1,26 @@
 {
-  "overview": "MA Herb Business Manager is a full-stack mobile-first business management application for herbal product distributors. It features Internet Identity authentication with per-user data isolation, a sales cart with FIFO inventory costing, real-time profit tracking, volume points aggregation, purchase order management, and a branded receipt generator with WhatsApp sharing.",
+  "overview": "MA Herb Business Manager is a multi-tenant business management platform for herbal product distributors. It supports multiple businesses operating in isolation with profile-keyed data, role-based access (Super Admin, Admin, Sub-Admin), warehouse-scoped inventory management, FIFO costing, customer management, and per-profile branding.",
   "features": [
-    "Internet Identity authentication with per-user data scoping",
-    "Dashboard with KPI cards (Monthly Volume Points, Estimated Profit, Inventory Value) and Recharts sales trend chart",
-    "Sales cart interface with product search, manual price override, FIFO inventory deduction, and receipt generation",
-    "Inventory management with FIFO batch costing and low-stock alerts",
-    "Purchase orders that update inventory batches with unit cost",
-    "Products and Categories CRUD management",
-    "Business Profile with FSSAI number validation (14 digits) and map placeholder",
-    "Branded receipt with Print and WhatsApp share functionality",
-    "Collapsible sidebar navigation with green and white herbal theme",
-    "Mobile-first responsive design using shadcn/ui components"
+    "Multi-tenant business profiles with unique profile key isolation",
+    "Three-tier role hierarchy: Super Admin, Admin, Sub-Admin",
+    "Warehouse-based inventory location assignment and movement",
+    "Full customer management with duplicate detection on quick-add",
+    "Customer-linked sales with mandatory customer selection",
+    "Per-profile branding: logo upload and theme color customization",
+    "Super-Admin monitoring dashboard for all profiles and storage",
+    "FIFO inventory costing and deduction",
+    "KPI dashboard with charts and volume points tracking",
+    "Purchase orders and receipt generation with WhatsApp sharing"
   ],
   "category": "productivity",
   "tags": [
+    "multi-tenant",
     "business-management",
     "inventory",
     "sales",
     "herbal",
-    "mobile-first",
-    "fifo",
-    "receipt",
-    "whatsapp",
-    "internet-identity",
-    "motoko"
+    "distribution",
+    "role-based-access"
   ],
-  "last_updated": "2026-04-23T22:17:01.761Z"
+  "last_updated": "2026-04-24T04:22:34.362Z"
 }

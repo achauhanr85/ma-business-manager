@@ -1,121 +1,159 @@
 import Map "mo:core/Map";
-import List "mo:core/List";
-import Nat "mo:core/Nat";
+import Time "mo:core/Time";
+import Runtime "mo:core/Runtime";
 import Int "mo:core/Int";
-import Principal "mo:core/Principal";
 import Common "../types/common";
 import InventoryTypes "../types/inventory";
+import UserTypes "../types/users";
 
 module {
   public type BatchStore = Map.Map<Common.BatchId, InventoryTypes.InventoryBatch>;
+  public type MovementStore = Map.Map<Common.MovementId, InventoryTypes.InventoryMovement>;
 
-  // Returns all inventory levels (aggregated by product) for caller
-  public func getInventoryLevels(store : BatchStore, caller : Common.UserId) : [InventoryTypes.InventoryLevel] {
-    // Group batches by product_id
-    let productMap = Map.empty<Common.ProductId, List.List<InventoryTypes.InventoryBatchPublic>>();
-    for ((_, batch) in store.entries()) {
-      if (Principal.equal(batch.owner, caller) and batch.quantity_remaining > 0) {
-        let pub : InventoryTypes.InventoryBatchPublic = {
-          id = batch.id;
-          product_id = batch.product_id;
-          quantity_remaining = batch.quantity_remaining;
-          unit_cost = batch.unit_cost;
-          date_received = batch.date_received;
-        };
-        switch (productMap.get(batch.product_id)) {
-          case (?lst) { lst.add(pub) };
-          case null {
-            let lst = List.empty<InventoryTypes.InventoryBatchPublic>();
-            lst.add(pub);
-            productMap.add(batch.product_id, lst);
-          };
-        };
-      };
-    };
-    let result = List.empty<InventoryTypes.InventoryLevel>();
-    for ((pid, batches) in productMap.entries()) {
-      let total = batches.foldLeft(0 : Nat, func(acc : Nat, b : InventoryTypes.InventoryBatchPublic) : Nat { acc + b.quantity_remaining });
-      result.add({
-        product_id = pid;
-        total_qty = total;
-        batches = batches.sort(func(a, b) { Int.compare(a.date_received, b.date_received) }).toArray();
-      });
-    };
-    result.toArray();
+  func callerProfileKey(userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId) : (Common.ProfileKey, Common.WarehouseName) {
+    switch (userStore.get(caller)) {
+      case (?up) (up.profile_key, up.warehouse_name);
+      case null Runtime.trap("Caller has no profile");
+    }
   };
 
-  // Returns all batches for a given product for caller, sorted oldest first (FIFO)
-  public func getInventoryBatches(store : BatchStore, caller : Common.UserId, product_id : Common.ProductId) : [InventoryTypes.InventoryBatchPublic] {
-    let result = List.empty<InventoryTypes.InventoryBatchPublic>();
-    for ((_, batch) in store.entries()) {
-      if (Principal.equal(batch.owner, caller) and batch.product_id == product_id and batch.quantity_remaining > 0) {
-        result.add({
-          id = batch.id;
-          product_id = batch.product_id;
-          quantity_remaining = batch.quantity_remaining;
-          unit_cost = batch.unit_cost;
-          date_received = batch.date_received;
-        });
-      };
-    };
-    result.sort(func(a, b) { Int.compare(a.date_received, b.date_received) }).toArray();
+  func toPublic(b : InventoryTypes.InventoryBatch) : InventoryTypes.InventoryBatchPublic {
+    {
+      id = b.id;
+      product_id = b.product_id;
+      quantity_remaining = b.quantity_remaining;
+      unit_cost = b.unit_cost;
+      date_received = b.date_received;
+      profile_key = b.profile_key;
+      warehouse_name = b.warehouse_name;
+    }
   };
 
-  /// FIFO deduction: deducts `quantity` from the oldest batches first.
-  /// Returns the weighted average unit_cost consumed, or null if insufficient stock.
-  public func deductFIFO(store : BatchStore, caller : Common.UserId, product_id : Common.ProductId, quantity : Nat) : ?Float {
-    // Gather caller's batches for this product, sorted oldest-first
-    let batches = List.empty<InventoryTypes.InventoryBatch>();
-    for ((_, batch) in store.entries()) {
-      if (Principal.equal(batch.owner, caller) and batch.product_id == product_id and batch.quantity_remaining > 0) {
-        batches.add(batch);
+  /// Returns all inventory levels (aggregated by product) for the caller's profile + warehouse
+  public func getInventoryLevels(store : BatchStore, userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId) : [InventoryTypes.InventoryLevel] {
+    let (profileKey, warehouseName) = callerProfileKey(userStore, caller);
+    // Build a map of product_id -> [batches]
+    let levelMap = Map.empty<Common.ProductId, [InventoryTypes.InventoryBatchPublic]>();
+    for ((_id, batch) in store.entries()) {
+      if (batch.profile_key == profileKey and batch.warehouse_name == warehouseName and batch.quantity_remaining > 0) {
+        let existing = switch (levelMap.get(batch.product_id)) {
+          case (?arr) arr;
+          case null [];
+        };
+        levelMap.add(batch.product_id, existing.concat([toPublic(batch)]));
       };
     };
-    // Sort by date_received ascending (oldest first)
-    batches.sortInPlace(func(a, b) { Int.compare(a.date_received, b.date_received) });
+    levelMap.entries()
+      .map(func((_pid, batches) : (Common.ProductId, [InventoryTypes.InventoryBatchPublic])) : InventoryTypes.InventoryLevel {
+          let total = batches.foldLeft(0, func(acc : Nat, b : InventoryTypes.InventoryBatchPublic) : Nat { acc + b.quantity_remaining });
+          {
+            product_id = _pid;
+            total_qty = total;
+            batches;
+          }
+        }
+      )
+      .toArray()
+  };
 
-    // Check total stock
-    let totalStock = batches.foldLeft(0, func(acc : Nat, b : InventoryTypes.InventoryBatch) : Nat { acc + b.quantity_remaining });
-    if (totalStock < quantity) return null;
+  /// Returns all batches for a given product scoped to caller's profile + warehouse
+  public func getInventoryBatches(store : BatchStore, userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId, product_id : Common.ProductId) : [InventoryTypes.InventoryBatchPublic] {
+    let (profileKey, warehouseName) = callerProfileKey(userStore, caller);
+    store.entries()
+      .filter(func((_id, b)) {
+        b.profile_key == profileKey and b.warehouse_name == warehouseName and b.product_id == product_id
+      })
+      .map(func((_id, b) : (Common.BatchId, InventoryTypes.InventoryBatch)) : InventoryTypes.InventoryBatchPublic { toPublic(b) })
+      .toArray()
+  };
 
-    // Deduct FIFO and track weighted cost
+  /// FIFO deduction scoped to caller's warehouse. Returns total unit_cost weighted average or null if insufficient stock.
+  public func deductFIFO(store : BatchStore, _caller : Common.UserId, profile_key : Common.ProfileKey, warehouse_name : Common.WarehouseName, product_id : Common.ProductId, quantity : Nat) : ?Float {
+    // Collect matching batches sorted by date_received ascending
+    let batches = store.entries()
+      .filter(func((_id, b)) {
+        b.profile_key == profile_key and b.warehouse_name == warehouse_name
+          and b.product_id == product_id and b.quantity_remaining > 0
+      })
+      .map(func((_id, b) : (Common.BatchId, InventoryTypes.InventoryBatch)) : InventoryTypes.InventoryBatch { b })
+      .toArray();
+
+    // Sort by date_received ascending (oldest first) — use simple sort
+    let sorted = batches.sort(func(a, b) { Int.compare(a.date_received, b.date_received) });
+
+    // Check total available
+    let totalAvail = sorted.foldLeft(0, func(acc : Nat, b : InventoryTypes.InventoryBatch) : Nat { acc + b.quantity_remaining });
+    if (totalAvail < quantity) return null;
+
+    // Deduct FIFO and compute weighted average unit cost
     var remaining = quantity;
     var totalCost : Float = 0.0;
-
-    batches.forEach(func(batch) {
+    for (batch in sorted.values()) {
+      if (remaining == 0) {};
       if (remaining > 0) {
-        let deduct = if (batch.quantity_remaining <= remaining) {
-          batch.quantity_remaining
-        } else {
-          remaining
-        };
-        totalCost := totalCost + (batch.unit_cost * deduct.toFloat());
-        remaining := remaining - deduct;
-        if (batch.quantity_remaining <= deduct) {
-          // Batch fully consumed — remove it
-          store.remove(batch.id);
-        } else {
-          // Partially consume batch
-          batch.quantity_remaining := batch.quantity_remaining - deduct;
-        };
+        let deduct = if (batch.quantity_remaining <= remaining) batch.quantity_remaining else remaining;
+        totalCost += deduct.toFloat() * batch.unit_cost;
+        remaining -= deduct;
+        batch.quantity_remaining -= deduct;
       };
-    });
-
-    let avgCost = totalCost / quantity.toFloat();
-    ?avgCost;
+    };
+    ?(totalCost / quantity.toFloat())
   };
 
-  public func addBatch(store : BatchStore, caller : Common.UserId, nextId : Nat, product_id : Common.ProductId, quantity : Nat, unit_cost : Float, date_received : Int) : Common.BatchId {
-    let id = nextId;
+  public func addBatch(store : BatchStore, caller : Common.UserId, profile_key : Common.ProfileKey, warehouse_name : Common.WarehouseName, nextId : Nat, product_id : Common.ProductId, quantity : Nat, unit_cost : Float, date_received : Common.Timestamp) : Common.BatchId {
     let batch : InventoryTypes.InventoryBatch = {
-      id;
+      id = nextId;
       product_id;
       var quantity_remaining = quantity;
       unit_cost;
       date_received;
+      profile_key;
+      warehouse_name;
       owner = caller;
     };
-    store.add(id, batch);
-    id;
+    store.add(nextId, batch);
+    nextId
+  };
+
+  /// Move stock from one warehouse to another within the same profile
+  public func moveInventory(
+    store : BatchStore,
+    movementStore : MovementStore,
+    userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
+    caller : Common.UserId,
+    nextMovementId : Nat,
+    nextBatchId : Nat,
+    input : InventoryTypes.InventoryMovementInput,
+  ) : ?Common.MovementId {
+    let (profileKey, _warehouseName) = callerProfileKey(userStore, caller);
+    // Deduct from source warehouse via FIFO
+    switch (deductFIFO(store, caller, profileKey, input.from_warehouse, input.product_id, input.quantity)) {
+      case null null; // insufficient stock
+      case (?avgCost) {
+        // Add new batch in destination warehouse
+        let _ = addBatch(store, caller, profileKey, input.to_warehouse, nextBatchId, input.product_id, input.quantity, avgCost, Time.now());
+        let movement : InventoryTypes.InventoryMovement = {
+          id = nextMovementId;
+          profile_key = profileKey;
+          product_id = input.product_id;
+          from_warehouse = input.from_warehouse;
+          to_warehouse = input.to_warehouse;
+          quantity = input.quantity;
+          moved_at = Time.now();
+          moved_by = caller;
+        };
+        movementStore.add(nextMovementId, movement);
+        ?nextMovementId
+      };
+    }
+  };
+
+  /// Returns all inventory movements for the caller's profile
+  public func getInventoryMovements(movementStore : MovementStore, userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId) : [InventoryTypes.InventoryMovement] {
+    let (profileKey, _) = callerProfileKey(userStore, caller);
+    movementStore.entries()
+      .filter(func((_id, m)) { m.profile_key == profileKey })
+      .map(func((_id, m) : (Common.MovementId, InventoryTypes.InventoryMovement)) : InventoryTypes.InventoryMovement { m })
+      .toArray()
   };
 };

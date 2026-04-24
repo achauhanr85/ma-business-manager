@@ -21,11 +21,14 @@ module {
     vendor : Text;
     timestamp : Common.Timestamp;
     status : POStatus;
+    profile_key : Common.ProfileKey;
+    warehouse_name : Common.WarehouseName;
     owner : Common.UserId;
   };
 
   public type PurchaseOrderInput = {
     vendor : Text;
+    warehouse_name : Common.WarehouseName;
     items : [PurchaseOrderItemInput];
   };
 };

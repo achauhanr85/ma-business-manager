@@ -1,5 +1,8 @@
+import { Skeleton } from "@/components/ui/skeleton";
 import { Toaster } from "@/components/ui/sonner";
-import { useState } from "react";
+import { useProfile } from "@/contexts/ProfileContext";
+import { hexToOklch } from "@/lib/color";
+import { useEffect, useState } from "react";
 import { Header } from "./Header";
 import { Sidebar } from "./Sidebar";
 
@@ -17,6 +20,30 @@ export function Layout({
   onNavigate,
 }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { profile, isLoadingProfile } = useProfile();
+
+  // Inject --primary CSS variable from profile theme_color
+  useEffect(() => {
+    if (profile?.theme_color?.startsWith("#")) {
+      const oklch = hexToOklch(profile.theme_color);
+      document.documentElement.style.setProperty("--primary", oklch);
+    }
+  }, [profile?.theme_color]);
+
+  if (isLoadingProfile) {
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center bg-background"
+        data-ocid="layout.loading_state"
+      >
+        <div className="flex flex-col items-center gap-4">
+          <Skeleton className="h-12 w-12 rounded-xl" />
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-3 w-28" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background flex">

@@ -5,6 +5,7 @@ module {
     id : Common.CategoryId;
     name : Text;
     description : Text;
+    profile_key : Common.ProfileKey;
     owner : Common.UserId;
   };
 
@@ -22,6 +23,7 @@ module {
     earn_base : Float;
     mrp : Float;
     hsn_code : Text;
+    profile_key : Common.ProfileKey;
     owner : Common.UserId;
   };
 

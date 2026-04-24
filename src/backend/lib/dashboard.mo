@@ -1,133 +1,167 @@
 import Map "mo:core/Map";
-import List "mo:core/List";
-import Nat "mo:core/Nat";
-import Int "mo:core/Int";
-import Principal "mo:core/Principal";
 import Time "mo:core/Time";
+import Runtime "mo:core/Runtime";
 import Common "../types/common";
 import DashboardTypes "../types/dashboard";
 import SalesTypes "../types/sales";
 import InventoryTypes "../types/inventory";
+import ProfileTypes "../types/profile";
+import UserTypes "../types/users";
 
 module {
-  let NS_PER_DAY : Int = 86_400_000_000_000; // 24 * 60 * 60 * 1_000_000_000
+  // Nanoseconds in a month (approx 30 days): 30 * 24 * 60 * 60 * 1_000_000_000
+  let MONTH_NS : Int = 2_592_000_000_000_000;
 
-  let MONTH_DAYS : [Nat] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-  let MONTH_NAMES : [Text] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-  // Convert nanosecond timestamp to (year, month) in UTC (approximate, no leap second handling)
-  func timestampToYM(ts : Int) : (Int, Int) {
-    let days = ts / NS_PER_DAY;
-    var remaining : Nat = Int.abs(days);
-    var year : Int = 1970;
-    label yearLoop loop {
-      let daysInYear : Nat = if ((year - 1968) % 4 == 0 and ((year - 1900) % 100 != 0 or (year - 1600) % 400 == 0)) 366 else 365;
-      if (remaining < daysInYear) break yearLoop;
-      remaining := remaining - daysInYear;
-      year := year + 1;
-    };
-    let isLeap = (year - 1968) % 4 == 0 and ((year - 1900) % 100 != 0 or (year - 1600) % 400 == 0);
-    var month : Int = 1;
-    label monthLoop for (mi in Nat.range(0, 12)) {
-      let daysInMonth : Nat = if (mi == 1 and isLeap) 29 else MONTH_DAYS[mi];
-      if (remaining < daysInMonth) break monthLoop;
-      remaining := remaining - daysInMonth;
-      month := mi.toInt() + 2;
-    };
-    (year, month);
+  func callerProfileKey(userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId) : (Common.ProfileKey, Common.UserRole) {
+    switch (userStore.get(caller)) {
+      case (?up) (up.profile_key, up.role);
+      case null Runtime.trap("Caller has no profile");
+    }
   };
 
   public func getDashboardStats(
     saleStore : Map.Map<Common.SaleId, SalesTypes.Sale>,
     batchStore : Map.Map<Common.BatchId, InventoryTypes.InventoryBatch>,
+    userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
     caller : Common.UserId,
   ) : DashboardTypes.DashboardStats {
+    let (profileKey, _role) = callerProfileKey(userStore, caller);
     let now = Time.now();
-    let (currentYear, currentMonth) = timestampToYM(now);
+    let monthStart = now - MONTH_NS;
 
     var monthlyVP : Float = 0.0;
     var monthlyProfit : Float = 0.0;
-    let allSales = List.empty<SalesTypes.Sale>();
+    var recentSalesList : [SalesTypes.Sale] = [];
 
-    for ((_, sale) in saleStore.entries()) {
-      if (Principal.equal(sale.owner, caller)) {
-        allSales.add(sale);
-        let (saleYear, saleMonth) = timestampToYM(sale.timestamp);
-        if (saleYear == currentYear and saleMonth == currentMonth) {
-          monthlyVP := monthlyVP + sale.total_volume_points;
-          monthlyProfit := monthlyProfit + sale.total_profit;
+    for ((_id, sale) in saleStore.entries()) {
+      if (sale.profile_key == profileKey) {
+        if (sale.timestamp >= monthStart) {
+          monthlyVP += sale.total_volume_points;
+          monthlyProfit += sale.total_profit;
         };
+        recentSalesList := recentSalesList.concat([sale]);
       };
     };
 
-    var inventoryValue : Float = 0.0;
-    for ((_, batch) in batchStore.entries()) {
-      if (Principal.equal(batch.owner, caller)) {
-        inventoryValue := inventoryValue + (batch.unit_cost * batch.quantity_remaining.toFloat());
+    // Total inventory value for this profile
+    var totalInventoryValue : Float = 0.0;
+    for ((_id, batch) in batchStore.entries()) {
+      if (batch.profile_key == profileKey and batch.quantity_remaining > 0) {
+        totalInventoryValue += batch.quantity_remaining.toFloat() * batch.unit_cost;
       };
     };
 
-    let sortedSales = allSales.sort(func(a, b) { Int.compare(b.timestamp, a.timestamp) });
-    let recentCount : Int = if (sortedSales.size() < 5) sortedSales.size().toInt() else 5;
-    let recentSales = sortedSales.sliceToArray(0, recentCount);
+    // Sort recent sales by timestamp descending and take last 10
+    let sorted = recentSalesList.sort(func(a, b) {
+      if (a.timestamp > b.timestamp) #less
+      else if (a.timestamp < b.timestamp) #greater
+      else #equal
+    });
+    let recentSales = if (sorted.size() <= 10) sorted
+      else sorted.sliceToArray(0, 10);
 
     {
       monthly_volume_points = monthlyVP;
       monthly_profit = monthlyProfit;
-      total_inventory_value = inventoryValue;
+      total_inventory_value = totalInventoryValue;
       recent_sales = recentSales;
-    };
+    }
   };
 
   public func getMonthlySalesTrend(
     saleStore : Map.Map<Common.SaleId, SalesTypes.Sale>,
+    userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
     caller : Common.UserId,
   ) : [DashboardTypes.MonthlySalesTrend] {
-    let now = Time.now();
-    let (currentYear, currentMonth) = timestampToYM(now);
-
-    // Build 12 month-year buckets going backwards from current month
-    let bucketYears = List.empty<Int>();
-    let bucketMonths = List.empty<Int>();
-    var y = currentYear;
-    var m = currentMonth;
-    var i = 0;
-    while (i < 12) {
-      bucketYears.add(y);
-      bucketMonths.add(m);
-      m := m - 1;
-      if (m == 0) { m := 12; y := y - 1 };
-      i := i + 1;
-    };
-    // Reverse so oldest bucket is first (index 0)
-    let byArr = bucketYears.reverse().toArray();
-    let bmArr = bucketMonths.reverse().toArray();
-
-    let revenues = List.repeat(0.0, 12);
-    let vps = List.repeat(0.0, 12);
-
-    for ((_, sale) in saleStore.entries()) {
-      if (Principal.equal(sale.owner, caller)) {
-        let (sy, sm) = timestampToYM(sale.timestamp);
-        for (idx in Nat.range(0, 12)) {
-          if (sy == byArr[idx] and sm == bmArr[idx]) {
-            revenues.put(idx, revenues.at(idx) + sale.total_revenue);
-            vps.put(idx, vps.at(idx) + sale.total_volume_points);
-          };
+    let (profileKey, _role) = callerProfileKey(userStore, caller);
+    // Aggregate sales by month label (YYYY-MM)
+    let monthMap = Map.empty<Text, (Float, Float)>();
+    for ((_id, sale) in saleStore.entries()) {
+      if (sale.profile_key == profileKey) {
+        let monthLabel = timestampToMonthLabel(sale.timestamp);
+        let (prevRev, prevVP) = switch (monthMap.get(monthLabel)) {
+          case (?v) v;
+          case null (0.0, 0.0);
         };
+        monthMap.add(monthLabel, (prevRev + sale.total_revenue, prevVP + sale.total_volume_points));
       };
     };
+    monthMap.entries()
+      .map(func((monthLabel, (rev, vp)) : (Text, (Float, Float))) : DashboardTypes.MonthlySalesTrend {
+        { month_label = monthLabel; total_revenue = rev; total_volume_points = vp }
+      })
+      .toArray()
+  };
 
-    let result = List.empty<DashboardTypes.MonthlySalesTrend>();
-    for (idx in Nat.range(0, 12)) {
-      let monthIdx = Int.abs(bmArr[idx] - 1);
-      let yearSuffix = (byArr[idx] % 100).toText();
-      result.add({
-        month_label = MONTH_NAMES[monthIdx] # " " # yearSuffix;
-        total_revenue = revenues.at(idx);
-        total_volume_points = vps.at(idx);
-      });
+  /// Super Admin only: aggregate stats across all profiles
+  public func getSuperAdminStats(
+    profileStore : Map.Map<Common.ProfileKey, ProfileTypes.Profile>,
+    userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
+    saleStore : Map.Map<Common.SaleId, SalesTypes.Sale>,
+    caller : Common.UserId,
+  ) : DashboardTypes.SuperAdminStats {
+    // Verify caller is superAdmin
+    switch (userStore.get(caller)) {
+      case (?up) {
+        if (up.role != #superAdmin) Runtime.trap("Super Admin only");
+      };
+      case null Runtime.trap("Caller has no profile");
     };
-    result.toArray();
+
+    let totalUsers = userStore.size();
+    var profiles : [DashboardTypes.ProfileStats] = [];
+
+    for ((_key, profile) in profileStore.entries()) {
+      // Count users for this profile
+      let userCount = userStore.entries()
+        .filter(func((_uid, up)) { up.profile_key == profile.profile_key })
+        .size();
+
+      // Find last activity (most recent sale timestamp)
+      var lastActivity : Common.Timestamp = profile.created_at;
+      for ((_sid, sale) in saleStore.entries()) {
+        if (sale.profile_key == profile.profile_key and sale.timestamp > lastActivity) {
+          lastActivity := sale.timestamp;
+        };
+      };
+
+      // Rough storage estimate: 500 bytes per user + 200 bytes per record
+      let saleCount = saleStore.entries()
+        .filter(func((_sid, s)) { s.profile_key == profile.profile_key })
+        .size();
+      let storageEstimate = (userCount * 500) + (saleCount * 200) + 1000;
+
+      let stat : DashboardTypes.ProfileStats = {
+        profile_key = profile.profile_key;
+        business_name = profile.business_name;
+        owner_principal = profile.owner;
+        user_count = userCount;
+        storage_estimate_bytes = storageEstimate;
+        last_activity = lastActivity;
+        is_archived = profile.is_archived;
+      };
+      profiles := profiles.concat([stat]);
+    };
+
+    {
+      profiles;
+      total_profiles = profileStore.size();
+      total_users = totalUsers;
+    }
+  };
+
+  // Convert nanosecond timestamp to "YYYY-MM" label
+  func timestampToMonthLabel(ts : Common.Timestamp) : Text {
+    // ts is nanoseconds since epoch; convert to seconds
+    let seconds = ts / 1_000_000_000;
+    // Days since epoch
+    let days = seconds / 86400;
+    // Approximate year/month calculation
+    let year = 1970 + (days / 365);
+    let dayOfYear = days % 365;
+    let month = (dayOfYear / 30) + 1;
+    let monthClamped = if (month > 12) 12 else month;
+    let monthStr = if (monthClamped < 10) "0" # monthClamped.toText() else monthClamped.toText();
+    year.toText() # "-" # monthStr
   };
 };

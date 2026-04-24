@@ -1,120 +1,142 @@
 import Map "mo:core/Map";
-import List "mo:core/List";
-import Nat "mo:core/Nat";
-import Int "mo:core/Int";
-import Principal "mo:core/Principal";
 import Time "mo:core/Time";
+import Runtime "mo:core/Runtime";
 import Common "../types/common";
 import SalesTypes "../types/sales";
 import CatalogTypes "../types/catalog";
 import InventoryTypes "../types/inventory";
+import CustomerTypes "../types/customers";
+import UserTypes "../types/users";
 import InventoryLib "inventory";
+import CustomersLib "customers";
 
 module {
   public type SaleStore = Map.Map<Common.SaleId, SalesTypes.Sale>;
-  public type SaleItemStore = List.List<SalesTypes.SaleItem>;
+  public type SaleItemStore = Map.Map<Common.SaleId, [SalesTypes.SaleItem]>;
 
   public func createSale(
     saleStore : SaleStore,
     saleItemStore : SaleItemStore,
     batchStore : Map.Map<Common.BatchId, InventoryTypes.InventoryBatch>,
     productStore : Map.Map<Common.ProductId, CatalogTypes.Product>,
+    customerStore : Map.Map<Common.CustomerId, CustomerTypes.Customer>,
+    userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
     caller : Common.UserId,
     nextId : Nat,
-    cartItems : [SalesTypes.CartItem],
+    input : SalesTypes.SaleInput,
   ) : ?Common.SaleId {
-    // Validate cart is non-empty
-    if (cartItems.size() == 0) return null;
-
-    // First pass: validate all products exist and check stock
-    for (item in cartItems.vals()) {
-      switch (productStore.get(item.product_id)) {
-        case null return null; // Product not found
-        case (?_prod) {};
-      };
+    let up = switch (userStore.get(caller)) {
+      case (?u) u;
+      case null Runtime.trap("Caller has no profile");
     };
+    // Verify customer belongs to this profile
+    let customer = switch (customerStore.get(input.customer_id)) {
+      case (?c) c;
+      case null return null;
+    };
+    if (customer.profile_key != up.profile_key) return null;
 
-    // Second pass: perform FIFO deductions and build sale items
-    let saleItems = List.empty<SalesTypes.SaleItem>();
+    // Build sale items and deduct inventory
     var totalRevenue : Float = 0.0;
     var totalVP : Float = 0.0;
     var totalProfit : Float = 0.0;
-    let saleId = nextId;
+    var saleItems : [SalesTypes.SaleItem] = [];
 
-    for (item in cartItems.vals()) {
-      let prod = switch (productStore.get(item.product_id)) {
+    for (item in input.cart_items.values()) {
+      let product = switch (productStore.get(item.product_id)) {
         case (?p) p;
-        case null return null;
+        case null return null; // product not found
       };
-
-      // FIFO deduction
-      let unitCost = switch (InventoryLib.deductFIFO(batchStore, caller, item.product_id, item.quantity)) {
-        case (?cost) cost;
-        case null return null; // Insufficient stock
+      if (product.profile_key != up.profile_key) return null;
+      // Deduct FIFO
+      let avgCostOpt = InventoryLib.deductFIFO(batchStore, caller, up.profile_key, up.warehouse_name, item.product_id, item.quantity);
+      let avgCost = switch (avgCostOpt) {
+        case (?c) c;
+        case null return null; // insufficient stock
       };
-
-      let revenue = item.actual_sale_price * item.quantity.toFloat();
-      let profit = (item.actual_sale_price - unitCost) * item.quantity.toFloat();
-      let vp = prod.volume_points * item.quantity.toFloat();
-
-      totalRevenue := totalRevenue + revenue;
-      totalVP := totalVP + vp;
-      totalProfit := totalProfit + profit;
-
-      saleItems.add({
-        sale_id = saleId;
+      let lineRevenue = item.actual_sale_price * item.quantity.toFloat();
+      let lineProfit = (item.actual_sale_price - avgCost) * item.quantity.toFloat();
+      let lineVP = product.volume_points * item.quantity.toFloat();
+      totalRevenue += lineRevenue;
+      totalVP += lineVP;
+      totalProfit += lineProfit;
+      let saleItem : SalesTypes.SaleItem = {
+        sale_id = nextId;
         product_id = item.product_id;
-        product_name_snapshot = prod.name;
-        unit_cost_snapshot = unitCost;
-        mrp_snapshot = prod.mrp;
-        volume_points_snapshot = prod.volume_points;
+        product_name_snapshot = product.name;
+        unit_cost_snapshot = avgCost;
+        mrp_snapshot = product.mrp;
+        volume_points_snapshot = product.volume_points;
         quantity = item.quantity;
         actual_sale_price = item.actual_sale_price;
-      });
+      };
+      saleItems := saleItems.concat([saleItem]);
     };
 
+    let now = Time.now();
     let sale : SalesTypes.Sale = {
-      id = saleId;
-      timestamp = Time.now();
+      id = nextId;
+      profile_key = up.profile_key;
+      timestamp = now;
       total_revenue = totalRevenue;
       total_volume_points = totalVP;
       total_profit = totalProfit;
+      customer_id = input.customer_id;
+      customer_name = customer.name;
+      sold_by = caller;
       owner = caller;
     };
+    saleStore.add(nextId, sale);
+    saleItemStore.add(nextId, saleItems);
 
-    saleStore.add(saleId, sale);
-    saleItemStore.addAll(saleItems.values());
-    ?saleId;
+    // Update customer stats
+    CustomersLib.recordSale(customerStore, input.customer_id, totalRevenue, now);
+
+    ?nextId
   };
 
-  public func getSales(store : SaleStore, caller : Common.UserId) : [SalesTypes.Sale] {
-    let result = List.empty<SalesTypes.Sale>();
-    for ((_, sale) in store.entries()) {
-      if (Principal.equal(sale.owner, caller)) {
-        result.add(sale);
-      };
+  public func getSales(store : SaleStore, userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId) : [SalesTypes.Sale] {
+    let up = switch (userStore.get(caller)) {
+      case (?u) u;
+      case null Runtime.trap("Caller has no profile");
     };
-    // Sort by timestamp descending (newest first)
-    result.sort(func(a, b) { Int.compare(b.timestamp, a.timestamp) }).toArray();
+    store.entries()
+      .filter(func((_id, s)) { s.profile_key == up.profile_key })
+      .map<(Common.SaleId, SalesTypes.Sale), SalesTypes.Sale>(func((_id, s)) { s })
+      .toArray()
+  };
+
+  public func getSalesByCustomer(store : SaleStore, userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId, customer_id : Common.CustomerId) : [SalesTypes.Sale] {
+    let up = switch (userStore.get(caller)) {
+      case (?u) u;
+      case null Runtime.trap("Caller has no profile");
+    };
+    store.entries()
+      .filter(func((_id, s)) { s.profile_key == up.profile_key and s.customer_id == customer_id })
+      .map<(Common.SaleId, SalesTypes.Sale), SalesTypes.Sale>(func((_id, s)) { s })
+      .toArray()
   };
 
   public func getSale(saleStore : SaleStore, caller : Common.UserId, sale_id : Common.SaleId) : ?SalesTypes.Sale {
     switch (saleStore.get(sale_id)) {
-      case (?sale) {
-        if (Principal.equal(sale.owner, caller)) ?sale else null
+      case (?s) {
+        if (s.owner == caller or s.sold_by == caller) ?s
+        else null
       };
       case null null;
-    };
+    }
   };
 
   public func getSaleItems(saleStore : SaleStore, itemStore : SaleItemStore, caller : Common.UserId, sale_id : Common.SaleId) : [SalesTypes.SaleItem] {
-    // Verify caller owns the sale
     switch (saleStore.get(sale_id)) {
-      case (?sale) {
-        if (not Principal.equal(sale.owner, caller)) return [];
-        itemStore.filter(func(item) { item.sale_id == sale_id }).toArray();
-      };
       case null [];
-    };
+      case (?s) {
+        if (s.owner != caller and s.sold_by != caller) return [];
+        switch (itemStore.get(sale_id)) {
+          case (?items) items;
+          case null [];
+        }
+      };
+    }
   };
 };

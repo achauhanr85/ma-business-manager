@@ -189,23 +189,14 @@ function ProductDialog({
   const createProduct = useCreateProduct();
   const updateProduct = useUpdateProduct();
 
-  const [form, setForm] = useState<ProductInput>(
-    editing
-      ? {
-          sku: editing.sku,
-          name: editing.name,
-          category_id: editing.category_id,
-          volume_points: editing.volume_points,
-          earn_base: editing.earn_base,
-          mrp: editing.mrp,
-          hsn_code: editing.hsn_code,
-        }
-      : EMPTY_PRODUCT,
-  );
+  const [form, setForm] = useState<ProductInput>(EMPTY_PRODUCT);
   const [skuError, setSkuError] = useState("");
 
-  function handleOpenChange(isOpen: boolean) {
-    if (isOpen) {
+  // Sync form fields whenever editing changes OR dialog opens — this is the
+  // fix for the blank edit form bug: useState initializer only runs at mount,
+  // so we must explicitly hydrate form state on each editing change.
+  useEffect(() => {
+    if (open) {
       setForm(
         editing
           ? {
@@ -220,7 +211,11 @@ function ProductDialog({
           : EMPTY_PRODUCT,
       );
       setSkuError("");
-    } else {
+    }
+  }, [open, editing]);
+
+  function handleOpenChange(isOpen: boolean) {
+    if (!isOpen) {
       onClose();
     }
   }

@@ -20,10 +20,19 @@ module {
 
   public type Sale = {
     id : Common.SaleId;
+    profile_key : Common.ProfileKey;
     timestamp : Common.Timestamp;
     total_revenue : Float;
     total_volume_points : Float;
     total_profit : Float;
+    customer_id : Common.CustomerId;
+    customer_name : Text;
+    sold_by : Common.UserId;
     owner : Common.UserId;
+  };
+
+  public type SaleInput = {
+    cart_items : [CartItem];
+    customer_id : Common.CustomerId;
   };
 };

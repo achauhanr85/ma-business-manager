@@ -1,27 +1,46 @@
-import type { backendInterface, Category, Product, InventoryLevel, InventoryBatchPublic, Sale, SaleItem, PurchaseOrder, PurchaseOrderItem, DashboardStats, MonthlySalesTrend, ProfileInput } from "../backend";
-import { POStatus } from "../backend";
+import type {
+  backendInterface,
+  Category,
+  CustomerPublic,
+  DashboardStats,
+  DuplicateCheckResult,
+  InventoryBatchPublic,
+  InventoryLevel,
+  InventoryMovement,
+  MonthlySalesTrend,
+  ProfilePublic,
+  PurchaseOrder,
+  PurchaseOrderItem,
+  Sale,
+  SaleItem,
+  SuperAdminStats,
+  UserProfilePublic,
+  Product,
+} from "../backend";
+import { POStatus, UserRole } from "../backend";
 import { Principal } from "@icp-sdk/core/principal";
 
 const mockPrincipal = Principal.fromText("aaaaa-aa");
+const PROFILE_KEY = "ma-herb-demo";
 
 const mockCategories: Category[] = [
-  { id: BigInt(1), owner: mockPrincipal, name: "Teas", description: "Herbal teas and blends" },
-  { id: BigInt(2), owner: mockPrincipal, name: "Supplements", description: "Herbal supplements" },
-  { id: BigInt(3), owner: mockPrincipal, name: "Essential Oils", description: "Pure essential oils" },
+  { id: BigInt(1), owner: mockPrincipal, name: "Teas", description: "Herbal teas and blends", profile_key: PROFILE_KEY },
+  { id: BigInt(2), owner: mockPrincipal, name: "Supplements", description: "Herbal supplements", profile_key: PROFILE_KEY },
+  { id: BigInt(3), owner: mockPrincipal, name: "Essential Oils", description: "Pure essential oils", profile_key: PROFILE_KEY },
 ];
 
 const mockProducts: Product[] = [
-  { id: BigInt(1), owner: mockPrincipal, sku: "TEA-001", name: "Tulsi Green Tea", category_id: BigInt(1), volume_points: 10, earn_base: 5, mrp: 299, hsn_code: "0902" },
-  { id: BigInt(2), owner: mockPrincipal, sku: "TEA-002", name: "Ginger Lemon Tea", category_id: BigInt(1), volume_points: 8, earn_base: 4, mrp: 199, hsn_code: "0902" },
-  { id: BigInt(3), owner: mockPrincipal, sku: "SUP-001", name: "Ashwagandha Capsules", category_id: BigInt(2), volume_points: 20, earn_base: 10, mrp: 499, hsn_code: "1211" },
-  { id: BigInt(4), owner: mockPrincipal, sku: "OIL-001", name: "Lavender Essential Oil", category_id: BigInt(3), volume_points: 15, earn_base: 8, mrp: 399, hsn_code: "3301" },
+  { id: BigInt(1), owner: mockPrincipal, sku: "TEA-001", name: "Tulsi Green Tea", category_id: BigInt(1), volume_points: 10, earn_base: 5, mrp: 299, hsn_code: "0902", profile_key: PROFILE_KEY },
+  { id: BigInt(2), owner: mockPrincipal, sku: "TEA-002", name: "Ginger Lemon Tea", category_id: BigInt(1), volume_points: 8, earn_base: 4, mrp: 199, hsn_code: "0902", profile_key: PROFILE_KEY },
+  { id: BigInt(3), owner: mockPrincipal, sku: "SUP-001", name: "Ashwagandha Capsules", category_id: BigInt(2), volume_points: 20, earn_base: 10, mrp: 499, hsn_code: "1211", profile_key: PROFILE_KEY },
+  { id: BigInt(4), owner: mockPrincipal, sku: "OIL-001", name: "Lavender Essential Oil", category_id: BigInt(3), volume_points: 15, earn_base: 8, mrp: 399, hsn_code: "3301", profile_key: PROFILE_KEY },
 ];
 
 const mockBatches: InventoryBatchPublic[] = [
-  { id: BigInt(1), product_id: BigInt(1), quantity_remaining: BigInt(45), unit_cost: 150, date_received: BigInt(Date.now() * 1000000) },
-  { id: BigInt(2), product_id: BigInt(2), quantity_remaining: BigInt(30), unit_cost: 90, date_received: BigInt(Date.now() * 1000000) },
-  { id: BigInt(3), product_id: BigInt(3), quantity_remaining: BigInt(8), unit_cost: 250, date_received: BigInt(Date.now() * 1000000) },
-  { id: BigInt(4), product_id: BigInt(4), quantity_remaining: BigInt(20), unit_cost: 180, date_received: BigInt(Date.now() * 1000000) },
+  { id: BigInt(1), product_id: BigInt(1), quantity_remaining: BigInt(45), unit_cost: 150, date_received: BigInt(Date.now() * 1_000_000), warehouse_name: "Main Warehouse", profile_key: PROFILE_KEY },
+  { id: BigInt(2), product_id: BigInt(2), quantity_remaining: BigInt(30), unit_cost: 90, date_received: BigInt(Date.now() * 1_000_000), warehouse_name: "Main Warehouse", profile_key: PROFILE_KEY },
+  { id: BigInt(3), product_id: BigInt(3), quantity_remaining: BigInt(8), unit_cost: 250, date_received: BigInt(Date.now() * 1_000_000), warehouse_name: "Main Warehouse", profile_key: PROFILE_KEY },
+  { id: BigInt(4), product_id: BigInt(4), quantity_remaining: BigInt(20), unit_cost: 180, date_received: BigInt(Date.now() * 1_000_000), warehouse_name: "Main Warehouse", profile_key: PROFILE_KEY },
 ];
 
 const mockInventoryLevels: InventoryLevel[] = [
@@ -32,8 +51,8 @@ const mockInventoryLevels: InventoryLevel[] = [
 ];
 
 const mockSales: Sale[] = [
-  { id: BigInt(1), owner: mockPrincipal, timestamp: BigInt(Date.now() * 1000000), total_revenue: 897, total_volume_points: 33, total_profit: 297 },
-  { id: BigInt(2), owner: mockPrincipal, timestamp: BigInt(Date.now() * 1000000), total_revenue: 499, total_volume_points: 20, total_profit: 249 },
+  { id: BigInt(1), owner: mockPrincipal, timestamp: BigInt(Date.now() * 1_000_000), total_revenue: 897, total_volume_points: 33, total_profit: 297, customer_id: BigInt(1), sold_by: mockPrincipal, customer_name: "Ravi Kumar", profile_key: PROFILE_KEY },
+  { id: BigInt(2), owner: mockPrincipal, timestamp: BigInt(Date.now() * 1_000_000), total_revenue: 499, total_volume_points: 20, total_profit: 249, customer_id: BigInt(2), sold_by: mockPrincipal, customer_name: "Priya Sharma", profile_key: PROFILE_KEY },
 ];
 
 const mockSaleItems: SaleItem[] = [
@@ -42,8 +61,8 @@ const mockSaleItems: SaleItem[] = [
 ];
 
 const mockPurchaseOrders: PurchaseOrder[] = [
-  { id: BigInt(1), owner: mockPrincipal, vendor: "Green Valley Herbs", status: POStatus.Received, timestamp: BigInt(Date.now() * 1000000) },
-  { id: BigInt(2), owner: mockPrincipal, vendor: "Nature's Best Suppliers", status: POStatus.Pending, timestamp: BigInt(Date.now() * 1000000) },
+  { id: BigInt(1), owner: mockPrincipal, vendor: "Green Valley Herbs", status: POStatus.Received, timestamp: BigInt(Date.now() * 1_000_000), warehouse_name: "Main Warehouse", profile_key: PROFILE_KEY },
+  { id: BigInt(2), owner: mockPrincipal, vendor: "Nature's Best Suppliers", status: POStatus.Pending, timestamp: BigInt(Date.now() * 1_000_000), warehouse_name: "Main Warehouse", profile_key: PROFILE_KEY },
 ];
 
 const mockPurchaseOrderItems: PurchaseOrderItem[] = [
@@ -67,35 +86,86 @@ const mockSalesTrend: MonthlySalesTrend[] = [
   { month_label: "Jun", total_revenue: 28900, total_volume_points: 1680 },
 ];
 
-const mockProfile: ProfileInput = {
+const mockProfile: ProfilePublic = {
+  owner: mockPrincipal,
   business_name: "MA Herb Distributors",
   phone_number: "+91 98765 43210",
   business_address: "123 Green Market Street, Mumbai, Maharashtra 400001",
   fssai_number: "12345678901234",
   email: "info@maherb.com",
+  logo_url: "",
+  theme_color: "#16a34a",
+  profile_key: PROFILE_KEY,
+  created_at: BigInt(Date.now() * 1_000_000),
+  is_archived: false,
 };
 
+const mockUserProfile: UserProfilePublic = {
+  principal: mockPrincipal,
+  role: UserRole.admin,
+  display_name: "Demo Admin",
+  joined_at: BigInt(Date.now() * 1_000_000),
+  warehouse_name: "Main Warehouse",
+  profile_key: PROFILE_KEY,
+};
+
+const mockCustomers: CustomerPublic[] = [
+  { id: BigInt(1), name: "Ravi Kumar", phone: "+91 98765 43210", email: "ravi@example.com", address: "Mumbai", total_sales: BigInt(5), lifetime_revenue: 4500, last_purchase_at: BigInt(Date.now() * 1_000_000), created_at: BigInt(Date.now() * 1_000_000), profile_key: PROFILE_KEY },
+  { id: BigInt(2), name: "Priya Sharma", phone: "+91 87654 32109", email: "priya@example.com", address: "Delhi", total_sales: BigInt(3), lifetime_revenue: 2800, last_purchase_at: BigInt(Date.now() * 1_000_000), created_at: BigInt(Date.now() * 1_000_000), profile_key: PROFILE_KEY },
+];
+
+const mockSuperAdminStats: SuperAdminStats = {
+  total_users: BigInt(5),
+  total_profiles: BigInt(2),
+  profiles: [
+    { profile_key: PROFILE_KEY, business_name: "MA Herb Distributors", user_count: BigInt(3), storage_estimate_bytes: BigInt(2048000), last_activity: BigInt(Date.now() * 1_000_000), is_archived: false, owner_principal: mockPrincipal },
+  ],
+};
+
+const mockDuplicateCheckResult: DuplicateCheckResult = {
+  has_similar: false,
+  similar_customers: [],
+};
+
+const mockInventoryMovements: InventoryMovement[] = [];
+
 export const mockBackend: backendInterface = {
+  checkCustomerDuplicate: async () => mockDuplicateCheckResult,
   createCategory: async () => BigInt(4),
+  createCustomer: async () => BigInt(3),
   createProduct: async () => BigInt(5),
+  createProfile: async () => true,
   createPurchaseOrder: async () => BigInt(3),
   createSale: async () => BigInt(3),
   deleteCategory: async () => true,
+  deleteCustomer: async () => true,
   deleteProduct: async () => true,
   getCategories: async () => mockCategories,
+  getCustomer: async () => mockCustomers[0],
+  getCustomers: async () => mockCustomers,
   getDashboardStats: async () => mockDashboardStats,
   getInventoryBatches: async () => mockBatches,
   getInventoryLevels: async () => mockInventoryLevels,
+  getInventoryMovements: async () => mockInventoryMovements,
   getMonthlySalesTrend: async () => mockSalesTrend,
   getProducts: async () => mockProducts,
   getProfile: async () => mockProfile,
+  getProfileByKey: async () => mockProfile,
   getPurchaseOrderItems: async () => mockPurchaseOrderItems,
   getPurchaseOrders: async () => mockPurchaseOrders,
   getSale: async () => mockSales[0],
   getSaleItems: async () => mockSaleItems,
   getSales: async () => mockSales,
+  getSalesByCustomer: async () => mockSales,
+  getSuperAdminStats: async () => mockSuperAdminStats,
+  getUserProfile: async () => mockUserProfile,
+  initSuperAdmin: async () => true,
+  joinProfile: async () => true,
   markPurchaseOrderReceived: async () => true,
+  moveInventory: async () => BigInt(1),
   updateCategory: async () => true,
+  updateCustomer: async () => true,
   updateProduct: async () => true,
   updateProfile: async () => true,
+  updateUserProfile: async () => true,
 };

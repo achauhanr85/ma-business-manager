@@ -21,14 +21,38 @@ export interface Category {
   'owner' : UserId,
   'name' : string,
   'description' : string,
+  'profile_key' : ProfileKey,
 }
 export type CategoryId = bigint;
 export interface CategoryInput { 'name' : string, 'description' : string }
+export type CustomerId = bigint;
+export interface CustomerInput {
+  'name' : string,
+  'email' : string,
+  'address' : string,
+  'phone' : string,
+}
+export interface CustomerPublic {
+  'id' : CustomerId,
+  'total_sales' : bigint,
+  'name' : string,
+  'lifetime_revenue' : number,
+  'last_purchase_at' : Timestamp,
+  'created_at' : Timestamp,
+  'email' : string,
+  'address' : string,
+  'phone' : string,
+  'profile_key' : ProfileKey,
+}
 export interface DashboardStats {
   'monthly_profit' : number,
   'total_inventory_value' : number,
   'recent_sales' : Array<Sale>,
   'monthly_volume_points' : number,
+}
+export interface DuplicateCheckResult {
+  'similar_customers' : Array<CustomerPublic>,
+  'has_similar' : boolean,
 }
 export interface InventoryBatchPublic {
   'id' : BatchId,
@@ -36,17 +60,36 @@ export interface InventoryBatchPublic {
   'product_id' : ProductId,
   'unit_cost' : number,
   'date_received' : Timestamp,
+  'warehouse_name' : WarehouseName,
+  'profile_key' : ProfileKey,
 }
 export interface InventoryLevel {
   'product_id' : ProductId,
   'total_qty' : bigint,
   'batches' : Array<InventoryBatchPublic>,
 }
+export interface InventoryMovement {
+  'id' : MovementId,
+  'from_warehouse' : WarehouseName,
+  'product_id' : ProductId,
+  'quantity' : bigint,
+  'to_warehouse' : WarehouseName,
+  'profile_key' : ProfileKey,
+  'moved_at' : Timestamp,
+  'moved_by' : UserId,
+}
+export interface InventoryMovementInput {
+  'from_warehouse' : WarehouseName,
+  'product_id' : ProductId,
+  'quantity' : bigint,
+  'to_warehouse' : WarehouseName,
+}
 export interface MonthlySalesTrend {
   'month_label' : string,
   'total_revenue' : number,
   'total_volume_points' : number,
 }
+export type MovementId = bigint;
 export type POStatus = { 'Received' : null } |
   { 'Pending' : null };
 export interface Product {
@@ -58,6 +101,7 @@ export interface Product {
   'earn_base' : number,
   'volume_points' : number,
   'hsn_code' : string,
+  'profile_key' : ProfileKey,
   'category_id' : CategoryId,
 }
 export type ProductId = bigint;
@@ -74,8 +118,34 @@ export interface ProfileInput {
   'business_name' : string,
   'email' : string,
   'business_address' : string,
+  'logo_url' : string,
   'phone_number' : string,
+  'theme_color' : string,
+  'profile_key' : ProfileKey,
   'fssai_number' : string,
+}
+export type ProfileKey = string;
+export interface ProfilePublic {
+  'owner' : UserId,
+  'business_name' : string,
+  'created_at' : Timestamp,
+  'email' : string,
+  'is_archived' : boolean,
+  'business_address' : string,
+  'logo_url' : string,
+  'phone_number' : string,
+  'theme_color' : string,
+  'profile_key' : ProfileKey,
+  'fssai_number' : string,
+}
+export interface ProfileStats {
+  'user_count' : bigint,
+  'storage_estimate_bytes' : bigint,
+  'business_name' : string,
+  'is_archived' : boolean,
+  'last_activity' : Timestamp,
+  'owner_principal' : UserId,
+  'profile_key' : ProfileKey,
 }
 export interface PurchaseOrder {
   'id' : PurchaseOrderId,
@@ -83,11 +153,14 @@ export interface PurchaseOrder {
   'owner' : UserId,
   'vendor' : string,
   'timestamp' : Timestamp,
+  'warehouse_name' : WarehouseName,
+  'profile_key' : ProfileKey,
 }
 export type PurchaseOrderId = bigint;
 export interface PurchaseOrderInput {
   'vendor' : string,
   'items' : Array<PurchaseOrderItemInput>,
+  'warehouse_name' : WarehouseName,
 }
 export interface PurchaseOrderItem {
   'product_id' : ProductId,
@@ -103,12 +176,20 @@ export interface PurchaseOrderItemInput {
 export interface Sale {
   'id' : SaleId,
   'owner' : UserId,
+  'customer_id' : CustomerId,
+  'sold_by' : UserId,
   'timestamp' : Timestamp,
   'total_revenue' : number,
+  'customer_name' : string,
   'total_volume_points' : number,
+  'profile_key' : ProfileKey,
   'total_profit' : number,
 }
 export type SaleId = bigint;
+export interface SaleInput {
+  'cart_items' : Array<CartItem>,
+  'customer_id' : CustomerId,
+}
 export interface SaleItem {
   'unit_cost_snapshot' : number,
   'product_id' : ProductId,
@@ -119,22 +200,52 @@ export interface SaleItem {
   'sale_id' : SaleId,
   'mrp_snapshot' : number,
 }
+export interface SuperAdminStats {
+  'total_users' : bigint,
+  'total_profiles' : bigint,
+  'profiles' : Array<ProfileStats>,
+}
 export type Timestamp = bigint;
 export type UserId = Principal;
+export interface UserProfileInput {
+  'display_name' : string,
+  'warehouse_name' : WarehouseName,
+  'profile_key' : ProfileKey,
+}
+export interface UserProfilePublic {
+  'principal' : UserId,
+  'role' : UserRole,
+  'display_name' : string,
+  'joined_at' : Timestamp,
+  'warehouse_name' : WarehouseName,
+  'profile_key' : ProfileKey,
+}
+export type UserRole = { 'admin' : null } |
+  { 'superAdmin' : null } |
+  { 'subAdmin' : null };
+export type WarehouseName = string;
 export interface _SERVICE {
+  'checkCustomerDuplicate' : ActorMethod<[string], DuplicateCheckResult>,
   'createCategory' : ActorMethod<[CategoryInput], CategoryId>,
+  'createCustomer' : ActorMethod<[CustomerInput], CustomerId>,
   'createProduct' : ActorMethod<[ProductInput], [] | [ProductId]>,
+  'createProfile' : ActorMethod<[ProfileInput], boolean>,
   'createPurchaseOrder' : ActorMethod<[PurchaseOrderInput], PurchaseOrderId>,
-  'createSale' : ActorMethod<[Array<CartItem>], [] | [SaleId]>,
+  'createSale' : ActorMethod<[SaleInput], [] | [SaleId]>,
   'deleteCategory' : ActorMethod<[CategoryId], boolean>,
+  'deleteCustomer' : ActorMethod<[CustomerId], boolean>,
   'deleteProduct' : ActorMethod<[ProductId], boolean>,
   'getCategories' : ActorMethod<[], Array<Category>>,
+  'getCustomer' : ActorMethod<[CustomerId], [] | [CustomerPublic]>,
+  'getCustomers' : ActorMethod<[], Array<CustomerPublic>>,
   'getDashboardStats' : ActorMethod<[], DashboardStats>,
   'getInventoryBatches' : ActorMethod<[ProductId], Array<InventoryBatchPublic>>,
   'getInventoryLevels' : ActorMethod<[], Array<InventoryLevel>>,
+  'getInventoryMovements' : ActorMethod<[], Array<InventoryMovement>>,
   'getMonthlySalesTrend' : ActorMethod<[], Array<MonthlySalesTrend>>,
   'getProducts' : ActorMethod<[], Array<Product>>,
-  'getProfile' : ActorMethod<[], [] | [ProfileInput]>,
+  'getProfile' : ActorMethod<[], [] | [ProfilePublic]>,
+  'getProfileByKey' : ActorMethod<[ProfileKey], [] | [ProfilePublic]>,
   'getPurchaseOrderItems' : ActorMethod<
     [PurchaseOrderId],
     Array<PurchaseOrderItem>
@@ -143,10 +254,24 @@ export interface _SERVICE {
   'getSale' : ActorMethod<[SaleId], [] | [Sale]>,
   'getSaleItems' : ActorMethod<[SaleId], Array<SaleItem>>,
   'getSales' : ActorMethod<[], Array<Sale>>,
+  'getSalesByCustomer' : ActorMethod<[CustomerId], Array<Sale>>,
+  'getSuperAdminStats' : ActorMethod<[], SuperAdminStats>,
+  'getUserProfile' : ActorMethod<[], [] | [UserProfilePublic]>,
+  /**
+   * / One-time bootstrap: first caller becomes super admin (if not already set)
+   */
+  'initSuperAdmin' : ActorMethod<[], boolean>,
+  'joinProfile' : ActorMethod<[ProfileKey, string, WarehouseName], boolean>,
   'markPurchaseOrderReceived' : ActorMethod<[PurchaseOrderId], boolean>,
+  'moveInventory' : ActorMethod<[InventoryMovementInput], [] | [MovementId]>,
   'updateCategory' : ActorMethod<[CategoryId, CategoryInput], boolean>,
+  'updateCustomer' : ActorMethod<[CustomerId, CustomerInput], boolean>,
+  /**
+   * / One-time bootstrap: first caller becomes super admin (if not already set)
+   */
   'updateProduct' : ActorMethod<[ProductId, ProductInput], boolean>,
   'updateProfile' : ActorMethod<[ProfileInput], boolean>,
+  'updateUserProfile' : ActorMethod<[UserProfileInput], boolean>,
 }
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];

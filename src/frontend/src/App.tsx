@@ -1,39 +1,48 @@
 import { Layout } from "@/components/Layout";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ProfileProvider, useProfile } from "@/contexts/ProfileContext";
 import { useAuth } from "@/hooks/useAuth";
-import { LoginPage } from "@/pages/LoginPage";
-import { useEffect, useState } from "react";
-
 import { AnalyticsPage } from "@/pages/AnalyticsPage";
-// Lazy-loaded pages (inline for this foundation pass)
+import { CustomersPage } from "@/pages/CustomersPage";
 import { DashboardPage } from "@/pages/DashboardPage";
+import { InventoryMovementPage } from "@/pages/InventoryMovementPage";
 import { InventoryPage } from "@/pages/InventoryPage";
+import { LoginPage } from "@/pages/LoginPage";
+import { OnboardingPage } from "@/pages/OnboardingPage";
 import { ProductsPage } from "@/pages/ProductsPage";
 import { ProfilePage } from "@/pages/ProfilePage";
 import { PurchaseOrdersPage } from "@/pages/PurchaseOrdersPage";
 import { ReceiptPage } from "@/pages/ReceiptPage";
 import { SalesPage } from "@/pages/SalesPage";
+import { SuperAdminPage } from "@/pages/SuperAdminPage";
+import { useState } from "react";
 
 type AppPath =
   | "/dashboard"
   | "/sales"
   | "/inventory"
+  | "/inventory-movement"
   | "/purchase-orders"
   | "/products"
   | "/analytics"
   | "/profile"
-  | "/receipt";
+  | "/receipt"
+  | "/customers"
+  | "/super-admin";
 
 function getPageTitle(path: string): string {
   const titles: Record<string, string> = {
     "/dashboard": "Dashboard",
     "/sales": "New Sale",
     "/inventory": "Inventory",
+    "/inventory-movement": "Inventory Movement",
     "/purchase-orders": "Purchase Orders",
     "/products": "Products & Categories",
     "/analytics": "Analytics",
     "/profile": "Business Profile",
     "/receipt": "Sale Receipt",
+    "/customers": "Customer Management",
+    "/super-admin": "Super Admin",
   };
   return titles[path] ?? "MA Herb";
 }
@@ -56,6 +65,8 @@ function AppContent() {
         return <SalesPage onNavigate={navigate} />;
       case "/inventory":
         return <InventoryPage onNavigate={navigate} />;
+      case "/inventory-movement":
+        return <InventoryMovementPage onNavigate={navigate} />;
       case "/purchase-orders":
         return <PurchaseOrdersPage onNavigate={navigate} />;
       case "/products":
@@ -66,6 +77,10 @@ function AppContent() {
         return <ProfilePage onNavigate={navigate} />;
       case "/receipt":
         return <ReceiptPage saleId={receiptSaleId} onNavigate={navigate} />;
+      case "/customers":
+        return <CustomersPage onNavigate={navigate} />;
+      case "/super-admin":
+        return <SuperAdminPage onNavigate={navigate} />;
       default:
         return <DashboardPage onNavigate={navigate} />;
     }
@@ -80,6 +95,14 @@ function AppContent() {
       {renderPage()}
     </Layout>
   );
+}
+
+function AuthenticatedApp() {
+  const { userProfile, isLoadingProfile } = useProfile();
+
+  if (isLoadingProfile) return <AppLoader />;
+  if (!userProfile) return <OnboardingPage />;
+  return <AppContent />;
 }
 
 function AppLoader() {
@@ -106,5 +129,10 @@ export default function App() {
 
   if (isLoading) return <AppLoader />;
   if (!isAuthenticated) return <LoginPage />;
-  return <AppContent />;
+
+  return (
+    <ProfileProvider>
+      <AuthenticatedApp />
+    </ProfileProvider>
+  );
 }

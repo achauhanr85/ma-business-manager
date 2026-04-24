@@ -1,17 +1,21 @@
 import { Button } from "@/components/ui/button";
+import { useProfile } from "@/contexts/ProfileContext";
 import { useAuth } from "@/hooks/useAuth";
-import { useGetProfile } from "@/hooks/useBackend";
 import { cn } from "@/lib/utils";
+import { ROLES } from "@/types";
 import {
+  ArrowRightLeft,
   BarChart3,
   Boxes,
   ClipboardList,
   LayoutDashboard,
   Leaf,
   LogOut,
+  Shield,
   ShoppingCart,
   Tag,
   User,
+  Users,
   X,
 } from "lucide-react";
 
@@ -22,14 +26,37 @@ interface SidebarProps {
   onClose: () => void;
 }
 
-const NAV_ITEMS = [
-  { label: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
-  { label: "Sales", path: "/sales", icon: ShoppingCart },
-  { label: "Inventory", path: "/inventory", icon: Boxes },
-  { label: "Purchase Orders", path: "/purchase-orders", icon: ClipboardList },
-  { label: "Products & Categories", path: "/products", icon: Tag },
-  { label: "Analytics", path: "/analytics", icon: BarChart3 },
-  { label: "Profile", path: "/profile", icon: User },
+const BASE_NAV_ITEMS = [
+  {
+    label: "Dashboard",
+    path: "/dashboard",
+    icon: LayoutDashboard,
+    roles: null,
+  },
+  { label: "Sales", path: "/sales", icon: ShoppingCart, roles: null },
+  { label: "Inventory", path: "/inventory", icon: Boxes, roles: null },
+  {
+    label: "Purchase Orders",
+    path: "/purchase-orders",
+    icon: ClipboardList,
+    roles: null,
+  },
+  { label: "Products & Categories", path: "/products", icon: Tag, roles: null },
+  { label: "Analytics", path: "/analytics", icon: BarChart3, roles: null },
+  { label: "Customers", path: "/customers", icon: Users, roles: null },
+  {
+    label: "Inventory Movement",
+    path: "/inventory-movement",
+    icon: ArrowRightLeft,
+    roles: [ROLES.SUB_ADMIN, ROLES.ADMIN],
+  },
+  { label: "Profile", path: "/profile", icon: User, roles: null },
+  {
+    label: "Super Admin",
+    path: "/super-admin",
+    icon: Shield,
+    roles: [ROLES.SUPER_ADMIN],
+  },
 ];
 
 export function Sidebar({
@@ -39,7 +66,15 @@ export function Sidebar({
   onClose,
 }: SidebarProps) {
   const { logout } = useAuth();
-  const { data: profile } = useGetProfile();
+  const { profile, userProfile } = useProfile();
+
+  const currentRole = userProfile?.role;
+
+  const visibleNavItems = BASE_NAV_ITEMS.filter((item) => {
+    if (!item.roles) return true;
+    if (!currentRole) return false;
+    return (item.roles as string[]).includes(currentRole as unknown as string);
+  });
 
   const handleNav = (path: string) => {
     onNavigate(path);
@@ -75,12 +110,20 @@ export function Sidebar({
             className="flex items-center gap-2 hover:opacity-80 transition-smooth"
             data-ocid="sidebar.logo_link"
           >
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-              <Leaf className="w-4 h-4 text-primary-foreground" />
-            </div>
+            {profile?.logo_url ? (
+              <img
+                src={profile.logo_url}
+                alt={profile.business_name}
+                className="w-8 h-8 rounded-lg object-cover"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+                <Leaf className="w-4 h-4 text-primary-foreground" />
+              </div>
+            )}
             <div className="flex flex-col leading-none">
-              <span className="font-display font-semibold text-foreground text-sm">
-                MA Herb
+              <span className="font-display font-semibold text-foreground text-sm truncate max-w-[120px]">
+                {profile?.business_name ?? "MA Herb"}
               </span>
               <span className="text-muted-foreground text-[10px]">
                 Business Manager
@@ -99,13 +142,25 @@ export function Sidebar({
           </Button>
         </div>
 
-        {/* Business name */}
-        {profile?.business_name && (
-          <div className="px-4 py-2 border-b border-border">
-            <p className="text-xs text-muted-foreground">Logged in as</p>
-            <p className="text-sm font-medium text-foreground truncate">
-              {profile.business_name}
+        {/* User + warehouse info */}
+        {userProfile && (
+          <div className="px-4 py-2.5 border-b border-border bg-muted/30">
+            <p className="text-xs text-muted-foreground">
+              {userProfile.display_name}
             </p>
+            {userProfile.warehouse_name && (
+              <p className="text-[11px] font-medium text-primary truncate mt-0.5 flex items-center gap-1">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary" />
+                {userProfile.warehouse_name}
+              </p>
+            )}
+            <span className="inline-flex mt-1 items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary capitalize">
+              {userProfile.role === ROLES.SUPER_ADMIN
+                ? "Super Admin"
+                : userProfile.role === ROLES.ADMIN
+                  ? "Admin"
+                  : "Sub Admin"}
+            </span>
           </div>
         )}
 
@@ -115,7 +170,7 @@ export function Sidebar({
           aria-label="Main navigation"
         >
           <ul className="space-y-0.5 px-2">
-            {NAV_ITEMS.map((item) => {
+            {visibleNavItems.map((item) => {
               const Icon = item.icon;
               const isActive =
                 currentPath === item.path ||
