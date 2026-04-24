@@ -24,6 +24,7 @@ module {
     owner : Common.UserId;
     logo_url : Text;
     theme_color : Text;
+    receipt_notes : Text;        // Rich-text notes printed on customer receipts
     created_at : Common.Timestamp;
     is_archived : Bool;
 
@@ -50,6 +51,7 @@ module {
     email : Text;
     logo_url : Text;
     theme_color : Text;
+    receipt_notes : Text;        // Rich-text notes printed on customer receipts
   };
 
   // Public projection — never exposes internal who-columns to untrusted callers
@@ -63,6 +65,7 @@ module {
     owner : Common.UserId;
     logo_url : Text;
     theme_color : Text;
+    receipt_notes : Text;        // Rich-text notes printed on customer receipts
     created_at : Common.Timestamp;
     is_archived : Bool;
     is_enabled : Bool;

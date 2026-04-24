@@ -4,6 +4,11 @@ import Runtime "mo:core/Runtime";
 import Common "../types/common";
 import ProfileTypes "../types/profile";
 import UserTypes "../types/users";
+import CatalogTypes "../types/catalog";
+import InventoryTypes "../types/inventory";
+import SalesTypes "../types/sales";
+import PurchaseTypes "../types/purchases";
+import CustomerTypes "../types/customers";
 
 module {
   public type Store = Map.Map<Common.ProfileKey, ProfileTypes.Profile>;
@@ -23,6 +28,7 @@ module {
       owner = p.owner;
       logo_url = p.logo_url;
       theme_color = p.theme_color;
+      receipt_notes = p.receipt_notes;
       created_at = p.created_at;
       is_archived = p.is_archived;
       is_enabled = p.is_enabled;
@@ -34,12 +40,6 @@ module {
   // ── Governance helper ─────────────────────────────────────────────────────────
 
   /// Check whether a profile's active window is currently open.
-  ///
-  /// Dry-run — Active Window logic:
-  ///   1. start_date is null OR now >= start_date  → window not yet started check passes
-  ///   2. end_date   is null OR now <= end_date    → window not yet expired check passes
-  ///   Both checks must pass for is_within_window = true.
-  ///   Example: end_date = yesterday → now > end_date → returns false.
   public func isProfileActive(profile : ProfileTypes.Profile) : Bool {
     if (not profile.is_enabled) return false;
     let now = Time.now();
@@ -54,17 +54,6 @@ module {
     windowOpen and windowNotExpired
   };
 
-  /// Returns #ok if the profile exists and passes governance checks,
-  /// otherwise returns the specific error for the caller to propagate.
-  ///
-  /// Dry-run — Governance Gatekeeper:
-  ///   Called before createSale, createPurchaseOrder, markPurchaseOrderReceived.
-  ///   Step 1: profile not found → trap (data integrity error, not a governance error)
-  ///   Step 2: is_enabled == false → #err(#ProfileDisabled)  [equivalent to HTTP 403]
-  ///   Step 3: outside active window → #err(#OutsideActiveWindow) [HTTP 403]
-  ///   Step 4: all checks pass → #ok
-  ///   If a profile's end_date was yesterday, Step 3 triggers and blocks the request.
-  ///   The frontend should surface "Contact Super Admin to reactivate your account."
   public func checkProfileAccess(store : Store, userStore : UserStore, caller : Common.UserId) : { #ok; #err : ProfileTypes.ProfileAccessError } {
     let profileKey = switch (userStore.get(caller)) {
       case (?up) up.profile_key;
@@ -131,17 +120,73 @@ module {
   };
 
   /// Returns all profiles with full governance details — Super Admin only
-  ///
-  /// Dry-run — Super Admin routing:
-  ///   The frontend login redirect checks getUserProfile first. If role == #superAdmin,
-  ///   the app navigates to /super-admin BEFORE restoring any saved profile session.
-  ///   This ensures the super admin role takes priority over any regular profile state.
   public func getAllProfilesForAdmin(store : Store) : [ProfileTypes.ProfilePublic] {
     store.entries()
       .map(func((_k, p) : (Common.ProfileKey, ProfileTypes.Profile)) : ProfileTypes.ProfilePublic {
         toPublic(p)
       })
       .toArray()
+  };
+
+  /// Returns all UserProfiles across every profile — Super Admin only
+  public func getAllUsersForAdmin(userStore : UserStore) : [UserTypes.UserProfilePublic] {
+    userStore.entries()
+      .map(func((_k, up) : (Common.UserId, UserTypes.UserProfile)) : UserTypes.UserProfilePublic {
+        {
+          principal = up.principal;
+          profile_key = up.profile_key;
+          role = up.role;
+          warehouse_name = up.warehouse_name;
+          display_name = up.display_name;
+          joined_at = up.joined_at;
+        }
+      })
+      .toArray()
+  };
+
+  /// Returns all UserProfiles for a specific profile_key — Super Admin only
+  public func getUsersByProfile(userStore : UserStore, profile_key : Common.ProfileKey) : [UserTypes.UserProfilePublic] {
+    userStore.entries()
+      .filter(func((_k, up) : (Common.UserId, UserTypes.UserProfile)) : Bool {
+        up.profile_key == profile_key
+      })
+      .map(func((_k, up) : (Common.UserId, UserTypes.UserProfile)) : UserTypes.UserProfilePublic {
+        {
+          principal = up.principal;
+          profile_key = up.profile_key;
+          role = up.role;
+          warehouse_name = up.warehouse_name;
+          display_name = up.display_name;
+          joined_at = up.joined_at;
+        }
+      })
+      .toArray()
+  };
+
+  /// Assigns a new role to a target user within a specific profile — Super Admin only
+  public func assignUserRole(userStore : UserStore, caller : Common.UserId, targetUserId : Common.UserId, newRole : Common.UserRole, profile_key : Common.ProfileKey) : Bool {
+    // Verify caller has #superAdmin role
+    switch (userStore.get(caller)) {
+      case (?up) {
+        if (up.role != #superAdmin) return false;
+      };
+      case null return false;
+    };
+    // Look up target user and verify profile_key matches
+    switch (userStore.get(targetUserId)) {
+      case null false;
+      case (?existing) {
+        if (existing.profile_key != profile_key) return false;
+        let updated : UserTypes.UserProfile = {
+          existing with
+          role = newRole;
+          last_updated_by = caller;
+          last_update_date = Time.now();
+        };
+        userStore.add(targetUserId, updated);
+        true
+      };
+    }
   };
 
   // ── Write operations ──────────────────────────────────────────────────────────
@@ -162,6 +207,7 @@ module {
           owner = caller;
           logo_url = input.logo_url;
           theme_color = input.theme_color;
+          receipt_notes = input.receipt_notes;
           created_at = now;
           is_archived = false;
           // Profiles start enabled with no window restrictions
@@ -194,7 +240,7 @@ module {
     }
   };
 
-  /// Join an existing profile by profile_key; assigns #subAdmin role
+  /// Join an existing profile by profile_key; assigns #staff role
   public func joinProfile(store : Store, userStore : UserStore, caller : Common.UserId, profile_key : Common.ProfileKey, display_name : Text, warehouse_name : Common.WarehouseName) : Bool {
     switch (store.get(profile_key)) {
       case null false; // profile_key does not exist
@@ -203,7 +249,7 @@ module {
         let up : UserTypes.UserProfile = {
           principal = caller;
           profile_key;
-          role = #subAdmin;
+          role = #staff;
           warehouse_name;
           display_name;
           joined_at = now;
@@ -219,13 +265,21 @@ module {
     }
   };
 
-  /// Update profile details; only owner (#admin) may update
+  /// Update profile details; #admin may update their own profile;
+  /// #superAdmin may update any profile by passing target profile_key in input.
   public func updateProfile(store : Store, userStore : UserStore, caller : Common.UserId, input : ProfileTypes.ProfileInput) : Bool {
     switch (userStore.get(caller)) {
       case null false;
       case (?up) {
         if (up.role != #admin and up.role != #superAdmin) return false;
-        switch (store.get(up.profile_key)) {
+        // Super Admins target profile via input.profile_key (they have no profile_key of their own).
+        // Admins always update their own profile (up.profile_key must match input.profile_key).
+        let targetKey : Common.ProfileKey = if (up.role == #superAdmin) {
+          input.profile_key
+        } else {
+          up.profile_key
+        };
+        switch (store.get(targetKey)) {
           case null false;
           case (?existing) {
             let updated : ProfileTypes.Profile = {
@@ -237,6 +291,7 @@ module {
               email = input.email;
               logo_url = input.logo_url;
               theme_color = input.theme_color;
+              receipt_notes = input.receipt_notes;
               last_updated_by = caller;
               last_update_date = Time.now();
             };
@@ -249,11 +304,6 @@ module {
   };
 
   /// Enable or disable a profile — Super Admin only.
-  ///
-  /// Dry-run — who-column population:
-  ///   last_updated_by and last_update_date are overwritten with caller + Time.now()
-  ///   on every state-changing call. created_by and creation_date are preserved via
-  ///   record spread (the `existing with ...` pattern copies all other fields unchanged).
   public func enableProfile(store : Store, userStore : UserStore, caller : Common.UserId, profile_key : Common.ProfileKey, enabled : Bool) : Bool {
     // Verify caller is superAdmin
     switch (userStore.get(caller)) {
@@ -278,7 +328,6 @@ module {
   };
 
   /// Set the active governance window for a profile — Super Admin only.
-  /// Pass null for start_date/end_date to remove the restriction.
   public func setProfileWindow(store : Store, userStore : UserStore, caller : Common.UserId, profile_key : Common.ProfileKey, start_date : ?Common.Timestamp, end_date : ?Common.Timestamp) : Bool {
     // Verify caller is superAdmin
     switch (userStore.get(caller)) {
@@ -303,13 +352,159 @@ module {
     }
   };
 
+  /// Delete a profile and ALL related data — Super Admin only.
+  /// Cascades to: users, categories, products, customers, batches, movements,
+  /// sales, sale items, purchase orders, PO items scoped to the profile.
+  public func deleteProfile(
+    store : Store,
+    userStore : UserStore,
+    categoryStore : Map.Map<Common.CategoryId, CatalogTypes.Category>,
+    productStore : Map.Map<Common.ProductId, CatalogTypes.Product>,
+    customerStore : Map.Map<Common.CustomerId, CustomerTypes.Customer>,
+    batchStore : Map.Map<Common.BatchId, InventoryTypes.InventoryBatch>,
+    movementStore : Map.Map<Common.MovementId, InventoryTypes.InventoryMovement>,
+    saleStore : Map.Map<Common.SaleId, SalesTypes.Sale>,
+    saleItemStore : Map.Map<Common.SaleId, [SalesTypes.SaleItem]>,
+    poStore : Map.Map<Common.PurchaseOrderId, PurchaseTypes.PurchaseOrder>,
+    poItemStore : Map.Map<Common.PurchaseOrderId, [PurchaseTypes.PurchaseOrderItem]>,
+    caller : Common.UserId,
+    profileKey : Common.ProfileKey,
+  ) : Bool {
+    // Verify caller is superAdmin
+    switch (userStore.get(caller)) {
+      case (?up) {
+        if (up.role != #superAdmin) return false;
+      };
+      case null return false;
+    };
+    // Verify profile exists
+    switch (store.get(profileKey)) {
+      case null return false;
+      case (?_) {};
+    };
+    // Remove profile record
+    store.remove(profileKey);
+    // Remove all users in this profile
+    let userKeysToRemove = userStore.entries()
+      .filter(func((_k, up) : (Common.UserId, UserTypes.UserProfile)) : Bool {
+        up.profile_key == profileKey
+      })
+      .map(func((k, _up) : (Common.UserId, UserTypes.UserProfile)) : Common.UserId { k })
+      .toArray();
+    for (uid in userKeysToRemove.values()) {
+      userStore.remove(uid);
+    };
+    // Remove categories
+    let catKeysToRemove = categoryStore.entries()
+      .filter(func((_k, c) : (Common.CategoryId, CatalogTypes.Category)) : Bool { c.profile_key == profileKey })
+      .map(func((k, _c) : (Common.CategoryId, CatalogTypes.Category)) : Common.CategoryId { k })
+      .toArray();
+    for (cid in catKeysToRemove.values()) {
+      categoryStore.remove(cid);
+    };
+    // Remove products
+    let prodKeysToRemove = productStore.entries()
+      .filter(func((_k, p) : (Common.ProductId, CatalogTypes.Product)) : Bool { p.profile_key == profileKey })
+      .map(func((k, _p) : (Common.ProductId, CatalogTypes.Product)) : Common.ProductId { k })
+      .toArray();
+    for (pid in prodKeysToRemove.values()) {
+      productStore.remove(pid);
+    };
+    // Remove customers
+    let custKeysToRemove = customerStore.entries()
+      .filter(func((_k, c) : (Common.CustomerId, CustomerTypes.Customer)) : Bool { c.profile_key == profileKey })
+      .map(func((k, _c) : (Common.CustomerId, CustomerTypes.Customer)) : Common.CustomerId { k })
+      .toArray();
+    for (cid in custKeysToRemove.values()) {
+      customerStore.remove(cid);
+    };
+    // Remove inventory batches
+    let batchKeysToRemove = batchStore.entries()
+      .filter(func((_k, b) : (Common.BatchId, InventoryTypes.InventoryBatch)) : Bool { b.profile_key == profileKey })
+      .map(func((k, _b) : (Common.BatchId, InventoryTypes.InventoryBatch)) : Common.BatchId { k })
+      .toArray();
+    for (bid in batchKeysToRemove.values()) {
+      batchStore.remove(bid);
+    };
+    // Remove inventory movements
+    let mvKeysToRemove = movementStore.entries()
+      .filter(func((_k, m) : (Common.MovementId, InventoryTypes.InventoryMovement)) : Bool { m.profile_key == profileKey })
+      .map(func((k, _m) : (Common.MovementId, InventoryTypes.InventoryMovement)) : Common.MovementId { k })
+      .toArray();
+    for (mid in mvKeysToRemove.values()) {
+      movementStore.remove(mid);
+    };
+    // Remove sales and their items
+    let saleKeysToRemove = saleStore.entries()
+      .filter(func((_k, s) : (Common.SaleId, SalesTypes.Sale)) : Bool { s.profile_key == profileKey })
+      .map(func((k, _s) : (Common.SaleId, SalesTypes.Sale)) : Common.SaleId { k })
+      .toArray();
+    for (sid in saleKeysToRemove.values()) {
+      saleStore.remove(sid);
+      saleItemStore.remove(sid);
+    };
+    // Remove POs and their items
+    let poKeysToRemove = poStore.entries()
+      .filter(func((_k, po) : (Common.PurchaseOrderId, PurchaseTypes.PurchaseOrder)) : Bool { po.profile_key == profileKey })
+      .map(func((k, _po) : (Common.PurchaseOrderId, PurchaseTypes.PurchaseOrder)) : Common.PurchaseOrderId { k })
+      .toArray();
+    for (poid in poKeysToRemove.values()) {
+      poStore.remove(poid);
+      poItemStore.remove(poid);
+    };
+    true
+  };
+
+  /// Update the profile_key for a profile — Super Admin only.
+  /// Migrates all users whose profile_key matches oldKey to newKey.
+  public func updateProfileKey(store : Store, userStore : UserStore, caller : Common.UserId, oldKey : Common.ProfileKey, newKey : Common.ProfileKey) : Bool {
+    // Verify caller is superAdmin
+    switch (userStore.get(caller)) {
+      case (?up) {
+        if (up.role != #superAdmin) return false;
+      };
+      case null return false;
+    };
+    // Validate new key
+    if (newKey.size() == 0) return false;
+    // New key must not conflict with existing profile
+    switch (store.get(newKey)) {
+      case (?_) return false; // newKey already in use
+      case null {};
+    };
+    // Fetch existing profile
+    let existing = switch (store.get(oldKey)) {
+      case null return false;
+      case (?p) p;
+    };
+    // Re-insert under new key
+    let updated : ProfileTypes.Profile = {
+      existing with
+      profile_key = newKey;
+      last_updated_by = caller;
+      last_update_date = Time.now();
+    };
+    store.remove(oldKey);
+    store.add(newKey, updated);
+    // Update all users that reference oldKey
+    let now = Time.now();
+    let usersToUpdate = userStore.entries()
+      .filter(func((_k, up) : (Common.UserId, UserTypes.UserProfile)) : Bool {
+        up.profile_key == oldKey
+      })
+      .toArray();
+    for ((uid, up) in usersToUpdate.values()) {
+      userStore.add(uid, {
+        up with
+        profile_key = newKey;
+        last_updated_by = caller;
+        last_update_date = now;
+      });
+    };
+    true
+  };
+
   /// Returns the UserProfile for the caller (onboarding status).
-  ///
-  /// Dry-run — who-column validation:
-  ///   The public projection strips who-columns so they are never exposed to clients.
-  ///   On the internal UserProfile record:
-  ///     created_by / creation_date are set once at creation time (createProfile / joinProfile).
-  ///     last_updated_by / last_update_date are updated on every write (updateUserProfile).
   public func getUserProfile(userStore : UserStore, caller : Common.UserId) : ?UserTypes.UserProfilePublic {
     switch (userStore.get(caller)) {
       case (?up) ?{
@@ -329,9 +524,6 @@ module {
     switch (userStore.get(caller)) {
       case null false;
       case (?existing) {
-        // Dry-run — who-column population on update:
-        //   created_by and creation_date preserved from existing record (immutable after first write).
-        //   last_updated_by set to caller, last_update_date set to now.
         let updated : UserTypes.UserProfile = {
           existing with
           warehouse_name = input.warehouse_name;

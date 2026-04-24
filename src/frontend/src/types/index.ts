@@ -166,10 +166,32 @@ export interface ProfileContextValue {
 export const ROLES = {
   SUPER_ADMIN: "superAdmin",
   ADMIN: "admin",
-  SUB_ADMIN: "subAdmin",
+  STAFF: "staff",
 } as const;
 
 export type RoleKey = (typeof ROLES)[keyof typeof ROLES];
+
+// ─── Impersonation state ──────────────────────────────────────────────────────
+
+export interface ImpersonationState {
+  isImpersonating: boolean;
+  profileKey: string;
+  profileName: string;
+  originalRole: string;
+}
+
+// ─── User Profile Public (mirrors backend UserProfilePublic) ─────────────────
+// Fully re-exported via `export type { UserProfilePublic }` from backend above.
+// UserProfilePublicExtended adds display helpers used in user management UI.
+export interface UserProfilePublicExtended {
+  /** Principal as string (via .toText()) */
+  user_id: string;
+  profile_key: string;
+  role: string;
+  warehouse_name: string;
+  display_name: string;
+  joined_at: bigint;
+}
 
 // ─── Super Admin extended view ─────────────────────────────────────────────────
 
@@ -200,6 +222,37 @@ export interface WhoColumns {
 // ProfileStatsExtended is kept as an alias for backward compatibility.
 
 export type ProfileStatsExtended = import("../backend").ProfileStats;
+
+// ─── Body Composition types ───────────────────────────────────────────────────
+
+export interface BodyCompositionEntry {
+  id: string;
+  customer_id: string;
+  profile_key: string;
+  date: string;
+  weight?: number;
+  body_fat?: number;
+  visceral_fat?: number;
+  bmr?: number;
+  bmi?: number;
+  body_age?: number;
+  trunk_fat?: number;
+  muscle_mass?: number;
+  created_by: string;
+  creation_date: bigint;
+}
+
+export interface BodyCompositionInput {
+  date: string;
+  weight?: number;
+  body_fat?: number;
+  visceral_fat?: number;
+  bmr?: number;
+  bmi?: number;
+  body_age?: number;
+  trunk_fat?: number;
+  muscle_mass?: number;
+}
 
 // Unused SaleItem and UserId imports are consumed by CustomerOrderItem/CustomerOrderFlat
 // Declare as used to avoid lint errors

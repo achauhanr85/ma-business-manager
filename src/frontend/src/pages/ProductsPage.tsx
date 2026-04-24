@@ -40,6 +40,7 @@ import {
   useUpdateCategory,
   useUpdateProduct,
 } from "@/hooks/useBackend";
+import { downloadCsvTemplate, exportToCsv, parseCsvFile } from "@/lib/csvUtils";
 import type {
   Category,
   CategoryInput,
@@ -47,8 +48,17 @@ import type {
   Product,
   ProductInput,
 } from "@/types";
-import { Package, Pencil, Plus, Search, Tag, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import {
+  Download,
+  Package,
+  Pencil,
+  Plus,
+  Search,
+  Tag,
+  Trash2,
+  Upload,
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 interface ProductsPageProps {
@@ -69,7 +79,6 @@ function CategoryDialog({ open, editing, onClose }: CategoryDialogProps) {
   const [name, setName] = useState(editing?.name ?? "");
   const [description, setDescription] = useState(editing?.description ?? "");
 
-  // Sync form fields whenever the editing prop changes (e.g. switching between categories)
   useEffect(() => {
     setName(editing?.name ?? "");
     setDescription(editing?.description ?? "");
@@ -188,13 +197,9 @@ function ProductDialog({
 }: ProductDialogProps) {
   const createProduct = useCreateProduct();
   const updateProduct = useUpdateProduct();
-
   const [form, setForm] = useState<ProductInput>(EMPTY_PRODUCT);
   const [skuError, setSkuError] = useState("");
 
-  // Sync form fields whenever editing changes OR dialog opens — this is the
-  // fix for the blank edit form bug: useState initializer only runs at mount,
-  // so we must explicitly hydrate form state on each editing change.
   useEffect(() => {
     if (open) {
       setForm(
@@ -215,9 +220,7 @@ function ProductDialog({
   }, [open, editing]);
 
   function handleOpenChange(isOpen: boolean) {
-    if (!isOpen) {
-      onClose();
-    }
+    if (!isOpen) onClose();
   }
 
   function setField<K extends keyof ProductInput>(
@@ -421,6 +424,516 @@ function ProductDialog({
   );
 }
 
+// ── Bulk Upload: Categories ───────────────────────────────────────────────────
+
+interface CatUploadRow {
+  name: string;
+  description: string;
+  error?: string;
+}
+
+interface BulkCategoryUploadDialogProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+function BulkCategoryUploadDialog({
+  open,
+  onClose,
+}: BulkCategoryUploadDialogProps) {
+  const createCategory = useCreateCategory();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [rows, setRows] = useState<CatUploadRow[]>([]);
+  const [importing, setImporting] = useState(false);
+  const [summary, setSummary] = useState<{
+    imported: number;
+    errors: number;
+  } | null>(null);
+
+  function reset() {
+    setRows([]);
+    setSummary(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function handleClose() {
+    reset();
+    onClose();
+  }
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const parsed = await parseCsvFile(file);
+      const validated: CatUploadRow[] = parsed.map((row) => {
+        const name = row.name?.trim() ?? "";
+        if (!name)
+          return {
+            name,
+            description: row.description ?? "",
+            error: "Name is required",
+          };
+        return { name, description: row.description?.trim() ?? "" };
+      });
+      setRows(validated);
+      setSummary(null);
+    } catch {
+      toast.error("Failed to parse CSV file");
+    }
+  }
+
+  async function handleImport() {
+    const valid = rows.filter((r) => !r.error);
+    if (valid.length === 0) return;
+    setImporting(true);
+    let imported = 0;
+    let errors = 0;
+    for (const row of valid) {
+      try {
+        await createCategory.mutateAsync({
+          name: row.name,
+          description: row.description,
+        });
+        imported++;
+      } catch {
+        errors++;
+      }
+    }
+    setSummary({ imported, errors });
+    setImporting(false);
+    toast.success(`${imported} categories imported`);
+  }
+
+  const validCount = rows.filter((r) => !r.error).length;
+  const errorCount = rows.filter((r) => !!r.error).length;
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
+      <DialogContent
+        className="max-w-xl max-h-[80vh] flex flex-col"
+        data-ocid="categories.bulk_upload.dialog"
+      >
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Upload className="w-4 h-4 text-primary" />
+            Bulk Upload Categories
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 flex-1 overflow-y-auto">
+          <div className="flex items-center gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                downloadCsvTemplate("categories_template.csv", [
+                  "name",
+                  "description",
+                ])
+              }
+              data-ocid="categories.bulk_upload.download_template_button"
+            >
+              <Download className="w-3.5 h-3.5 mr-1.5" />
+              Download Template
+            </Button>
+            <div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv"
+                className="hidden"
+                onChange={handleFileChange}
+                data-ocid="categories.bulk_upload.file_input"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Upload className="w-3.5 h-3.5 mr-1.5" />
+                Choose CSV
+              </Button>
+            </div>
+          </div>
+
+          {rows.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="text-foreground font-medium">
+                  {rows.length} rows
+                </span>
+                {errorCount > 0 && (
+                  <span className="text-destructive">
+                    {errorCount} with errors
+                  </span>
+                )}
+                {validCount > 0 && (
+                  <span className="text-primary">{validCount} valid</span>
+                )}
+              </div>
+              <div className="border border-border rounded-lg overflow-hidden max-h-60 overflow-y-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-muted/40 border-b border-border">
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">
+                        Name
+                      </th>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">
+                        Description
+                      </th>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">
+                        Status
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr
+                        key={`${row.name}-${row.description}`}
+                        className={`border-b border-border last:border-0 ${row.error ? "bg-destructive/5" : ""}`}
+                      >
+                        <td className="px-3 py-2">
+                          {row.name || <em className="opacity-50">empty</em>}
+                        </td>
+                        <td className="px-3 py-2 text-muted-foreground truncate max-w-[120px]">
+                          {row.description || "—"}
+                        </td>
+                        <td className="px-3 py-2">
+                          {row.error ? (
+                            <span className="text-destructive">
+                              {row.error}
+                            </span>
+                          ) : (
+                            <span className="text-primary">✓ Valid</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {summary && (
+            <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm space-y-1">
+              <p className="font-medium">Import complete</p>
+              <p className="text-muted-foreground">
+                {summary.imported} imported
+                {summary.errors > 0 && `, ${summary.errors} failed`}
+              </p>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2 pt-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleClose}
+            data-ocid="categories.bulk_upload.cancel_button"
+          >
+            Close
+          </Button>
+          <Button
+            type="button"
+            onClick={handleImport}
+            disabled={validCount === 0 || importing || !!summary}
+            data-ocid="categories.bulk_upload.import_button"
+          >
+            {importing ? "Importing…" : `Import ${validCount} Categories`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Bulk Upload: Products ─────────────────────────────────────────────────────
+
+interface ProdUploadRow {
+  sku: string;
+  name: string;
+  category_name: string;
+  volume_points: string;
+  earn_base: string;
+  mrp: string;
+  hsn_code: string;
+  error?: string;
+}
+
+interface BulkProductUploadDialogProps {
+  open: boolean;
+  onClose: () => void;
+  categories: Category[];
+}
+
+function BulkProductUploadDialog({
+  open,
+  onClose,
+  categories,
+}: BulkProductUploadDialogProps) {
+  const createProduct = useCreateProduct();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [rows, setRows] = useState<ProdUploadRow[]>([]);
+  const [importing, setImporting] = useState(false);
+  const [summary, setSummary] = useState<{
+    imported: number;
+    errors: number;
+  } | null>(null);
+
+  function reset() {
+    setRows([]);
+    setSummary(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function handleClose() {
+    reset();
+    onClose();
+  }
+
+  function validate(row: Record<string, string>): ProdUploadRow {
+    const sku = row.sku?.trim() ?? "";
+    const name = row.name?.trim() ?? "";
+    const category_name = row.category_name?.trim() ?? "";
+    const mrpRaw = row.mrp?.trim() ?? "";
+    const errors: string[] = [];
+    if (!sku) errors.push("SKU required");
+    if (!name) errors.push("Name required");
+    if (!category_name) errors.push("Category name required");
+    else if (
+      !categories.find(
+        (c) => c.name.toLowerCase() === category_name.toLowerCase(),
+      )
+    ) {
+      errors.push(`Category "${category_name}" not found`);
+    }
+    const mrp = Number.parseFloat(mrpRaw);
+    if (Number.isNaN(mrp) || mrp < 0) errors.push("Valid MRP required");
+    return {
+      sku,
+      name,
+      category_name,
+      volume_points: row.volume_points?.trim() ?? "0",
+      earn_base: row.earn_base?.trim() ?? "0",
+      mrp: mrpRaw,
+      hsn_code: row.hsn_code?.trim() ?? "",
+      error: errors.length > 0 ? errors.join("; ") : undefined,
+    };
+  }
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const parsed = await parseCsvFile(file);
+      setRows(parsed.map(validate));
+      setSummary(null);
+    } catch {
+      toast.error("Failed to parse CSV file");
+    }
+  }
+
+  async function handleImport() {
+    const valid = rows.filter((r) => !r.error);
+    if (valid.length === 0) return;
+    setImporting(true);
+    let imported = 0;
+    let errors = 0;
+    for (const row of valid) {
+      const cat = categories.find(
+        (c) => c.name.toLowerCase() === row.category_name.toLowerCase(),
+      );
+      if (!cat) {
+        errors++;
+        continue;
+      }
+      try {
+        const result = await createProduct.mutateAsync({
+          sku: row.sku,
+          name: row.name,
+          category_id: cat.id,
+          volume_points: Number.parseFloat(row.volume_points) || 0,
+          earn_base: Number.parseFloat(row.earn_base) || 0,
+          mrp: Number.parseFloat(row.mrp) || 0,
+          hsn_code: row.hsn_code,
+        });
+        if (result === null) errors++;
+        else imported++;
+      } catch {
+        errors++;
+      }
+    }
+    setSummary({ imported, errors });
+    setImporting(false);
+    toast.success(`${imported} products imported`);
+  }
+
+  const validCount = rows.filter((r) => !r.error).length;
+  const errorCount = rows.filter((r) => !!r.error).length;
+
+  const TEMPLATE_HEADERS = [
+    "sku",
+    "name",
+    "category_name",
+    "volume_points",
+    "earn_base",
+    "mrp",
+    "hsn_code",
+  ];
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
+      <DialogContent
+        className="max-w-2xl max-h-[80vh] flex flex-col"
+        data-ocid="products.bulk_upload.dialog"
+      >
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Upload className="w-4 h-4 text-primary" />
+            Bulk Upload Products
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 flex-1 overflow-y-auto">
+          <p className="text-xs text-muted-foreground">
+            Category name must match an existing category exactly
+            (case-insensitive).
+          </p>
+          <div className="flex items-center gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                downloadCsvTemplate("products_template.csv", TEMPLATE_HEADERS)
+              }
+              data-ocid="products.bulk_upload.download_template_button"
+            >
+              <Download className="w-3.5 h-3.5 mr-1.5" />
+              Download Template
+            </Button>
+            <div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv"
+                className="hidden"
+                onChange={handleFileChange}
+                data-ocid="products.bulk_upload.file_input"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Upload className="w-3.5 h-3.5 mr-1.5" />
+                Choose CSV
+              </Button>
+            </div>
+          </div>
+
+          {rows.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="text-foreground font-medium">
+                  {rows.length} rows
+                </span>
+                {errorCount > 0 && (
+                  <span className="text-destructive">
+                    {errorCount} with errors
+                  </span>
+                )}
+                {validCount > 0 && (
+                  <span className="text-primary">{validCount} valid</span>
+                )}
+              </div>
+              <div className="border border-border rounded-lg overflow-hidden max-h-60 overflow-y-auto">
+                <table className="w-full text-xs min-w-[500px]">
+                  <thead>
+                    <tr className="bg-muted/40 border-b border-border">
+                      {["SKU", "Name", "Category", "MRP", "Status"].map((h) => (
+                        <th
+                          key={h}
+                          className="px-3 py-2 text-left font-medium text-muted-foreground"
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr
+                        key={`${row.sku}-${row.name}`}
+                        className={`border-b border-border last:border-0 ${row.error ? "bg-destructive/5" : ""}`}
+                      >
+                        <td className="px-3 py-2 font-mono">
+                          {row.sku || "—"}
+                        </td>
+                        <td className="px-3 py-2 truncate max-w-[120px]">
+                          {row.name || "—"}
+                        </td>
+                        <td className="px-3 py-2">
+                          {row.category_name || "—"}
+                        </td>
+                        <td className="px-3 py-2">₹{row.mrp || "—"}</td>
+                        <td className="px-3 py-2">
+                          {row.error ? (
+                            <span className="text-destructive text-[10px]">
+                              {row.error}
+                            </span>
+                          ) : (
+                            <span className="text-primary">✓</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {summary && (
+            <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm space-y-1">
+              <p className="font-medium">Import complete</p>
+              <p className="text-muted-foreground">
+                {summary.imported} products imported
+                {summary.errors > 0 && `, ${summary.errors} failed`}
+              </p>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2 pt-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleClose}
+            data-ocid="products.bulk_upload.cancel_button"
+          >
+            Close
+          </Button>
+          <Button
+            type="button"
+            onClick={handleImport}
+            disabled={validCount === 0 || importing || !!summary}
+            data-ocid="products.bulk_upload.import_button"
+          >
+            {importing ? "Importing…" : `Import ${validCount} Products`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Categories Tab ───────────────────────────────────────────────────────────
 
 interface CategoriesTabProps {
@@ -433,6 +946,7 @@ function CategoriesTab({ categories, isLoading }: CategoriesTabProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Category | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Category | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   function openAdd() {
     setEditing(null);
@@ -456,17 +970,47 @@ function CategoriesTab({ categories, isLoading }: CategoriesTabProps) {
     }
   }
 
+  function handleExport() {
+    const data = categories.map((c) => ({
+      name: c.name,
+      description: c.description,
+    }));
+    exportToCsv("categories.csv", data);
+    toast.success("Categories exported");
+  }
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
           {categories.length}{" "}
           {categories.length === 1 ? "category" : "categories"}
         </p>
-        <Button size="sm" onClick={openAdd} data-ocid="category.add_button">
-          <Plus className="w-4 h-4 mr-1.5" />
-          Add Category
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleExport}
+            disabled={categories.length === 0}
+            data-ocid="categories.export_button"
+          >
+            <Download className="w-3.5 h-3.5 mr-1.5" />
+            Export
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setBulkOpen(true)}
+            data-ocid="categories.upload_button"
+          >
+            <Upload className="w-3.5 h-3.5 mr-1.5" />
+            Upload
+          </Button>
+          <Button size="sm" onClick={openAdd} data-ocid="category.add_button">
+            <Plus className="w-4 h-4 mr-1.5" />
+            Add Category
+          </Button>
+        </div>
       </div>
 
       <div className="rounded-lg border border-border overflow-hidden">
@@ -567,6 +1111,11 @@ function CategoriesTab({ categories, isLoading }: CategoriesTabProps) {
         onClose={() => setDialogOpen(false)}
       />
 
+      <BulkCategoryUploadDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+      />
+
       <AlertDialog
         open={!!deleteTarget}
         onOpenChange={(o) => !o && setDeleteTarget(null)}
@@ -619,6 +1168,7 @@ function ProductsTab({
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>("all");
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const stockMap = new Map<string, bigint>();
   for (const lvl of inventoryLevels) {
@@ -662,6 +1212,20 @@ function ProductsTab({
     }
   }
 
+  function handleExport() {
+    const data = products.map((p) => ({
+      sku: p.sku,
+      name: p.name,
+      category_name: categoryMap.get(p.category_id.toString()) ?? "",
+      volume_points: p.volume_points,
+      earn_base: p.earn_base,
+      mrp: p.mrp,
+      hsn_code: p.hsn_code,
+    }));
+    exportToCsv("products.csv", data);
+    toast.success("Products exported");
+  }
+
   const LOW_STOCK_THRESHOLD = BigInt(10);
 
   return (
@@ -695,15 +1259,38 @@ function ProductsTab({
             </SelectContent>
           </Select>
         </div>
-        <Button
-          size="sm"
-          onClick={openAdd}
-          className="w-full sm:w-auto"
-          data-ocid="product.add_button"
-        >
-          <Plus className="w-4 h-4 mr-1.5" />
-          Add Product
-        </Button>
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleExport}
+            disabled={products.length === 0}
+            className="flex-1 sm:flex-none"
+            data-ocid="products.export_button"
+          >
+            <Download className="w-3.5 h-3.5 mr-1.5" />
+            Export
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setBulkOpen(true)}
+            className="flex-1 sm:flex-none"
+            data-ocid="products.upload_button"
+          >
+            <Upload className="w-3.5 h-3.5 mr-1.5" />
+            Upload
+          </Button>
+          <Button
+            size="sm"
+            onClick={openAdd}
+            className="flex-1 sm:flex-none"
+            data-ocid="product.add_button"
+          >
+            <Plus className="w-4 h-4 mr-1.5" />
+            Add
+          </Button>
+        </div>
       </div>
 
       <div className="rounded-lg border border-border overflow-hidden">
@@ -860,6 +1447,12 @@ function ProductsTab({
         editing={editing}
         categories={categories}
         onClose={() => setDialogOpen(false)}
+      />
+
+      <BulkProductUploadDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        categories={categories}
       />
 
       <AlertDialog

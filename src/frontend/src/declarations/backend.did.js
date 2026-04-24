@@ -8,13 +8,19 @@
 
 import { IDL } from '@icp-sdk/core/candid';
 
+export const UserId = IDL.Principal;
+export const UserRole = IDL.Variant({
+  'admin' : IDL.Null,
+  'superAdmin' : IDL.Null,
+  'staff' : IDL.Null,
+});
+export const ProfileKey = IDL.Text;
 export const CustomerId = IDL.Nat;
 export const Timestamp = IDL.Int;
 export const DiscountType = IDL.Variant({
   'Fixed' : IDL.Null,
   'Percentage' : IDL.Null,
 });
-export const ProfileKey = IDL.Text;
 export const CustomerPublic = IDL.Record({
   'id' : CustomerId,
   'total_sales' : IDL.Nat,
@@ -26,13 +32,42 @@ export const CustomerPublic = IDL.Record({
   'email' : IDL.Text,
   'discount_applicable' : IDL.Opt(DiscountType),
   'address' : IDL.Text,
+  'gender' : IDL.Opt(IDL.Text),
   'notes' : IDL.Vec(IDL.Text),
+  'date_of_birth' : IDL.Opt(IDL.Text),
   'phone' : IDL.Text,
   'profile_key' : ProfileKey,
 });
 export const DuplicateCheckResult = IDL.Record({
   'similar_customers' : IDL.Vec(CustomerPublic),
   'has_similar' : IDL.Bool,
+});
+export const BodyCompositionInput = IDL.Record({
+  'bmi' : IDL.Opt(IDL.Float64),
+  'bmr' : IDL.Opt(IDL.Float64),
+  'weight' : IDL.Opt(IDL.Float64),
+  'date' : IDL.Text,
+  'visceral_fat' : IDL.Opt(IDL.Float64),
+  'muscle_mass' : IDL.Opt(IDL.Float64),
+  'body_age' : IDL.Opt(IDL.Nat),
+  'body_fat' : IDL.Opt(IDL.Float64),
+  'trunk_fat' : IDL.Opt(IDL.Float64),
+});
+export const BodyCompositionEntry = IDL.Record({
+  'id' : IDL.Text,
+  'bmi' : IDL.Opt(IDL.Float64),
+  'bmr' : IDL.Opt(IDL.Float64),
+  'weight' : IDL.Opt(IDL.Float64),
+  'date' : IDL.Text,
+  'created_by' : IDL.Text,
+  'visceral_fat' : IDL.Opt(IDL.Float64),
+  'customer_id' : IDL.Text,
+  'muscle_mass' : IDL.Opt(IDL.Float64),
+  'body_age' : IDL.Opt(IDL.Nat),
+  'body_fat' : IDL.Opt(IDL.Float64),
+  'trunk_fat' : IDL.Opt(IDL.Float64),
+  'profile_key' : ProfileKey,
+  'creation_date' : Timestamp,
 });
 export const CategoryInput = IDL.Record({
   'name' : IDL.Text,
@@ -46,6 +81,8 @@ export const CustomerInput = IDL.Record({
   'email' : IDL.Text,
   'discount_applicable' : IDL.Opt(DiscountType),
   'address' : IDL.Text,
+  'gender' : IDL.Opt(IDL.Text),
+  'date_of_birth' : IDL.Opt(IDL.Text),
   'phone' : IDL.Text,
 });
 export const ProductInput = IDL.Record({
@@ -63,6 +100,7 @@ export const ProfileInput = IDL.Record({
   'email' : IDL.Text,
   'business_address' : IDL.Text,
   'logo_url' : IDL.Text,
+  'receipt_notes' : IDL.Text,
   'phone_number' : IDL.Text,
   'theme_color' : IDL.Text,
   'profile_key' : ProfileKey,
@@ -105,7 +143,6 @@ export const SaleInput = IDL.Record({
   'amount_paid' : IDL.Opt(IDL.Float64),
 });
 export const SaleId = IDL.Nat;
-export const UserId = IDL.Principal;
 export const ProfilePublic = IDL.Record({
   'owner' : UserId,
   'is_enabled' : IDL.Bool,
@@ -117,10 +154,19 @@ export const ProfilePublic = IDL.Record({
   'business_address' : IDL.Text,
   'start_date' : IDL.Opt(Timestamp),
   'logo_url' : IDL.Text,
+  'receipt_notes' : IDL.Text,
   'phone_number' : IDL.Text,
   'theme_color' : IDL.Text,
   'profile_key' : ProfileKey,
   'fssai_number' : IDL.Text,
+});
+export const UserProfilePublic = IDL.Record({
+  'principal' : UserId,
+  'role' : UserRole,
+  'display_name' : IDL.Text,
+  'joined_at' : Timestamp,
+  'warehouse_name' : WarehouseName,
+  'profile_key' : ProfileKey,
 });
 export const Category = IDL.Record({
   'id' : CategoryId,
@@ -281,19 +327,6 @@ export const SuperAdminStats = IDL.Record({
   'total_profiles' : IDL.Nat,
   'profiles' : IDL.Vec(ProfileStats),
 });
-export const UserRole = IDL.Variant({
-  'admin' : IDL.Null,
-  'superAdmin' : IDL.Null,
-  'subAdmin' : IDL.Null,
-});
-export const UserProfilePublic = IDL.Record({
-  'principal' : UserId,
-  'role' : UserRole,
-  'display_name' : IDL.Text,
-  'joined_at' : Timestamp,
-  'warehouse_name' : WarehouseName,
-  'profile_key' : ProfileKey,
-});
 export const InventoryMovementInput = IDL.Record({
   'from_warehouse' : WarehouseName,
   'product_id' : ProductId,
@@ -314,12 +347,19 @@ export const UserProfileInput = IDL.Record({
 });
 
 export const idlService = IDL.Service({
+  'assignUserRole' : IDL.Func([UserId, UserRole, ProfileKey], [IDL.Bool], []),
   'checkCustomerDuplicate' : IDL.Func(
       [IDL.Text],
       [DuplicateCheckResult],
       ['query'],
     ),
+  'claimSuperAdmin' : IDL.Func([], [IDL.Bool], []),
   'clearAllData' : IDL.Func([], [], []),
+  'createBodyCompositionEntry' : IDL.Func(
+      [CustomerId, BodyCompositionInput],
+      [IDL.Opt(BodyCompositionEntry)],
+      [],
+    ),
   'createCategory' : IDL.Func([CategoryInput], [CategoryId], []),
   'createCustomer' : IDL.Func([CustomerInput], [CustomerId], []),
   'createProduct' : IDL.Func([ProductInput], [IDL.Opt(ProductId)], []),
@@ -330,11 +370,19 @@ export const idlService = IDL.Service({
       [],
     ),
   'createSale' : IDL.Func([SaleInput], [IDL.Opt(SaleId)], []),
+  'deleteBodyCompositionEntry' : IDL.Func([IDL.Text], [IDL.Bool], []),
   'deleteCategory' : IDL.Func([CategoryId], [IDL.Bool], []),
   'deleteCustomer' : IDL.Func([CustomerId], [IDL.Bool], []),
   'deleteProduct' : IDL.Func([ProductId], [IDL.Bool], []),
+  'deleteProfile' : IDL.Func([ProfileKey], [IDL.Bool], []),
   'enableProfile' : IDL.Func([ProfileKey, IDL.Bool], [IDL.Bool], []),
   'getAllProfilesForAdmin' : IDL.Func([], [IDL.Vec(ProfilePublic)], ['query']),
+  'getAllUsersForAdmin' : IDL.Func([], [IDL.Vec(UserProfilePublic)], ['query']),
+  'getBodyCompositionHistory' : IDL.Func(
+      [CustomerId],
+      [IDL.Vec(BodyCompositionEntry)],
+      ['query'],
+    ),
   'getCategories' : IDL.Func([], [IDL.Vec(Category)], ['query']),
   'getCustomer' : IDL.Func([CustomerId], [IDL.Opt(CustomerPublic)], ['query']),
   'getCustomerOrders' : IDL.Func(
@@ -384,6 +432,11 @@ export const idlService = IDL.Service({
   'getSalesByCustomer' : IDL.Func([CustomerId], [IDL.Vec(Sale)], ['query']),
   'getSuperAdminStats' : IDL.Func([], [SuperAdminStats], ['query']),
   'getUserProfile' : IDL.Func([], [IDL.Opt(UserProfilePublic)], ['query']),
+  'getUsersByProfile' : IDL.Func(
+      [ProfileKey],
+      [IDL.Vec(UserProfilePublic)],
+      ['query'],
+    ),
   'initSuperAdmin' : IDL.Func([], [IDL.Bool], []),
   'joinProfile' : IDL.Func(
       [ProfileKey, IDL.Text, WarehouseName],
@@ -405,6 +458,7 @@ export const idlService = IDL.Service({
   'updateCustomer' : IDL.Func([CustomerId, CustomerInput], [IDL.Bool], []),
   'updateProduct' : IDL.Func([ProductId, ProductInput], [IDL.Bool], []),
   'updateProfile' : IDL.Func([ProfileInput], [IDL.Bool], []),
+  'updateProfileKey' : IDL.Func([ProfileKey, ProfileKey], [IDL.Bool], []),
   'updateSale' : IDL.Func([UpdateSaleInput], [IDL.Bool], []),
   'updateUserProfile' : IDL.Func([UserProfileInput], [IDL.Bool], []),
 });
@@ -412,13 +466,19 @@ export const idlService = IDL.Service({
 export const idlInitArgs = [];
 
 export const idlFactory = ({ IDL }) => {
+  const UserId = IDL.Principal;
+  const UserRole = IDL.Variant({
+    'admin' : IDL.Null,
+    'superAdmin' : IDL.Null,
+    'staff' : IDL.Null,
+  });
+  const ProfileKey = IDL.Text;
   const CustomerId = IDL.Nat;
   const Timestamp = IDL.Int;
   const DiscountType = IDL.Variant({
     'Fixed' : IDL.Null,
     'Percentage' : IDL.Null,
   });
-  const ProfileKey = IDL.Text;
   const CustomerPublic = IDL.Record({
     'id' : CustomerId,
     'total_sales' : IDL.Nat,
@@ -430,13 +490,42 @@ export const idlFactory = ({ IDL }) => {
     'email' : IDL.Text,
     'discount_applicable' : IDL.Opt(DiscountType),
     'address' : IDL.Text,
+    'gender' : IDL.Opt(IDL.Text),
     'notes' : IDL.Vec(IDL.Text),
+    'date_of_birth' : IDL.Opt(IDL.Text),
     'phone' : IDL.Text,
     'profile_key' : ProfileKey,
   });
   const DuplicateCheckResult = IDL.Record({
     'similar_customers' : IDL.Vec(CustomerPublic),
     'has_similar' : IDL.Bool,
+  });
+  const BodyCompositionInput = IDL.Record({
+    'bmi' : IDL.Opt(IDL.Float64),
+    'bmr' : IDL.Opt(IDL.Float64),
+    'weight' : IDL.Opt(IDL.Float64),
+    'date' : IDL.Text,
+    'visceral_fat' : IDL.Opt(IDL.Float64),
+    'muscle_mass' : IDL.Opt(IDL.Float64),
+    'body_age' : IDL.Opt(IDL.Nat),
+    'body_fat' : IDL.Opt(IDL.Float64),
+    'trunk_fat' : IDL.Opt(IDL.Float64),
+  });
+  const BodyCompositionEntry = IDL.Record({
+    'id' : IDL.Text,
+    'bmi' : IDL.Opt(IDL.Float64),
+    'bmr' : IDL.Opt(IDL.Float64),
+    'weight' : IDL.Opt(IDL.Float64),
+    'date' : IDL.Text,
+    'created_by' : IDL.Text,
+    'visceral_fat' : IDL.Opt(IDL.Float64),
+    'customer_id' : IDL.Text,
+    'muscle_mass' : IDL.Opt(IDL.Float64),
+    'body_age' : IDL.Opt(IDL.Nat),
+    'body_fat' : IDL.Opt(IDL.Float64),
+    'trunk_fat' : IDL.Opt(IDL.Float64),
+    'profile_key' : ProfileKey,
+    'creation_date' : Timestamp,
   });
   const CategoryInput = IDL.Record({
     'name' : IDL.Text,
@@ -450,6 +539,8 @@ export const idlFactory = ({ IDL }) => {
     'email' : IDL.Text,
     'discount_applicable' : IDL.Opt(DiscountType),
     'address' : IDL.Text,
+    'gender' : IDL.Opt(IDL.Text),
+    'date_of_birth' : IDL.Opt(IDL.Text),
     'phone' : IDL.Text,
   });
   const ProductInput = IDL.Record({
@@ -467,6 +558,7 @@ export const idlFactory = ({ IDL }) => {
     'email' : IDL.Text,
     'business_address' : IDL.Text,
     'logo_url' : IDL.Text,
+    'receipt_notes' : IDL.Text,
     'phone_number' : IDL.Text,
     'theme_color' : IDL.Text,
     'profile_key' : ProfileKey,
@@ -509,7 +601,6 @@ export const idlFactory = ({ IDL }) => {
     'amount_paid' : IDL.Opt(IDL.Float64),
   });
   const SaleId = IDL.Nat;
-  const UserId = IDL.Principal;
   const ProfilePublic = IDL.Record({
     'owner' : UserId,
     'is_enabled' : IDL.Bool,
@@ -521,10 +612,19 @@ export const idlFactory = ({ IDL }) => {
     'business_address' : IDL.Text,
     'start_date' : IDL.Opt(Timestamp),
     'logo_url' : IDL.Text,
+    'receipt_notes' : IDL.Text,
     'phone_number' : IDL.Text,
     'theme_color' : IDL.Text,
     'profile_key' : ProfileKey,
     'fssai_number' : IDL.Text,
+  });
+  const UserProfilePublic = IDL.Record({
+    'principal' : UserId,
+    'role' : UserRole,
+    'display_name' : IDL.Text,
+    'joined_at' : Timestamp,
+    'warehouse_name' : WarehouseName,
+    'profile_key' : ProfileKey,
   });
   const Category = IDL.Record({
     'id' : CategoryId,
@@ -682,19 +782,6 @@ export const idlFactory = ({ IDL }) => {
     'total_profiles' : IDL.Nat,
     'profiles' : IDL.Vec(ProfileStats),
   });
-  const UserRole = IDL.Variant({
-    'admin' : IDL.Null,
-    'superAdmin' : IDL.Null,
-    'subAdmin' : IDL.Null,
-  });
-  const UserProfilePublic = IDL.Record({
-    'principal' : UserId,
-    'role' : UserRole,
-    'display_name' : IDL.Text,
-    'joined_at' : Timestamp,
-    'warehouse_name' : WarehouseName,
-    'profile_key' : ProfileKey,
-  });
   const InventoryMovementInput = IDL.Record({
     'from_warehouse' : WarehouseName,
     'product_id' : ProductId,
@@ -715,12 +802,19 @@ export const idlFactory = ({ IDL }) => {
   });
   
   return IDL.Service({
+    'assignUserRole' : IDL.Func([UserId, UserRole, ProfileKey], [IDL.Bool], []),
     'checkCustomerDuplicate' : IDL.Func(
         [IDL.Text],
         [DuplicateCheckResult],
         ['query'],
       ),
+    'claimSuperAdmin' : IDL.Func([], [IDL.Bool], []),
     'clearAllData' : IDL.Func([], [], []),
+    'createBodyCompositionEntry' : IDL.Func(
+        [CustomerId, BodyCompositionInput],
+        [IDL.Opt(BodyCompositionEntry)],
+        [],
+      ),
     'createCategory' : IDL.Func([CategoryInput], [CategoryId], []),
     'createCustomer' : IDL.Func([CustomerInput], [CustomerId], []),
     'createProduct' : IDL.Func([ProductInput], [IDL.Opt(ProductId)], []),
@@ -731,13 +825,25 @@ export const idlFactory = ({ IDL }) => {
         [],
       ),
     'createSale' : IDL.Func([SaleInput], [IDL.Opt(SaleId)], []),
+    'deleteBodyCompositionEntry' : IDL.Func([IDL.Text], [IDL.Bool], []),
     'deleteCategory' : IDL.Func([CategoryId], [IDL.Bool], []),
     'deleteCustomer' : IDL.Func([CustomerId], [IDL.Bool], []),
     'deleteProduct' : IDL.Func([ProductId], [IDL.Bool], []),
+    'deleteProfile' : IDL.Func([ProfileKey], [IDL.Bool], []),
     'enableProfile' : IDL.Func([ProfileKey, IDL.Bool], [IDL.Bool], []),
     'getAllProfilesForAdmin' : IDL.Func(
         [],
         [IDL.Vec(ProfilePublic)],
+        ['query'],
+      ),
+    'getAllUsersForAdmin' : IDL.Func(
+        [],
+        [IDL.Vec(UserProfilePublic)],
+        ['query'],
+      ),
+    'getBodyCompositionHistory' : IDL.Func(
+        [CustomerId],
+        [IDL.Vec(BodyCompositionEntry)],
         ['query'],
       ),
     'getCategories' : IDL.Func([], [IDL.Vec(Category)], ['query']),
@@ -793,6 +899,11 @@ export const idlFactory = ({ IDL }) => {
     'getSalesByCustomer' : IDL.Func([CustomerId], [IDL.Vec(Sale)], ['query']),
     'getSuperAdminStats' : IDL.Func([], [SuperAdminStats], ['query']),
     'getUserProfile' : IDL.Func([], [IDL.Opt(UserProfilePublic)], ['query']),
+    'getUsersByProfile' : IDL.Func(
+        [ProfileKey],
+        [IDL.Vec(UserProfilePublic)],
+        ['query'],
+      ),
     'initSuperAdmin' : IDL.Func([], [IDL.Bool], []),
     'joinProfile' : IDL.Func(
         [ProfileKey, IDL.Text, WarehouseName],
@@ -814,6 +925,7 @@ export const idlFactory = ({ IDL }) => {
     'updateCustomer' : IDL.Func([CustomerId, CustomerInput], [IDL.Bool], []),
     'updateProduct' : IDL.Func([ProductId, ProductInput], [IDL.Bool], []),
     'updateProfile' : IDL.Func([ProfileInput], [IDL.Bool], []),
+    'updateProfileKey' : IDL.Func([ProfileKey, ProfileKey], [IDL.Bool], []),
     'updateSale' : IDL.Func([UpdateSaleInput], [IDL.Bool], []),
     'updateUserProfile' : IDL.Func([UserProfileInput], [IDL.Bool], []),
   });

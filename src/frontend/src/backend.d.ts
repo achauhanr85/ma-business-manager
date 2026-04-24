@@ -38,6 +38,17 @@ export interface CategoryInput {
     description: string;
 }
 export type PurchaseOrderId = bigint;
+export interface BodyCompositionInput {
+    bmi?: number;
+    bmr?: number;
+    weight?: number;
+    date: string;
+    visceral_fat?: number;
+    muscle_mass?: number;
+    body_age?: bigint;
+    body_fat?: number;
+    trunk_fat?: number;
+}
 export type ProfileKey = string;
 export interface SuperAdminStats {
     total_users: bigint;
@@ -67,7 +78,9 @@ export interface CustomerPublic {
     email: string;
     discount_applicable?: DiscountType;
     address: string;
+    gender?: string;
     notes: Array<string>;
+    date_of_birth?: string;
     phone: string;
     profile_key: ProfileKey;
 }
@@ -80,6 +93,8 @@ export interface CustomerInput {
     email: string;
     discount_applicable?: DiscountType;
     address: string;
+    gender?: string;
+    date_of_birth?: string;
     phone: string;
 }
 export interface InventoryMovement {
@@ -155,6 +170,22 @@ export interface Category {
     creation_date: Timestamp;
 }
 export type WarehouseName = string;
+export interface BodyCompositionEntry {
+    id: string;
+    bmi?: number;
+    bmr?: number;
+    weight?: number;
+    date: string;
+    created_by: string;
+    visceral_fat?: number;
+    customer_id: string;
+    muscle_mass?: number;
+    body_age?: bigint;
+    body_fat?: number;
+    trunk_fat?: number;
+    profile_key: ProfileKey;
+    creation_date: Timestamp;
+}
 export interface ProductInput {
     mrp: number;
     sku: string;
@@ -249,6 +280,7 @@ export interface ProfileInput {
     email: string;
     business_address: string;
     logo_url: string;
+    receipt_notes: string;
     phone_number: string;
     theme_color: string;
     profile_key: ProfileKey;
@@ -265,6 +297,7 @@ export interface ProfilePublic {
     business_address: string;
     start_date?: Timestamp;
     logo_url: string;
+    receipt_notes: string;
     phone_number: string;
     theme_color: string;
     profile_key: ProfileKey;
@@ -309,26 +342,36 @@ export enum PaymentStatus {
 export enum UserRole {
     admin = "admin",
     superAdmin = "superAdmin",
-    subAdmin = "subAdmin"
+    staff = "staff"
 }
 export interface backendInterface {
+    assignUserRole(targetUserId: UserId, newRole: UserRole, profile_key: ProfileKey): Promise<boolean>;
     checkCustomerDuplicate(name: string): Promise<DuplicateCheckResult>;
+    /**
+     * / Claim or re-claim superAdmin role.
+     */
+    claimSuperAdmin(): Promise<boolean>;
     /**
      * / Wipe ALL stored data — clears every Map store and resets the super admin principal.
      * / Use this in preview/development to start with a completely fresh state.
      */
     clearAllData(): Promise<void>;
+    createBodyCompositionEntry(customerId: CustomerId, input: BodyCompositionInput): Promise<BodyCompositionEntry | null>;
     createCategory(input: CategoryInput): Promise<CategoryId>;
     createCustomer(input: CustomerInput): Promise<CustomerId>;
     createProduct(input: ProductInput): Promise<ProductId | null>;
     createProfile(input: ProfileInput): Promise<boolean>;
     createPurchaseOrder(input: PurchaseOrderInput): Promise<PurchaseOrderId | null>;
     createSale(input: SaleInput): Promise<SaleId | null>;
+    deleteBodyCompositionEntry(id: string): Promise<boolean>;
     deleteCategory(id: CategoryId): Promise<boolean>;
     deleteCustomer(id: CustomerId): Promise<boolean>;
     deleteProduct(id: ProductId): Promise<boolean>;
+    deleteProfile(profile_key: ProfileKey): Promise<boolean>;
     enableProfile(profile_key: ProfileKey, enabled: boolean): Promise<boolean>;
     getAllProfilesForAdmin(): Promise<Array<ProfilePublic>>;
+    getAllUsersForAdmin(): Promise<Array<UserProfilePublic>>;
+    getBodyCompositionHistory(customerId: CustomerId): Promise<Array<BodyCompositionEntry>>;
     getCategories(): Promise<Array<Category>>;
     getCustomer(id: CustomerId): Promise<CustomerPublic | null>;
     getCustomerOrders(customer_id: CustomerId): Promise<Array<CustomerOrderDetail>>;
@@ -345,13 +388,17 @@ export interface backendInterface {
     getPurchaseOrderItems(po_id: PurchaseOrderId): Promise<Array<PurchaseOrderItem>>;
     getPurchaseOrders(): Promise<Array<PurchaseOrder>>;
     getSale(sale_id: SaleId): Promise<Sale | null>;
+    /**
+     * / Helper: upsert userStore entry with #superAdmin role for the given principal.
+     */
     getSaleItems(sale_id: SaleId): Promise<Array<SaleItem>>;
     getSales(): Promise<Array<Sale>>;
     getSalesByCustomer(customer_id: CustomerId): Promise<Array<Sale>>;
     getSuperAdminStats(): Promise<SuperAdminStats>;
     getUserProfile(): Promise<UserProfilePublic | null>;
+    getUsersByProfile(profile_key: ProfileKey): Promise<Array<UserProfilePublic>>;
     /**
-     * / One-time bootstrap: first caller becomes super admin (if not already set)
+     * / One-time bootstrap: first caller becomes super admin (if not already set).
      */
     initSuperAdmin(): Promise<boolean>;
     joinProfile(profile_key: ProfileKey, display_name: string, warehouse_name: WarehouseName): Promise<boolean>;
@@ -362,6 +409,7 @@ export interface backendInterface {
     updateCustomer(id: CustomerId, input: CustomerInput): Promise<boolean>;
     updateProduct(id: ProductId, input: ProductInput): Promise<boolean>;
     updateProfile(input: ProfileInput): Promise<boolean>;
+    updateProfileKey(oldKey: ProfileKey, newKey: ProfileKey): Promise<boolean>;
     updateSale(input: UpdateSaleInput): Promise<boolean>;
     updateUserProfile(input: UserProfileInput): Promise<boolean>;
 }

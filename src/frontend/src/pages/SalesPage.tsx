@@ -46,6 +46,7 @@ import type {
   DiscountType,
   UpdateSaleInputUI,
 } from "@/types";
+import { UserRole } from "@/types";
 import {
   AlertCircle,
   CheckCircle2,
@@ -57,6 +58,7 @@ import {
   Package,
   Percent,
   Plus,
+  Printer,
   Search,
   ShoppingCart,
   Tag,
@@ -673,9 +675,6 @@ function ProductSearchPanel({
                 </div>
               </div>
               <div className="flex items-center gap-2 mt-1.5">
-                <span className="text-xs text-muted-foreground">
-                  {product.volume_points} VP
-                </span>
                 {inCart && (
                   <Badge
                     variant="outline"
@@ -734,20 +733,6 @@ function CartPanel({
     (sum, e) => sum + e.salePrice * e.quantity,
     0,
   );
-  const totalVP = entries.reduce(
-    (sum, e) => sum + e.product.volume_points * e.quantity,
-    0,
-  );
-  const totalProfit = entries.reduce((sum, e) => {
-    const level = inventoryLevels.find(
-      (l) => l.product_id.toString() === e.product.id.toString(),
-    );
-    const avgCost =
-      level && level.batches.length > 0
-        ? level.batches[0].unit_cost
-        : e.product.earn_base;
-    return sum + (e.salePrice - avgCost) * e.quantity;
-  }, 0);
 
   // Discount calculation
   const discountType = selectedCustomer?.discount_applicable as
@@ -825,7 +810,6 @@ function CartPanel({
                         {entry.product.name}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {entry.product.volume_points * entry.quantity} VP ·{" "}
                         <span className="text-primary">
                           ₹{(entry.salePrice * entry.quantity).toFixed(2)}
                         </span>
@@ -981,20 +965,6 @@ function CartPanel({
                 </span>
               </div>
             )}
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Volume Points</span>
-              <span className="font-semibold text-foreground">
-                {totalVP} VP
-              </span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Est. Profit</span>
-              <span
-                className={`font-semibold ${totalProfit >= 0 ? "text-primary" : "text-destructive"}`}
-              >
-                ₹{totalProfit.toFixed(2)}
-              </span>
-            </div>
             {discountAmount > 0 && (
               <div className="flex justify-between text-sm font-bold border-t border-border pt-1.5 mt-1">
                 <span className="text-foreground">Final Total</span>
@@ -1604,16 +1574,165 @@ function EditSaleModal({
   );
 }
 
+// ─── Read-Only Order View Modal ───────────────────────────────────────────────
+
+interface ReadOnlyOrderModalProps {
+  sale: Sale | null;
+  onClose: () => void;
+}
+
+function ReadOnlyOrderModal({ sale, onClose }: ReadOnlyOrderModalProps) {
+  const { data: items = [], isLoading } = useGetSaleItems(sale?.id ?? null);
+
+  if (!sale) return null;
+
+  const discountApplied =
+    (sale as Sale & { discount_applied?: number }).discount_applied ?? 0;
+  const subtotal = sale.total_revenue + discountApplied;
+
+  return (
+    <Dialog open={!!sale} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent
+        className="max-w-lg max-h-[90vh] overflow-y-auto"
+        data-ocid="sales.view_order.dialog"
+      >
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <Package className="w-4 h-4 text-primary" />
+            Order #{sale.id.toString()}
+          </DialogTitle>
+          <p className="text-xs text-muted-foreground">
+            {formatDate(sale.timestamp)} · {sale.customer_name}
+          </p>
+        </DialogHeader>
+
+        {isLoading ? (
+          <div className="space-y-2 py-4">
+            {[1, 2].map((i) => (
+              <Skeleton key={i} className="h-14 rounded-lg" />
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-4 pt-1">
+            {/* Items */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Items
+              </p>
+              {items.length === 0 ? (
+                <p className="text-sm text-muted-foreground italic">
+                  No items found
+                </p>
+              ) : (
+                items.map((item: SaleItem, idx: number) => (
+                  <div
+                    key={`${item.sale_id}-${item.product_id}`}
+                    className="flex items-center gap-3 rounded-lg border border-border bg-card p-3"
+                    data-ocid={`sales.view_order.item.${idx + 1}`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">
+                        {item.product_name_snapshot}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        ₹{item.actual_sale_price.toFixed(2)} ×{" "}
+                        {Number(item.quantity)} ={" "}
+                        <span className="text-primary font-medium">
+                          ₹
+                          {(
+                            item.actual_sale_price * Number(item.quantity)
+                          ).toFixed(2)}
+                        </span>
+                      </p>
+                    </div>
+                    <span className="text-sm font-semibold text-muted-foreground tabular-nums flex-shrink-0">
+                      ×{Number(item.quantity)}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Totals */}
+            <div className="rounded-lg bg-muted/30 p-3 space-y-1.5 border border-border">
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Subtotal</span>
+                <span>{formatCurrency(subtotal)}</span>
+              </div>
+              {discountApplied > 0 && (
+                <div className="flex justify-between text-sm text-primary">
+                  <span>Discount</span>
+                  <span>-{formatCurrency(discountApplied)}</span>
+                </div>
+              )}
+              <div className="flex justify-between text-sm font-semibold border-t border-border pt-1.5 mt-1">
+                <span>Total</span>
+                <span>{formatCurrency(sale.total_revenue)}</span>
+              </div>
+            </div>
+
+            {/* Payment info */}
+            {(() => {
+              const s = sale as Sale & {
+                payment_mode?: string;
+                payment_status?: string;
+                amount_paid?: number;
+              };
+              return s.payment_mode || s.payment_status ? (
+                <div className="rounded-lg bg-muted/20 border border-border px-3 py-2.5 space-y-1 text-sm">
+                  {s.payment_mode && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Mode</span>
+                      <span className="font-medium">
+                        {PAYMENT_MODE_LABELS[s.payment_mode] ?? s.payment_mode}
+                      </span>
+                    </div>
+                  )}
+                  {s.payment_status && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Status</span>
+                      <span
+                        className={`font-medium capitalize ${String(s.payment_status) === "paid" ? "text-primary" : String(s.payment_status) === "unpaid" ? "text-destructive" : "text-accent-foreground"}`}
+                      >
+                        {s.payment_status}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ) : null;
+            })()}
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+            data-ocid="sales.view_order.close_button"
+          >
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Order History Panel ──────────────────────────────────────────────────────
 
 function OrderHistoryPanel({
   sales,
   isLoading,
   onEditSale,
+  onPrintReceipt,
+  canEdit,
 }: {
   sales: Sale[];
   isLoading: boolean;
   onEditSale: (sale: Sale) => void;
+  onPrintReceipt: (sale: Sale) => void;
+  canEdit: boolean;
 }) {
   const sorted = useMemo(
     () => [...sales].sort((a, b) => Number(b.timestamp) - Number(a.timestamp)),
@@ -1698,23 +1817,33 @@ function OrderHistoryPanel({
                     -{formatCurrency(discountApplied)} disc.
                   </p>
                 )}
-                <p className="text-xs text-muted-foreground">
-                  {sale.total_volume_points} VP
-                </p>
               </div>
             </div>
-            <div className="mt-3 flex justify-end">
+            <div className="mt-3 flex justify-end gap-2">
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
                 className="h-7 text-xs gap-1.5"
-                onClick={() => onEditSale(sale)}
-                data-ocid={`sales.history.edit_button.${idx + 1}`}
+                onClick={() => onPrintReceipt(sale)}
+                data-ocid={`sales.history.print_button.${idx + 1}`}
               >
-                <Edit className="w-3 h-3" />
-                Edit Order
+                <Printer className="w-3 h-3" />
+                Print Receipt
               </Button>
+              {canEdit && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs gap-1.5"
+                  onClick={() => onEditSale(sale)}
+                  data-ocid={`sales.history.edit_button.${idx + 1}`}
+                >
+                  <Edit className="w-3 h-3" />
+                  Edit Order
+                </Button>
+              )}
             </div>
           </div>
         );
@@ -1728,6 +1857,11 @@ function OrderHistoryPanel({
 export function SalesPage({ onNavigate }: SalesPageProps) {
   const { userProfile } = useProfile();
   const warehouseName = userProfile?.warehouse_name ?? "";
+
+  // Role-based permissions
+  const canEdit =
+    userProfile?.role === UserRole.admin ||
+    userProfile?.role === UserRole.superAdmin;
 
   const { data: products = [], isLoading: loadingProducts } = useGetProducts();
   const { data: inventoryLevels = [], isLoading: loadingInventory } =
@@ -1753,6 +1887,7 @@ export function SalesPage({ onNavigate }: SalesPageProps) {
     useState<CustomerPublicWithDiscount | null>(null);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [editSale, setEditSale] = useState<Sale | null>(null);
+  const [viewSale, setViewSale] = useState<Sale | null>(null);
   const [activeTab, setActiveTab] = useState<string>("new-sale");
 
   // Payment state for new sales
@@ -2011,7 +2146,12 @@ export function SalesPage({ onNavigate }: SalesPageProps) {
               <OrderHistoryPanel
                 sales={sales}
                 isLoading={loadingSales}
-                onEditSale={setEditSale}
+                onEditSale={(sale) => {
+                  if (canEdit) setEditSale(sale);
+                  else setViewSale(sale);
+                }}
+                onPrintReceipt={(sale) => onNavigate("/receipt", sale.id)}
+                canEdit={canEdit}
               />
             </CardContent>
           </Card>
@@ -2031,13 +2171,17 @@ export function SalesPage({ onNavigate }: SalesPageProps) {
         }}
       />
 
-      <EditSaleModal
-        sale={editSale}
-        products={products}
-        inventoryLevels={inventoryLevels}
-        warehouseName={warehouseName}
-        onClose={() => setEditSale(null)}
-      />
+      {canEdit ? (
+        <EditSaleModal
+          sale={editSale}
+          products={products}
+          inventoryLevels={inventoryLevels}
+          warehouseName={warehouseName}
+          onClose={() => setEditSale(null)}
+        />
+      ) : (
+        <ReadOnlyOrderModal sale={viewSale} onClose={() => setViewSale(null)} />
+      )}
     </div>
   );
 }

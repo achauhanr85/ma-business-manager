@@ -2,7 +2,7 @@ type WarehouseName = text;
 type UserRole = 
  variant {
    admin;
-   subAdmin;
+   staff;
    superAdmin;
  };
 type UserProfilePublic = 
@@ -156,6 +156,7 @@ type ProfilePublic =
    owner: UserId;
    phone_number: text;
    profile_key: ProfileKey;
+   receipt_notes: text;
    start_date: opt Timestamp;
    theme_color: text;
  };
@@ -169,6 +170,7 @@ type ProfileInput =
    logo_url: text;
    phone_number: text;
    profile_key: ProfileKey;
+   receipt_notes: text;
    theme_color: text;
  };
 type ProductInput = 
@@ -284,9 +286,11 @@ type CustomerPublic =
  record {
    address: text;
    created_at: Timestamp;
+   date_of_birth: opt text;
    discount_applicable: opt DiscountType;
    discount_value: opt float64;
    email: text;
+   gender: opt text;
    id: CustomerId;
    last_purchase_at: Timestamp;
    lifetime_revenue: float64;
@@ -304,9 +308,11 @@ type CustomerOrderDetail =
 type CustomerInput = 
  record {
    address: text;
+   date_of_birth: opt text;
    discount_applicable: opt DiscountType;
    discount_value: opt float64;
    email: text;
+   gender: opt text;
    name: text;
    note: opt text;
    phone: text;
@@ -336,23 +342,63 @@ type CartItem =
    product_id: ProductId;
    quantity: nat;
  };
+type BodyCompositionInput = 
+ record {
+   bmi: opt float64;
+   bmr: opt float64;
+   body_age: opt nat;
+   body_fat: opt float64;
+   date: text;
+   muscle_mass: opt float64;
+   trunk_fat: opt float64;
+   visceral_fat: opt float64;
+   weight: opt float64;
+ };
+type BodyCompositionEntry = 
+ record {
+   bmi: opt float64;
+   bmr: opt float64;
+   body_age: opt nat;
+   body_fat: opt float64;
+   created_by: text;
+   creation_date: Timestamp;
+   customer_id: text;
+   date: text;
+   id: text;
+   muscle_mass: opt float64;
+   profile_key: ProfileKey;
+   trunk_fat: opt float64;
+   visceral_fat: opt float64;
+   weight: opt float64;
+ };
 type BatchId = nat;
 service : {
+  assignUserRole: (targetUserId: UserId, newRole: UserRole, profile_key:
+   ProfileKey) -> (bool);
   checkCustomerDuplicate: (name: text) -> (DuplicateCheckResult) query;
+  /// Claim or re-claim superAdmin role.
+  claimSuperAdmin: () -> (bool);
   /// Wipe ALL stored data — clears every Map store and resets the super admin principal.
   /// Use this in preview/development to start with a completely fresh state.
   clearAllData: () -> ();
+  createBodyCompositionEntry: (customerId: CustomerId, input:
+   BodyCompositionInput) -> (opt BodyCompositionEntry);
   createCategory: (input: CategoryInput) -> (CategoryId);
   createCustomer: (input: CustomerInput) -> (CustomerId);
   createProduct: (input: ProductInput) -> (opt ProductId);
   createProfile: (input: ProfileInput) -> (bool);
   createPurchaseOrder: (input: PurchaseOrderInput) -> (opt PurchaseOrderId);
   createSale: (input: SaleInput) -> (opt SaleId);
+  deleteBodyCompositionEntry: (id: text) -> (bool);
   deleteCategory: (id: CategoryId) -> (bool);
   deleteCustomer: (id: CustomerId) -> (bool);
   deleteProduct: (id: ProductId) -> (bool);
+  deleteProfile: (profile_key: ProfileKey) -> (bool);
   enableProfile: (profile_key: ProfileKey, enabled: bool) -> (bool);
   getAllProfilesForAdmin: () -> (vec ProfilePublic) query;
+  getAllUsersForAdmin: () -> (vec UserProfilePublic) query;
+  getBodyCompositionHistory: (customerId: CustomerId) ->
+   (vec BodyCompositionEntry) query;
   getCategories: () -> (vec Category) query;
   getCustomer: (id: CustomerId) -> (opt CustomerPublic) query;
   getCustomerOrders: (customer_id: CustomerId) ->
@@ -372,12 +418,15 @@ service : {
    (vec PurchaseOrderItem) query;
   getPurchaseOrders: () -> (vec PurchaseOrder) query;
   getSale: (sale_id: SaleId) -> (opt Sale) query;
+  /// Helper: upsert userStore entry with #superAdmin role for the given principal.
   getSaleItems: (sale_id: SaleId) -> (vec SaleItem) query;
   getSales: () -> (vec Sale) query;
   getSalesByCustomer: (customer_id: CustomerId) -> (vec Sale) query;
   getSuperAdminStats: () -> (SuperAdminStats) query;
   getUserProfile: () -> (opt UserProfilePublic) query;
-  /// One-time bootstrap: first caller becomes super admin (if not already set)
+  getUsersByProfile: (profile_key: ProfileKey) ->
+   (vec UserProfilePublic) query;
+  /// One-time bootstrap: first caller becomes super admin (if not already set).
   initSuperAdmin: () -> (bool);
   joinProfile: (profile_key: ProfileKey, display_name: text, warehouse_name:
    WarehouseName) -> (bool);
@@ -389,6 +438,7 @@ service : {
   updateCustomer: (id: CustomerId, input: CustomerInput) -> (bool);
   updateProduct: (id: ProductId, input: ProductInput) -> (bool);
   updateProfile: (input: ProfileInput) -> (bool);
+  updateProfileKey: (oldKey: ProfileKey, newKey: ProfileKey) -> (bool);
   updateSale: (input: UpdateSaleInput) -> (bool);
   updateUserProfile: (input: UserProfileInput) -> (bool);
 }

@@ -7,7 +7,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { useGetUserProfile, useInitSuperAdmin } from "@/hooks/useBackend";
+import {
+  useClaimSuperAdmin,
+  useGetUserProfile,
+  useInitSuperAdmin,
+} from "@/hooks/useBackend";
 import { Leaf, ShieldCheck } from "lucide-react";
 import { useEffect } from "react";
 import { toast } from "sonner";
@@ -18,6 +22,7 @@ interface SuperAdminSetupPageProps {
 
 export function SuperAdminSetupPage({ onComplete }: SuperAdminSetupPageProps) {
   const initSuperAdmin = useInitSuperAdmin();
+  const claimSuperAdmin = useClaimSuperAdmin();
   const { data: existingUserProfile, isLoading } = useGetUserProfile();
 
   // If the current user is already the super admin, skip this screen entirely.
@@ -27,6 +32,7 @@ export function SuperAdminSetupPage({ onComplete }: SuperAdminSetupPageProps) {
     }
   }, [existingUserProfile, isLoading, onComplete]);
 
+  // Case A: User has NO profile at all — first-time setup
   const handleSetup = async () => {
     try {
       const ok = await initSuperAdmin.mutateAsync();
@@ -45,9 +51,36 @@ export function SuperAdminSetupPage({ onComplete }: SuperAdminSetupPageProps) {
     }
   };
 
-  // While checking if the user is already a super admin, show nothing (AppLoader
-  // in App.tsx handles the loading state before this component mounts).
+  // Case B: User HAS a profile but wrong role — claim if principal matches
+  const handleClaim = async () => {
+    try {
+      const ok = await claimSuperAdmin.mutateAsync();
+      if (ok) {
+        toast.success("Super Admin role claimed!", {
+          description: "You now have full Super Admin access.",
+        });
+        // Query invalidation happens in useClaimSuperAdmin onSuccess —
+        // user-profile refetch will re-evaluate routing automatically.
+      } else {
+        toast.error("Claim failed", {
+          description:
+            "Your account is not designated as Super Admin. Proceeding normally.",
+        });
+        onComplete();
+      }
+    } catch {
+      toast.error("Claim failed. Please try again.");
+    }
+  };
+
+  // While checking if the user is already a super admin, show nothing
   if (isLoading) return null;
+
+  // ── Case B: has profile but wrong role ────────────────────────────────────
+  const hasWrongRole =
+    existingUserProfile !== null &&
+    existingUserProfile !== undefined &&
+    existingUserProfile.role !== UserRole.superAdmin;
 
   return (
     <div
@@ -82,14 +115,30 @@ export function SuperAdminSetupPage({ onComplete }: SuperAdminSetupPageProps) {
             <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-primary/10 border border-primary/20 mb-5">
               <ShieldCheck className="w-10 h-10 text-primary" />
             </div>
-            <h1 className="text-2xl font-display font-bold text-foreground">
-              First-Time Setup
-            </h1>
-            <p className="text-muted-foreground text-sm mt-2 max-w-sm mx-auto">
-              This appears to be the first launch. Claim the{" "}
-              <strong className="text-foreground">Super Admin</strong> role to
-              gain full oversight of the app.
-            </p>
+            {hasWrongRole ? (
+              <>
+                <h1 className="text-2xl font-display font-bold text-foreground">
+                  Restore Super Admin Access
+                </h1>
+                <p className="text-muted-foreground text-sm mt-2 max-w-sm mx-auto">
+                  Your account exists but your role needs to be restored. If
+                  your Internet Identity is the designated{" "}
+                  <strong className="text-foreground">Super Admin</strong>,
+                  click below to reclaim full access.
+                </p>
+              </>
+            ) : (
+              <>
+                <h1 className="text-2xl font-display font-bold text-foreground">
+                  First-Time Setup
+                </h1>
+                <p className="text-muted-foreground text-sm mt-2 max-w-sm mx-auto">
+                  This appears to be the first launch. Claim the{" "}
+                  <strong className="text-foreground">Super Admin</strong> role
+                  to gain full oversight of the app.
+                </p>
+              </>
+            )}
           </div>
 
           <Card
@@ -99,12 +148,14 @@ export function SuperAdminSetupPage({ onComplete }: SuperAdminSetupPageProps) {
             <CardHeader className="pb-3">
               <CardTitle className="text-base font-display flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-primary" />
-                Become Super Admin
+                {hasWrongRole
+                  ? "Reclaim Super Admin Role"
+                  : "Become Super Admin"}
               </CardTitle>
               <CardDescription className="text-xs leading-relaxed">
-                The Super Admin has global oversight: monitor all business
-                profiles, users, and system data. This role is assigned to the
-                first person who clicks the button below.
+                {hasWrongRole
+                  ? "The backend will verify your Internet Identity principal. If it matches the designated Super Admin, your role will be immediately promoted and you'll be routed to the Super Admin dashboard."
+                  : "The Super Admin has global oversight: monitor all business profiles, users, and system data. This role is assigned to the first person who clicks the button below."}
               </CardDescription>
             </CardHeader>
 
@@ -127,29 +178,64 @@ export function SuperAdminSetupPage({ onComplete }: SuperAdminSetupPageProps) {
                 ))}
               </ul>
 
-              <Button
-                className="w-full"
-                size="lg"
-                onClick={handleSetup}
-                disabled={initSuperAdmin.isPending}
-                data-ocid="super_admin_setup.setup_button"
-              >
-                {initSuperAdmin.isPending ? (
-                  <span className="flex items-center gap-2">
-                    <span className="w-4 h-4 border-2 border-primary-foreground/40 border-t-primary-foreground rounded-full animate-spin" />
-                    Initializing…
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-2">
-                    <ShieldCheck className="w-4 h-4" />
-                    Set Up as Super Admin
-                  </span>
-                )}
-              </Button>
+              {hasWrongRole ? (
+                <>
+                  <Button
+                    className="w-full"
+                    size="lg"
+                    onClick={handleClaim}
+                    disabled={claimSuperAdmin.isPending}
+                    data-ocid="super_admin_setup.claim_button"
+                  >
+                    {claimSuperAdmin.isPending ? (
+                      <span className="flex items-center gap-2">
+                        <span className="w-4 h-4 border-2 border-primary-foreground/40 border-t-primary-foreground rounded-full animate-spin" />
+                        Verifying…
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        <ShieldCheck className="w-4 h-4" />
+                        Claim Super Admin Access
+                      </span>
+                    )}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="w-full text-muted-foreground"
+                    size="sm"
+                    onClick={onComplete}
+                    disabled={claimSuperAdmin.isPending}
+                    data-ocid="super_admin_setup.skip_button"
+                  >
+                    Continue as regular user
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  className="w-full"
+                  size="lg"
+                  onClick={handleSetup}
+                  disabled={initSuperAdmin.isPending}
+                  data-ocid="super_admin_setup.setup_button"
+                >
+                  {initSuperAdmin.isPending ? (
+                    <span className="flex items-center gap-2">
+                      <span className="w-4 h-4 border-2 border-primary-foreground/40 border-t-primary-foreground rounded-full animate-spin" />
+                      Initializing…
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4" />
+                      Set Up as Super Admin
+                    </span>
+                  )}
+                </Button>
+              )}
 
               <p className="text-xs text-center text-muted-foreground">
-                If Super Admin is already set up, you will proceed to the next
-                step automatically.
+                {hasWrongRole
+                  ? "Only the designated Super Admin principal can claim this role."
+                  : "If Super Admin is already set up, you will proceed to the next step automatically."}
               </p>
             </CardContent>
           </Card>

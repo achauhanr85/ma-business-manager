@@ -10,6 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useProfile } from "@/contexts/ProfileContext";
 import {
   useGetCategories,
   useGetInventoryBatches,
@@ -22,6 +23,7 @@ import type {
   InventoryLevel,
   Product,
 } from "@/types";
+import { UserRole } from "@/types";
 import {
   AlertTriangle,
   ChevronDown,
@@ -270,13 +272,35 @@ function InventorySkeleton() {
 
 export function InventoryPage({ onNavigate: _onNavigate }: InventoryPageProps) {
   const [search, setSearch] = useState("");
-  const { data: levels = [], isLoading: levelsLoading } =
+  const { userProfile } = useProfile();
+  const { data: rawLevels = [], isLoading: levelsLoading } =
     useGetInventoryLevels();
   const { data: products = [], isLoading: productsLoading } = useGetProducts();
   const { data: categories = [], isLoading: categoriesLoading } =
     useGetCategories();
 
   const isLoading = levelsLoading || productsLoading || categoriesLoading;
+
+  const role = userProfile?.role;
+  const isStaff = role === UserRole.staff;
+  const userWarehouse = userProfile?.warehouse_name ?? "";
+
+  // Staff only sees their assigned warehouse; Admin/SuperAdmin see all
+  const levels = useMemo(() => {
+    if (!isStaff || !userWarehouse) return rawLevels;
+    return rawLevels
+      .map((level: InventoryLevel) => {
+        const filteredBatches = level.batches.filter(
+          (b) => b.warehouse_name === userWarehouse,
+        );
+        const filteredQty = filteredBatches.reduce(
+          (sum, b) => sum + b.quantity_remaining,
+          0n,
+        );
+        return { ...level, batches: filteredBatches, total_qty: filteredQty };
+      })
+      .filter((level: InventoryLevel) => level.batches.length > 0);
+  }, [rawLevels, isStaff, userWarehouse]);
 
   const categoryMap = useMemo(() => {
     const m = new Map<bigint, string>();

@@ -48,7 +48,7 @@ const BASE_NAV_ITEMS = [
     label: "Inventory Movement",
     path: "/inventory-movement",
     icon: ArrowRightLeft,
-    roles: [ROLES.SUB_ADMIN, ROLES.ADMIN],
+    roles: [ROLES.STAFF, ROLES.ADMIN],
   },
   { label: "Profile", path: "/profile", icon: User, roles: null },
   {
@@ -159,7 +159,7 @@ export function Sidebar({
                 ? "Super Admin"
                 : userProfile.role === ROLES.ADMIN
                   ? "Admin"
-                  : "Sub Admin"}
+                  : "Staff"}
             </span>
           </div>
         )}

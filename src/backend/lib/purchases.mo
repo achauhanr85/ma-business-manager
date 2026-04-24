@@ -73,11 +73,28 @@ module {
       .toArray()
   };
 
-  public func getPurchaseOrderItems(poStore : POStore, itemStore : POItemStore, caller : Common.UserId, po_id : Common.PurchaseOrderId) : [PurchaseTypes.PurchaseOrderItem] {
+  /// Returns PO line items.
+  /// #admin, #staff, and #superAdmin can view all items for a PO in their profile.
+  /// Regular users (if any) only see POs they own.
+  public func getPurchaseOrderItems(
+    poStore : POStore,
+    itemStore : POItemStore,
+    userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
+    caller : Common.UserId,
+    po_id : Common.PurchaseOrderId,
+  ) : [PurchaseTypes.PurchaseOrderItem] {
+    let up = switch (userStore.get(caller)) {
+      case (?u) u;
+      case null return [];
+    };
     switch (poStore.get(po_id)) {
       case null [];
       case (?po) {
-        if (po.owner != caller) return [];
+        // Must be same profile
+        if (po.profile_key != up.profile_key) return [];
+        // Admin-level roles see all items; others only see their own POs
+        let canView = up.role == #admin or up.role == #staff or up.role == #superAdmin or po.owner == caller;
+        if (not canView) return [];
         switch (itemStore.get(po_id)) {
           case (?items) items;
           case null [];
@@ -87,19 +104,6 @@ module {
   };
 
   /// Mark a PO as received and create inventory batches for each item.
-  ///
-  /// DRY-RUN: Stock-PO Loop
-  ///   Scenario: PO has 1 item — "Product A", quantity = 10, unit_cost = $5.
-  ///   1. PO status verified as #Pending (idempotency guard prevents double-receive).
-  ///   2. PO status updated to #Received in poStore atomically.
-  ///   3. For each PO item:
-  ///      a. nextBatchId is read BEFORE creating the batch (prevents ID collision).
-  ///      b. InventoryLib.addBatch stores a new InventoryBatch with quantity_remaining = 10.
-  ///      c. batchIdCounter incremented by 1 for next item.
-  ///   4. After loop: Product A's total stock = sum of all batches = 10 units.
-  ///   5. On failure: because each Motoko update message is atomic (single canister call),
-  ///      a failure mid-loop rolls back ALL mutations — PO status stays #Pending,
-  ///      no batches are written — the operation is safe to retry.
   ///
   /// Returns (true, newNextBatchId) on success.
   /// Returns (false, unchanged nextBatchId) if PO not found, wrong profile, or already received.
@@ -145,16 +149,11 @@ module {
           case null [];
         };
 
-        // DRY-RUN trace: verify batch creation loop
-        //   For each item, nextBatchId is captured BEFORE the addBatch call.
-        //   This ensures the batch gets the correct ID even if multiple items share a PO.
-        //   Example: PO with 3 items → batches created with IDs nextBatchId, nextBatchId+1, nextBatchId+2.
         var batchIdCounter = nextBatchId;
         for (item in items.values()) {
           // Capture ID before creation — prevents using a stale counter
           let thisBatchId = batchIdCounter;
           batchIdCounter += 1;
-          // who-columns: created_by = caller (the person receiving the PO), creation_date = now
           let _ = InventoryLib.addBatch(
             batchStore, caller,
             po.profile_key, po.warehouse_name,

@@ -43,6 +43,7 @@ import {
   Warehouse,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import ReactQuill from "react-quill-new";
 import { toast } from "sonner";
 
 interface ProfilePageProps {
@@ -102,6 +103,7 @@ const EMPTY_FORM: ProfileInput = {
   fssai_number: "",
   email: "",
   logo_url: "",
+  receipt_notes: "",
   theme_color: "#16a34a",
   profile_key: "",
 };
@@ -120,19 +122,22 @@ function FieldError({ message }: { message?: string }) {
 }
 
 function RoleBadge({ role }: { role: UserRole }) {
-  const labels: Record<UserRole, string> = {
+  const labels: Record<string, string> = {
     [UserRole.superAdmin]: "Super Admin",
     [UserRole.admin]: "Admin",
-    [UserRole.subAdmin]: "Sub Admin",
+    [UserRole.staff]: "Staff",
   };
-  const variants: Record<UserRole, "default" | "secondary" | "outline"> = {
+  const variants: Record<string, "default" | "secondary" | "outline"> = {
     [UserRole.superAdmin]: "default",
     [UserRole.admin]: "secondary",
-    [UserRole.subAdmin]: "outline",
+    [UserRole.staff]: "outline",
   };
   return (
-    <Badge variant={variants[role]} className="font-body text-xs">
-      {labels[role] ?? String(role)}
+    <Badge
+      variant={variants[role as string] ?? "outline"}
+      className="font-body text-xs"
+    >
+      {labels[role as string] ?? String(role)}
     </Badge>
   );
 }
@@ -234,9 +239,10 @@ function ProfileSkeleton() {
 interface LogoUploadProps {
   currentUrl: string;
   onUploaded: (url: string) => void;
+  disabled?: boolean;
 }
 
-function LogoUpload({ currentUrl, onUploaded }: LogoUploadProps) {
+function LogoUpload({ currentUrl, onUploaded, disabled }: LogoUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [preview, setPreview] = useState<string>(currentUrl);
@@ -315,7 +321,7 @@ function LogoUpload({ currentUrl, onUploaded }: LogoUploadProps) {
           variant="outline"
           size="sm"
           onClick={() => inputRef.current?.click()}
-          disabled={progress !== null}
+          disabled={progress !== null || disabled}
           data-ocid="profile.logo.upload_button"
         >
           <Upload className="w-3.5 h-3.5 mr-1.5" />
@@ -344,9 +350,15 @@ interface ThemeColorPickerProps {
   value: string;
   onChange: (color: string) => void;
   error?: string;
+  disabled?: boolean;
 }
 
-function ThemeColorPicker({ value, onChange, error }: ThemeColorPickerProps) {
+function ThemeColorPicker({
+  value,
+  onChange,
+  error,
+  disabled,
+}: ThemeColorPickerProps) {
   const [hexInput, setHexInput] = useState(value);
   const previewColor = isValidHex(value) ? value : "#16a34a";
 
@@ -390,7 +402,8 @@ function ThemeColorPicker({ value, onChange, error }: ThemeColorPickerProps) {
             type="color"
             value={isValidHex(hexInput) ? hexInput : "#16a34a"}
             onChange={handleColorPicker}
-            className="w-10 h-10 rounded-lg border border-border cursor-pointer p-0.5 bg-transparent"
+            disabled={disabled}
+            className="w-10 h-10 rounded-lg border border-border cursor-pointer p-0.5 bg-transparent disabled:opacity-50 disabled:cursor-not-allowed"
             aria-label="Pick theme color"
             data-ocid="profile.theme_color.select"
           />
@@ -401,6 +414,7 @@ function ThemeColorPicker({ value, onChange, error }: ThemeColorPickerProps) {
           onChange={handleHexInput}
           placeholder="#16a34a"
           maxLength={7}
+          disabled={disabled}
           className={`font-mono text-sm uppercase ${error ? "border-destructive" : ""}`}
           data-ocid="profile.theme_color.input"
         />
@@ -704,6 +718,7 @@ export function ProfilePage({ onNavigate: _onNavigate }: ProfilePageProps) {
         fssai_number: profile.fssai_number ?? "",
         email: profile.email ?? "",
         logo_url: profile.logo_url ?? "",
+        receipt_notes: profile.receipt_notes ?? "",
         theme_color: profile.theme_color ?? "#16a34a",
         profile_key: profile.profile_key ?? "",
       });
@@ -760,6 +775,7 @@ export function ProfilePage({ onNavigate: _onNavigate }: ProfilePageProps) {
         fssai_number: form.fssai_number.trim(),
         email: form.email.trim(),
         logo_url: form.logo_url.trim(),
+        receipt_notes: form.receipt_notes ?? "",
         theme_color: form.theme_color,
         // profile_key is read-only — always send the existing key from the profile
         profile_key: form.profile_key,
@@ -801,12 +817,25 @@ export function ProfilePage({ onNavigate: _onNavigate }: ProfilePageProps) {
     userProfile?.role === UserRole.admin ||
     userProfile?.role === UserRole.superAdmin;
 
+  const isStaff = userProfile?.role === UserRole.staff;
+
   if (isLoading) return <ProfileSkeleton />;
 
   return (
     <div className="space-y-5" data-ocid="profile.page">
       {/* Map preview */}
       <MapPlaceholder address={form.business_address} />
+
+      {/* Staff read-only notice */}
+      {isStaff && (
+        <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3">
+          <Shield className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+          <p className="text-sm text-muted-foreground">
+            You have <strong>Staff</strong> access — profile details are
+            read-only.
+          </p>
+        </div>
+      )}
 
       {/* Business Information */}
       <form onSubmit={handleSubmit} noValidate>
@@ -866,6 +895,7 @@ export function ProfilePage({ onNavigate: _onNavigate }: ProfilePageProps) {
                 value={form.business_name}
                 onChange={(e) => handleChange("business_name", e.target.value)}
                 onBlur={() => handleBlur("business_name")}
+                disabled={isStaff}
                 className={
                   errors.business_name
                     ? "border-destructive focus-visible:ring-destructive"
@@ -892,6 +922,7 @@ export function ProfilePage({ onNavigate: _onNavigate }: ProfilePageProps) {
                 value={form.phone_number}
                 onChange={(e) => handleChange("phone_number", e.target.value)}
                 onBlur={() => handleBlur("phone_number")}
+                disabled={isStaff}
                 className={
                   errors.phone_number
                     ? "border-destructive focus-visible:ring-destructive"
@@ -918,6 +949,7 @@ export function ProfilePage({ onNavigate: _onNavigate }: ProfilePageProps) {
                 value={form.email}
                 onChange={(e) => handleChange("email", e.target.value)}
                 onBlur={() => handleBlur("email")}
+                disabled={isStaff}
                 className={
                   errors.email
                     ? "border-destructive focus-visible:ring-destructive"
@@ -945,6 +977,7 @@ export function ProfilePage({ onNavigate: _onNavigate }: ProfilePageProps) {
                   handleChange("business_address", e.target.value)
                 }
                 onBlur={() => handleBlur("business_address")}
+                disabled={isStaff}
                 className={
                   errors.business_address
                     ? "border-destructive focus-visible:ring-destructive"
@@ -969,6 +1002,7 @@ export function ProfilePage({ onNavigate: _onNavigate }: ProfilePageProps) {
                 placeholder="12345678901234"
                 value={form.fssai_number}
                 maxLength={14}
+                disabled={isStaff}
                 onChange={(e) => {
                   const val = e.target.value.replace(/\D/g, "").slice(0, 14);
                   handleChange("fssai_number", val);
@@ -987,6 +1021,44 @@ export function ProfilePage({ onNavigate: _onNavigate }: ProfilePageProps) {
 
             <Separator />
 
+            {/* Receipt Notes */}
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-1.5 text-sm">
+                <Mail className="w-3.5 h-3.5 text-muted-foreground" />
+                Receipt Notes
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                This note appears in the customer information section of
+                receipts.
+              </p>
+              <div
+                className="rounded-lg border border-input overflow-hidden bg-background"
+                data-ocid="profile.receipt_notes.editor"
+              >
+                <ReactQuill
+                  theme="snow"
+                  value={form.receipt_notes ?? ""}
+                  onChange={(val) =>
+                    !isStaff && handleChange("receipt_notes", val)
+                  }
+                  readOnly={isStaff}
+                  placeholder="e.g. Thank you for your purchase! All sales are final."
+                  modules={{
+                    toolbar: isStaff
+                      ? false
+                      : [
+                          ["bold", "italic", "underline"],
+                          [{ list: "ordered" }, { list: "bullet" }],
+                          ["clean"],
+                        ],
+                  }}
+                  style={{ minHeight: "100px" }}
+                />
+              </div>
+            </div>
+
+            <Separator />
+
             {/* Logo Upload */}
             <div className="space-y-1.5">
               <Label className="flex items-center gap-1.5 text-sm">
@@ -995,7 +1067,8 @@ export function ProfilePage({ onNavigate: _onNavigate }: ProfilePageProps) {
               </Label>
               <LogoUpload
                 currentUrl={form.logo_url}
-                onUploaded={(url) => handleChange("logo_url", url)}
+                onUploaded={(url) => !isStaff && handleChange("logo_url", url)}
+                disabled={isStaff}
               />
             </div>
 
@@ -1009,36 +1082,41 @@ export function ProfilePage({ onNavigate: _onNavigate }: ProfilePageProps) {
               </Label>
               <ThemeColorPicker
                 value={form.theme_color}
-                onChange={(color) => handleChange("theme_color", color)}
+                onChange={(color) =>
+                  !isStaff && handleChange("theme_color", color)
+                }
                 error={errors.theme_color}
+                disabled={isStaff}
               />
             </div>
 
-            {/* Save button */}
-            <Button
-              type="submit"
-              className="w-full"
-              size="lg"
-              disabled={updateProfile.isPending}
-              data-ocid="profile.save_button"
-            >
-              {updateProfile.isPending ? (
-                <span className="flex items-center gap-2">
-                  <span className="w-4 h-4 border-2 border-primary-foreground/40 border-t-primary-foreground rounded-full animate-spin" />
-                  Saving…
-                </span>
-              ) : saved ? (
-                <span className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4" />
-                  Saved
-                </span>
-              ) : (
-                <span className="flex items-center gap-2">
-                  <Save className="w-4 h-4" />
-                  Save Profile
-                </span>
-              )}
-            </Button>
+            {/* Save button — hidden for staff */}
+            {!isStaff && (
+              <Button
+                type="submit"
+                className="w-full"
+                size="lg"
+                disabled={updateProfile.isPending}
+                data-ocid="profile.save_button"
+              >
+                {updateProfile.isPending ? (
+                  <span className="flex items-center gap-2">
+                    <span className="w-4 h-4 border-2 border-primary-foreground/40 border-t-primary-foreground rounded-full animate-spin" />
+                    Saving…
+                  </span>
+                ) : saved ? (
+                  <span className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4" />
+                    Saved
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-2">
+                    <Save className="w-4 h-4" />
+                    Save Profile
+                  </span>
+                )}
+              </Button>
+            )}
 
             {updateProfile.isError && (
               <div

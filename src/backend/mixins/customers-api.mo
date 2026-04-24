@@ -8,6 +8,7 @@ import ProfileLib "../lib/profile";
 
 mixin (
   customerStore : CustomersLib.CustomerStore,
+  bodyCompositionStore : CustomersLib.BodyCompositionStore,
   saleStore : SalesLib.SaleStore,
   saleItemStore : SalesLib.SaleItemStore,
   userStore : ProfileLib.UserStore,
@@ -52,9 +53,28 @@ mixin (
   };
 
   /// Returns full order history for a customer — chronological list of sales + items.
-  /// Used by the customer profile History tab.
   public shared query ({ caller }) func getCustomerOrders(customer_id : Common.CustomerId) : async [SalesTypes.CustomerOrderDetail] {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
     SalesLib.getCustomerOrders(saleStore, saleItemStore, userStore, caller, customer_id)
+  };
+
+  // ── Body Composition History ──────────────────────────────────────────────────
+
+  /// Create a body composition entry for a customer.
+  public shared ({ caller }) func createBodyCompositionEntry(customerId : Common.CustomerId, input : CustomerTypes.BodyCompositionInput) : async ?CustomerTypes.BodyCompositionEntry {
+    if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
+    CustomersLib.createBodyCompositionEntry(bodyCompositionStore, userStore, caller, customerId, input)
+  };
+
+  /// Returns the body composition history for a customer (newest first).
+  public shared query ({ caller }) func getBodyCompositionHistory(customerId : Common.CustomerId) : async [CustomerTypes.BodyCompositionEntry] {
+    if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
+    CustomersLib.getBodyCompositionHistory(bodyCompositionStore, userStore, caller, customerId)
+  };
+
+  /// Delete a single body composition entry.
+  public shared ({ caller }) func deleteBodyCompositionEntry(id : Text) : async Bool {
+    if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
+    CustomersLib.deleteBodyCompositionEntry(bodyCompositionStore, userStore, caller, id)
   };
 };

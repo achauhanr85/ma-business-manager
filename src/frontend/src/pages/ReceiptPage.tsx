@@ -1,4 +1,3 @@
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -16,7 +15,6 @@ interface ReceiptPageProps {
 }
 
 function formatTimestamp(ts: bigint): string {
-  // ts is in nanoseconds
   const ms = Number(ts / BigInt(1_000_000));
   const d = new Date(ms);
   return d.toLocaleString("en-IN", {
@@ -34,15 +32,27 @@ function buildWhatsAppText(
   businessName: string,
 ): string {
   const header = `*${businessName} — Receipt*\n`;
-  const date = `Date: ${formatTimestamp(sale.timestamp)}\n\n`;
+  const date = `Date: ${formatTimestamp(sale.timestamp)}\n`;
+  const customer = sale.customer_name
+    ? `Customer: ${sale.customer_name}\n\n`
+    : "\n";
   const itemLines = items
     .map(
       (item) =>
         `• ${item.product_name_snapshot} x${item.quantity} @ ₹${item.actual_sale_price.toFixed(2)} = ₹${(Number(item.quantity) * item.actual_sale_price).toFixed(2)}`,
     )
     .join("\n");
-  const totals = `\n\n*Total: ₹${sale.total_revenue.toFixed(2)}*\nVolume Points: ${sale.total_volume_points}`;
-  return encodeURIComponent(header + date + itemLines + totals);
+  const discountApplied =
+    (sale as Sale & { discount_applied?: number }).discount_applied ?? 0;
+  const discountLine =
+    discountApplied > 0 ? `\nDiscount: -₹${discountApplied.toFixed(2)}` : "";
+  const totals = `\n\n*Grand Total: ₹${sale.total_revenue.toFixed(2)}*${discountLine}`;
+  return encodeURIComponent(header + date + customer + itemLines + totals);
+}
+
+/** Strip HTML tags for safe plain-text fallback */
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]*>/g, "").trim();
 }
 
 export function ReceiptPage({ saleId, onNavigate }: ReceiptPageProps) {
@@ -68,6 +78,10 @@ export function ReceiptPage({ saleId, onNavigate }: ReceiptPageProps) {
 
   const businessName = profile?.business_name || "MA Herb";
   const isLoading = loadingSale || loadingItems;
+
+  const discountApplied =
+    (sale as (Sale & { discount_applied?: number }) | null)?.discount_applied ??
+    0;
 
   const handlePrint = () => {
     window.print();
@@ -189,24 +203,41 @@ export function ReceiptPage({ saleId, onNavigate }: ReceiptPageProps) {
 
               <Separator />
 
-              {/* Sale Meta */}
-              <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                    Receipt ID
-                  </p>
-                  <p className="font-mono font-medium">
-                    #{sale.id.toString().padStart(6, "0")}
-                  </p>
+              {/* Sale Meta + Customer */}
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">
+                      Receipt ID
+                    </p>
+                    <p className="font-mono font-medium">
+                      #{sale.id.toString().padStart(6, "0")}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">
+                      Date &amp; Time
+                    </p>
+                    <p className="font-medium">
+                      {formatTimestamp(sale.timestamp)}
+                    </p>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                    Date &amp; Time
-                  </p>
-                  <p className="font-medium">
-                    {formatTimestamp(sale.timestamp)}
-                  </p>
-                </div>
+
+                {/* Customer name */}
+                {sale.customer_name && (
+                  <div
+                    className="flex items-center gap-2 rounded-md bg-muted/40 border border-border px-3 py-2"
+                    data-ocid="receipt.customer.section"
+                  >
+                    <span className="text-xs text-muted-foreground uppercase tracking-wide w-20 flex-shrink-0">
+                      Customer
+                    </span>
+                    <span className="text-sm font-semibold text-foreground">
+                      {sale.customer_name}
+                    </span>
+                  </div>
+                )}
               </div>
 
               <Separator />
@@ -242,8 +273,7 @@ export function ReceiptPage({ saleId, onNavigate }: ReceiptPageProps) {
                             {item.product_name_snapshot}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            MRP: ₹{item.mrp_snapshot.toFixed(2)} ·{" "}
-                            {item.volume_points_snapshot} VP
+                            MRP: ₹{item.mrp_snapshot.toFixed(2)}
                           </p>
                         </td>
                         <td className="py-2.5 text-right tabular-nums">
@@ -269,27 +299,22 @@ export function ReceiptPage({ saleId, onNavigate }: ReceiptPageProps) {
               {/* Totals */}
               <div className="space-y-2" data-ocid="receipt.totals.section">
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">
-                    Total Volume Points
+                  <span className="text-muted-foreground">Subtotal</span>
+                  <span className="font-medium text-foreground">
+                    ₹{(sale.total_revenue + discountApplied).toFixed(2)}
                   </span>
-                  <Badge variant="secondary">
-                    {sale.total_volume_points} VP
-                  </Badge>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">
-                    Estimated Profit
-                  </span>
-                  <span
-                    className={
-                      sale.total_profit >= 0
-                        ? "text-primary font-medium"
-                        : "text-destructive font-medium"
-                    }
+                {discountApplied > 0 && (
+                  <div
+                    className="flex justify-between text-sm"
+                    data-ocid="receipt.discount.section"
                   >
-                    ₹{sale.total_profit.toFixed(2)}
-                  </span>
-                </div>
+                    <span className="text-primary">Discount Applied</span>
+                    <span className="font-semibold text-primary">
+                      − ₹{discountApplied.toFixed(2)}
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between text-base font-bold mt-1 pt-1 border-t border-border">
                   <span>Grand Total</span>
                   <span className="text-primary">
@@ -297,6 +322,30 @@ export function ReceiptPage({ saleId, onNavigate }: ReceiptPageProps) {
                   </span>
                 </div>
               </div>
+
+              {/* Customer Information (receipt_notes) */}
+              {profile?.receipt_notes &&
+                stripHtml(profile.receipt_notes).length > 0 && (
+                  <>
+                    <Separator />
+                    <div
+                      className="space-y-2"
+                      data-ocid="receipt.customer_info.section"
+                    >
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Customer Information
+                      </p>
+                      <div
+                        className="text-sm text-foreground prose prose-sm max-w-none receipt-notes-html"
+                        ref={(el) => {
+                          if (el && profile?.receipt_notes) {
+                            el.innerHTML = profile.receipt_notes;
+                          }
+                        }}
+                      />
+                    </div>
+                  </>
+                )}
 
               <Separator />
 

@@ -10,9 +10,9 @@ module {
   public type BatchStore = Map.Map<Common.BatchId, InventoryTypes.InventoryBatch>;
   public type MovementStore = Map.Map<Common.MovementId, InventoryTypes.InventoryMovement>;
 
-  func callerProfileKey(userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId) : (Common.ProfileKey, Common.WarehouseName) {
+  func callerProfileKey(userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId) : (Common.ProfileKey, Common.WarehouseName, Common.UserRole) {
     switch (userStore.get(caller)) {
-      case (?up) (up.profile_key, up.warehouse_name);
+      case (?up) (up.profile_key, up.warehouse_name, up.role);
       case null Runtime.trap("Caller has no profile");
     }
   };
@@ -29,13 +29,17 @@ module {
     }
   };
 
-  /// Returns all inventory levels (aggregated by product) for the caller's profile + warehouse
+  /// Returns all inventory levels (aggregated by product).
+  /// #admin and #superAdmin see ALL warehouses in their profile.
+  /// #staff sees only their assigned warehouse.
   public func getInventoryLevels(store : BatchStore, userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId) : [InventoryTypes.InventoryLevel] {
-    let (profileKey, warehouseName) = callerProfileKey(userStore, caller);
+    let (profileKey, warehouseName, role) = callerProfileKey(userStore, caller);
+    let isAdminLevel = role == #admin or role == #superAdmin;
     // Build a map of product_id -> [batches]
     let levelMap = Map.empty<Common.ProductId, [InventoryTypes.InventoryBatchPublic]>();
     for ((_id, batch) in store.entries()) {
-      if (batch.profile_key == profileKey and batch.warehouse_name == warehouseName and batch.quantity_remaining > 0) {
+      let warehouseMatch = isAdminLevel or batch.warehouse_name == warehouseName;
+      if (batch.profile_key == profileKey and warehouseMatch and batch.quantity_remaining > 0) {
         let existing = switch (levelMap.get(batch.product_id)) {
           case (?arr) arr;
           case null [];
@@ -56,12 +60,15 @@ module {
       .toArray()
   };
 
-  /// Returns all batches for a given product scoped to caller's profile + warehouse
+  /// Returns all batches for a given product.
+  /// #admin and #superAdmin see all warehouses; #staff sees only their assigned warehouse.
   public func getInventoryBatches(store : BatchStore, userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId, product_id : Common.ProductId) : [InventoryTypes.InventoryBatchPublic] {
-    let (profileKey, warehouseName) = callerProfileKey(userStore, caller);
+    let (profileKey, warehouseName, role) = callerProfileKey(userStore, caller);
+    let isAdminLevel = role == #admin or role == #superAdmin;
     store.entries()
       .filter(func((_id, b)) {
-        b.profile_key == profileKey and b.warehouse_name == warehouseName and b.product_id == product_id
+        let warehouseMatch = isAdminLevel or b.warehouse_name == warehouseName;
+        b.profile_key == profileKey and warehouseMatch and b.product_id == product_id
       })
       .map(func((_id, b) : (Common.BatchId, InventoryTypes.InventoryBatch)) : InventoryTypes.InventoryBatchPublic { toPublic(b) })
       .toArray()
@@ -101,7 +108,6 @@ module {
   };
 
   public func addBatch(store : BatchStore, caller : Common.UserId, profile_key : Common.ProfileKey, warehouse_name : Common.WarehouseName, nextId : Nat, product_id : Common.ProductId, quantity : Nat, unit_cost : Float, date_received : Common.Timestamp) : Common.BatchId {
-    // DRY-RUN: who-columns auto-populated from caller principal and date_received timestamp
     let batch : InventoryTypes.InventoryBatch = {
       id = nextId;
       product_id;
@@ -121,7 +127,9 @@ module {
     nextId
   };
 
-  /// Move stock from one warehouse to another within the same profile
+  /// Move stock from one warehouse to another within the same profile.
+  /// #admin may move between ANY two warehouses.
+  /// #staff may only move FROM Main TO their own warehouse.
   public func moveInventory(
     store : BatchStore,
     movementStore : MovementStore,
@@ -131,7 +139,15 @@ module {
     nextBatchId : Nat,
     input : InventoryTypes.InventoryMovementInput,
   ) : ?Common.MovementId {
-    let (profileKey, _warehouseName) = callerProfileKey(userStore, caller);
+    let (profileKey, warehouseName, role) = callerProfileKey(userStore, caller);
+    // Access control:
+    // - #admin / #superAdmin: any warehouse-to-warehouse move within the profile
+    // - #staff: can only move from "Main" to their own assigned warehouse
+    if (role == #staff) {
+      if (input.from_warehouse != "Main" or input.to_warehouse != warehouseName) {
+        return null; // staff can only move Main → own warehouse
+      };
+    };
     // Deduct from source warehouse via FIFO
     switch (deductFIFO(store, caller, profileKey, input.from_warehouse, input.product_id, input.quantity)) {
       case null null; // insufficient stock
@@ -162,7 +178,7 @@ module {
 
   /// Returns all inventory movements for the caller's profile
   public func getInventoryMovements(movementStore : MovementStore, userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId) : [InventoryTypes.InventoryMovement] {
-    let (profileKey, _) = callerProfileKey(userStore, caller);
+    let (profileKey, _, _) = callerProfileKey(userStore, caller);
     movementStore.entries()
       .filter(func((_id, m)) { m.profile_key == profileKey })
       .map(func((_id, m) : (Common.MovementId, InventoryTypes.InventoryMovement)) : InventoryTypes.InventoryMovement { m })

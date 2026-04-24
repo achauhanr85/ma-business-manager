@@ -18,10 +18,6 @@ mixin (
   public shared ({ caller }) func createPurchaseOrder(input : PurchaseTypes.PurchaseOrderInput) : async ?Common.PurchaseOrderId {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
 
-    // Dry-run — Governance Gatekeeper (PO create):
-    //   Same check as createSale. If the profile is disabled or outside the active window,
-    //   the call returns null instead of a valid PurchaseOrderId.
-    //   This prevents new purchase orders from being raised on restricted profiles.
     switch (ProfileLib.checkProfileAccess(profileStore, userStore, caller)) {
       case (#err(_)) { return null };
       case (#ok) {};
@@ -40,18 +36,16 @@ mixin (
     PurchasesLib.getPurchaseOrders(poStore, userStore, caller)
   };
 
+  /// Returns PO items for a given PO.
+  /// #admin, #staff, and #superAdmin can view all items in their profile.
   public shared query ({ caller }) func getPurchaseOrderItems(po_id : Common.PurchaseOrderId) : async [PurchaseTypes.PurchaseOrderItem] {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
-    PurchasesLib.getPurchaseOrderItems(poStore, poItemStore, caller, po_id)
+    PurchasesLib.getPurchaseOrderItems(poStore, poItemStore, userStore, caller, po_id)
   };
 
   public shared ({ caller }) func markPurchaseOrderReceived(po_id : Common.PurchaseOrderId) : async Bool {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
 
-    // Dry-run — Governance Gatekeeper (PO receive):
-    //   Receiving stock also goes through the governance check. An expired or disabled
-    //   profile cannot receive stock (incrementing inventory) after the window closes.
-    //   This ensures inventory data integrity aligns with profile governance state.
     switch (ProfileLib.checkProfileAccess(profileStore, userStore, caller)) {
       case (#err(_)) { return false };
       case (#ok) {};

@@ -1,21 +1,48 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import { useImpersonation } from "@/contexts/ImpersonationContext";
 import { useProfile } from "@/contexts/ProfileContext";
 import {
+  useAssignUserRole,
+  useCreateProfile,
+  useDeleteProfile,
   useEnableProfile,
   useGetAllProfilesForAdmin,
+  useGetAllUsersForAdmin,
   useGetSuperAdminStats,
+  useGetUsersByProfile,
   useInitSuperAdmin,
   useSetProfileWindow,
+  useUpdateProfile,
+  useUpdateProfileKey,
 } from "@/hooks/useBackend";
-import type { ProfileStats } from "@/types";
-import type { ProfileStatsExtended } from "@/types";
+import type {
+  ProfileStats,
+  ProfileStatsExtended,
+  UserProfilePublic,
+} from "@/types";
 import { ROLES } from "@/types";
+import { UserRole } from "@/types";
 import {
   Activity,
   AlertTriangle,
@@ -26,14 +53,21 @@ import {
   ChevronUp,
   HardDrive,
   Info,
+  Key,
   Lock,
+  Pencil,
+  Plus,
   RefreshCw,
   Search,
   Shield,
   ToggleLeft,
+  Trash2,
+  UserCog,
   Users,
+  Waypoints,
+  X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 interface SuperAdminPageProps {
@@ -75,20 +109,16 @@ function formatRelativeTime(ts: bigint): string {
   return `${days}d ago`;
 }
 
-function truncatePrincipal(
+function principalToText(
   principal: { toText?: () => string } | string,
 ): string {
-  const text =
-    typeof principal === "string"
-      ? principal
-      : (principal.toText?.() ?? String(principal));
-  if (text.length <= 16) return text;
-  return `${text.slice(0, 8)}…${text.slice(-6)}`;
+  return typeof principal === "string"
+    ? principal
+    : (principal.toText?.() ?? String(principal));
 }
 
 function msToDateInput(ns: number | bigint | null | undefined): string {
   if (!ns) return "";
-  // Backend timestamps are nanoseconds; convert to ms for Date
   const ms = typeof ns === "bigint" ? Number(ns / 1_000_000n) : ns;
   if (!ms) return "";
   return new Date(ms).toISOString().slice(0, 10);
@@ -106,7 +136,6 @@ function getProfileStatus(
   const ext = profile as ProfileStatsExtended;
   if ("is_enabled" in ext && !ext.is_enabled) return "disabled";
   if ("end_date" in ext && ext.end_date) {
-    // end_date is nanoseconds from backend; convert to ms for comparison
     const endMs =
       typeof ext.end_date === "bigint"
         ? Number(ext.end_date / 1_000_000n)
@@ -244,44 +273,920 @@ function GovernanceInfoPanel() {
               </div>
             </div>
           ))}
-          <div className="mt-3 p-3 rounded-md bg-muted/50 border border-border">
-            <p className="text-xs font-semibold text-foreground mb-1">
-              Storage Calculation
-            </p>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Storage is estimated by summing the byte-size of all records
-              (products, sales, customers, inventory batches, purchase orders)
-              associated with the profile, plus any uploaded asset URLs. Each
-              record contributes its serialized field sizes to the total.
-            </p>
-          </div>
         </div>
       )}
     </div>
   );
 }
 
-// ─── Profile Row (with extended governance controls) ─────────────────────────
+// ─── Create Profile Modal ─────────────────────────────────────────────────────
 
-interface ExtendedProfileRowProps {
-  profile: ProfileStats | ProfileStatsExtended;
-  index: number;
-  isExpanded: boolean;
-  onToggle: () => void;
+interface CreateProfileModalProps {
+  open: boolean;
+  onClose: () => void;
 }
 
-function ExtendedProfileRow({
+function CreateProfileModal({ open, onClose }: CreateProfileModalProps) {
+  const createProfile = useCreateProfile();
+  const [form, setForm] = useState({
+    business_name: "",
+    phone_number: "",
+    business_address: "",
+    fssai_number: "",
+    email: "",
+    theme_color: "#16a34a",
+    profile_key: "",
+  });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const handleChange = (field: string, value: string) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+    if (errors[field]) setErrors((prev) => ({ ...prev, [field]: "" }));
+  };
+
+  const validate = () => {
+    const e: Record<string, string> = {};
+    if (!form.business_name.trim()) e.business_name = "Business name required";
+    if (!form.profile_key.trim()) e.profile_key = "Profile key required";
+    else if (!/^[a-z0-9_-]{3,30}$/.test(form.profile_key.trim()))
+      e.profile_key = "3–30 chars, lowercase letters, numbers, - or _ only";
+    return e;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const errs = validate();
+    if (Object.keys(errs).length > 0) {
+      setErrors(errs);
+      return;
+    }
+    try {
+      await createProfile.mutateAsync({
+        business_name: form.business_name.trim(),
+        phone_number: form.phone_number.trim(),
+        business_address: form.business_address.trim(),
+        fssai_number: form.fssai_number.trim(),
+        email: form.email.trim(),
+        logo_url: "",
+        receipt_notes: "",
+        theme_color: form.theme_color,
+        profile_key: form.profile_key.trim(),
+      });
+      toast.success(`Profile "${form.business_name}" created successfully.`);
+      onClose();
+      setForm({
+        business_name: "",
+        phone_number: "",
+        business_address: "",
+        fssai_number: "",
+        email: "",
+        theme_color: "#16a34a",
+        profile_key: "",
+      });
+    } catch {
+      toast.error("Failed to create profile.");
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent
+        className="sm:max-w-md max-h-[90vh] overflow-y-auto"
+        data-ocid="super_admin.create_profile.dialog"
+      >
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Building2 className="w-4 h-4 text-primary" />
+            Create New Profile
+          </DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4 pt-2" noValidate>
+          <div className="space-y-1.5">
+            <Label htmlFor="cp-profile-key">
+              Profile Key <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="cp-profile-key"
+              value={form.profile_key}
+              onChange={(e) =>
+                handleChange("profile_key", e.target.value.toLowerCase())
+              }
+              placeholder="e.g. maherb-mumbai"
+              className={`font-mono ${errors.profile_key ? "border-destructive" : ""}`}
+              data-ocid="super_admin.create_profile.profile_key_input"
+            />
+            {errors.profile_key && (
+              <p className="text-xs text-destructive">{errors.profile_key}</p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Unique key for this profile. Can be updated later by Super Admin.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="cp-name">
+              Business Name <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="cp-name"
+              value={form.business_name}
+              onChange={(e) => handleChange("business_name", e.target.value)}
+              placeholder="MA Herb Distributors"
+              className={errors.business_name ? "border-destructive" : ""}
+              data-ocid="super_admin.create_profile.business_name_input"
+            />
+            {errors.business_name && (
+              <p className="text-xs text-destructive">{errors.business_name}</p>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="cp-phone">Phone Number</Label>
+            <Input
+              id="cp-phone"
+              type="tel"
+              value={form.phone_number}
+              onChange={(e) => handleChange("phone_number", e.target.value)}
+              placeholder="+91 98765 43210"
+              data-ocid="super_admin.create_profile.phone_input"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="cp-email">Email</Label>
+            <Input
+              id="cp-email"
+              type="email"
+              value={form.email}
+              onChange={(e) => handleChange("email", e.target.value)}
+              placeholder="contact@maherb.in"
+              data-ocid="super_admin.create_profile.email_input"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="cp-address">Business Address</Label>
+            <Input
+              id="cp-address"
+              value={form.business_address}
+              onChange={(e) => handleChange("business_address", e.target.value)}
+              placeholder="123 Herb Lane, Mumbai"
+              data-ocid="super_admin.create_profile.address_input"
+            />
+          </div>
+          <DialogFooter className="gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onClose}
+              data-ocid="super_admin.create_profile.cancel_button"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={createProfile.isPending}
+              data-ocid="super_admin.create_profile.submit_button"
+            >
+              {createProfile.isPending ? (
+                <span className="flex items-center gap-2">
+                  <span className="w-3.5 h-3.5 border-2 border-primary-foreground/40 border-t-primary-foreground rounded-full animate-spin" />
+                  Creating…
+                </span>
+              ) : (
+                "Create Profile"
+              )}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Delete Profile Confirmation Dialog ──────────────────────────────────────
+
+interface DeleteProfileDialogProps {
+  open: boolean;
+  profileName: string;
+  profileKey: string;
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+  isPending: boolean;
+}
+
+function DeleteProfileDialog({
+  open,
+  profileName,
+  onClose,
+  onConfirm,
+  isPending,
+}: DeleteProfileDialogProps) {
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent
+        className="sm:max-w-md"
+        data-ocid="super_admin.delete_profile.dialog"
+      >
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-destructive">
+            <Trash2 className="w-4 h-4" />
+            Delete Profile
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-destructive flex-shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-foreground">
+                  This action is irreversible
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  This will permanently delete the profile{" "}
+                  <span className="font-semibold text-foreground">
+                    "{profileName}"
+                  </span>{" "}
+                  and ALL its data — users, products, customers, sales,
+                  inventory, and orders. This cannot be undone.
+                </p>
+              </div>
+            </div>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Are you absolutely sure you want to proceed?
+          </p>
+        </div>
+        <DialogFooter className="gap-2">
+          <Button
+            variant="outline"
+            onClick={onClose}
+            disabled={isPending}
+            data-ocid="super_admin.delete_profile.cancel_button"
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={onConfirm}
+            disabled={isPending}
+            data-ocid="super_admin.delete_profile.confirm_button"
+          >
+            {isPending ? (
+              <span className="flex items-center gap-2">
+                <span className="w-3.5 h-3.5 border-2 border-destructive-foreground/40 border-t-destructive-foreground rounded-full animate-spin" />
+                Deleting…
+              </span>
+            ) : (
+              <>
+                <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+                Delete Permanently
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Selected Profile Detail Panel ───────────────────────────────────────────
+
+interface SelectedProfilePanelProps {
+  profile: ProfileStats | ProfileStatsExtended;
+  onClose: () => void;
+  onDeleted: () => void;
+  onRefresh: () => Promise<void>;
+}
+
+interface ProfileEditForm {
+  business_name: string;
+  phone_number: string;
+  business_address: string;
+  fssai_number: string;
+  email: string;
+  logo_url: string;
+  theme_color: string;
+  receipt_notes: string;
+  start_date: string;
+  end_date: string;
+  profile_key_edit: string;
+}
+
+function SelectedProfilePanel({
+  profile,
+  onClose,
+  onDeleted,
+  onRefresh,
+}: SelectedProfilePanelProps) {
+  const ext = profile as ProfileStatsExtended;
+  const updateProfile = useUpdateProfile();
+  const updateProfileKey = useUpdateProfileKey();
+  const deleteProfile = useDeleteProfile();
+  const setProfileWindow = useSetProfileWindow();
+
+  const [form, setForm] = useState<ProfileEditForm>({
+    business_name: profile.business_name ?? "",
+    phone_number: (ext as { phone_number?: string }).phone_number ?? "",
+    business_address:
+      (ext as { business_address?: string }).business_address ?? "",
+    fssai_number: (ext as { fssai_number?: string }).fssai_number ?? "",
+    email: (ext as { email?: string }).email ?? "",
+    logo_url: (ext as { logo_url?: string }).logo_url ?? "",
+    theme_color: (ext as { theme_color?: string }).theme_color ?? "#16a34a",
+    receipt_notes: (ext as { receipt_notes?: string }).receipt_notes ?? "",
+    start_date: msToDateInput(ext.start_date ?? null),
+    end_date: msToDateInput(ext.end_date ?? null),
+    profile_key_edit: profile.profile_key,
+  });
+
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isUpdatingKey, setIsUpdatingKey] = useState(false);
+
+  // Reset form when profile changes
+  useEffect(() => {
+    const extP = profile as ProfileStatsExtended;
+    setForm({
+      business_name: profile.business_name ?? "",
+      phone_number: (extP as { phone_number?: string }).phone_number ?? "",
+      business_address:
+        (extP as { business_address?: string }).business_address ?? "",
+      fssai_number: (extP as { fssai_number?: string }).fssai_number ?? "",
+      email: (extP as { email?: string }).email ?? "",
+      logo_url: (extP as { logo_url?: string }).logo_url ?? "",
+      theme_color: (extP as { theme_color?: string }).theme_color ?? "#16a34a",
+      receipt_notes: (extP as { receipt_notes?: string }).receipt_notes ?? "",
+      start_date: msToDateInput(extP.start_date ?? null),
+      end_date: msToDateInput(extP.end_date ?? null),
+      profile_key_edit: profile.profile_key,
+    });
+    setErrors({});
+  }, [profile]);
+
+  const setField = (field: keyof ProfileEditForm, value: string) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+    if (errors[field]) setErrors((prev) => ({ ...prev, [field]: "" }));
+  };
+
+  const validate = (): Record<string, string> => {
+    const e: Record<string, string> = {};
+    if (!form.business_name.trim()) e.business_name = "Business name required";
+    if (form.fssai_number && !/^\d{14}$/.test(form.fssai_number.trim()))
+      e.fssai_number = "FSSAI must be exactly 14 digits";
+    return e;
+  };
+
+  const handleSave = async () => {
+    const errs = validate();
+    if (Object.keys(errs).length > 0) {
+      setErrors(errs);
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const success = await updateProfile.mutateAsync({
+        business_name: form.business_name.trim(),
+        phone_number: form.phone_number.trim(),
+        business_address: form.business_address.trim(),
+        fssai_number: form.fssai_number.trim(),
+        email: form.email.trim(),
+        logo_url: form.logo_url.trim(),
+        theme_color: form.theme_color,
+        receipt_notes: form.receipt_notes,
+        profile_key: profile.profile_key,
+      });
+      // Also update the active window if dates are set
+      if (form.start_date || form.end_date) {
+        await setProfileWindow.mutateAsync({
+          profileKey: profile.profile_key,
+          startDate: dateInputToMs(form.start_date),
+          endDate: dateInputToMs(form.end_date),
+        });
+      }
+      if (success) {
+        toast.success("Profile updated successfully.");
+        await onRefresh();
+      } else {
+        toast.error("Profile update was rejected by the server.");
+      }
+    } catch {
+      toast.error("Failed to save profile.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleUpdateKey = async () => {
+    const newKey = form.profile_key_edit.trim().toLowerCase();
+    if (!newKey) {
+      setErrors((prev) => ({
+        ...prev,
+        profile_key_edit: "Key cannot be empty",
+      }));
+      return;
+    }
+    if (!/^[a-z0-9_-]{3,30}$/.test(newKey)) {
+      setErrors((prev) => ({
+        ...prev,
+        profile_key_edit: "3–30 chars, lowercase letters, numbers, - or _ only",
+      }));
+      return;
+    }
+    if (newKey === profile.profile_key) {
+      toast.info("Profile key is unchanged.");
+      return;
+    }
+    setIsUpdatingKey(true);
+    try {
+      const success = await updateProfileKey.mutateAsync({
+        oldKey: profile.profile_key,
+        newKey,
+      });
+      if (success) {
+        toast.success(
+          `Profile key updated to "${newKey}". All users in this profile must re-login.`,
+        );
+        await onRefresh();
+      } else {
+        toast.error("Failed to update profile key.");
+      }
+    } catch {
+      toast.error("Failed to update profile key.");
+    } finally {
+      setIsUpdatingKey(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    try {
+      const success = await deleteProfile.mutateAsync(profile.profile_key);
+      if (success) {
+        toast.success(`Profile "${profile.business_name}" deleted.`);
+        setShowDeleteDialog(false);
+        onDeleted();
+        await onRefresh();
+      } else {
+        toast.error("Failed to delete profile.");
+      }
+    } catch {
+      toast.error("Failed to delete profile.");
+    }
+  };
+
+  const status = getProfileStatus(profile);
+  const statusCfg = STATUS_CONFIG[status];
+
+  return (
+    <div
+      className="flex flex-col h-full"
+      data-ocid="super_admin.selected_profile_panel"
+    >
+      {/* Panel Header */}
+      <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-border bg-card">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
+            <Pencil className="w-4 h-4 text-primary" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-foreground truncate">
+              {profile.business_name}
+            </p>
+            <p className="text-xs text-muted-foreground font-mono truncate">
+              {profile.profile_key}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <Badge
+            variant={statusCfg.variant}
+            className={`text-xs hidden sm:inline-flex ${statusCfg.className}`}
+          >
+            {statusCfg.label}
+          </Badge>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={onClose}
+            aria-label="Close panel"
+            data-ocid="super_admin.selected_profile.close_button"
+          >
+            <X className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Scrollable Form Body */}
+      <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
+        {/* Basic Info Section */}
+        <section className="space-y-3">
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+            Business Information
+          </h3>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="sp-name">Business Name</Label>
+            <Input
+              id="sp-name"
+              value={form.business_name}
+              onChange={(e) => setField("business_name", e.target.value)}
+              className={errors.business_name ? "border-destructive" : ""}
+              data-ocid="super_admin.selected_profile.business_name_input"
+            />
+            {errors.business_name && (
+              <p className="text-xs text-destructive">{errors.business_name}</p>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="sp-phone">Phone Number</Label>
+              <Input
+                id="sp-phone"
+                type="tel"
+                value={form.phone_number}
+                onChange={(e) => setField("phone_number", e.target.value)}
+                data-ocid="super_admin.selected_profile.phone_input"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="sp-email">Email</Label>
+              <Input
+                id="sp-email"
+                type="email"
+                value={form.email}
+                onChange={(e) => setField("email", e.target.value)}
+                data-ocid="super_admin.selected_profile.email_input"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="sp-address">Business Address</Label>
+            <Textarea
+              id="sp-address"
+              rows={2}
+              value={form.business_address}
+              onChange={(e) => setField("business_address", e.target.value)}
+              className="resize-none text-sm"
+              data-ocid="super_admin.selected_profile.address_input"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="sp-fssai">FSSAI Number</Label>
+              <Input
+                id="sp-fssai"
+                value={form.fssai_number}
+                onChange={(e) =>
+                  setField("fssai_number", e.target.value.replace(/\D/g, ""))
+                }
+                maxLength={14}
+                placeholder="14-digit FSSAI number"
+                className={errors.fssai_number ? "border-destructive" : ""}
+                data-ocid="super_admin.selected_profile.fssai_input"
+              />
+              {errors.fssai_number && (
+                <p className="text-xs text-destructive">
+                  {errors.fssai_number}
+                </p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="sp-theme">Theme Color</Label>
+              <div className="flex gap-2 items-center">
+                <input
+                  id="sp-theme"
+                  type="color"
+                  value={form.theme_color}
+                  onChange={(e) => setField("theme_color", e.target.value)}
+                  className="w-9 h-9 rounded border border-input cursor-pointer flex-shrink-0"
+                  data-ocid="super_admin.selected_profile.theme_color_input"
+                />
+                <Input
+                  value={form.theme_color}
+                  onChange={(e) => setField("theme_color", e.target.value)}
+                  className="font-mono text-sm"
+                  placeholder="#16a34a"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="sp-logo">Logo URL</Label>
+            <Input
+              id="sp-logo"
+              value={form.logo_url}
+              onChange={(e) => setField("logo_url", e.target.value)}
+              placeholder="https://…"
+              data-ocid="super_admin.selected_profile.logo_url_input"
+            />
+          </div>
+        </section>
+
+        {/* Active Window */}
+        <section className="space-y-3">
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+            Active Window
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="sp-start">Start Date</Label>
+              <Input
+                id="sp-start"
+                type="date"
+                value={form.start_date}
+                onChange={(e) => setField("start_date", e.target.value)}
+                data-ocid="super_admin.selected_profile.start_date_input"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="sp-end">End Date</Label>
+              <Input
+                id="sp-end"
+                type="date"
+                value={form.end_date}
+                onChange={(e) => setField("end_date", e.target.value)}
+                data-ocid="super_admin.selected_profile.end_date_input"
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* Receipt Notes */}
+        <section className="space-y-3">
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+            Receipt Notes
+          </h3>
+          <Textarea
+            rows={3}
+            value={form.receipt_notes}
+            onChange={(e) => setField("receipt_notes", e.target.value)}
+            placeholder="Notes shown in the customer section of every receipt PDF…"
+            className="resize-y text-sm"
+            data-ocid="super_admin.selected_profile.receipt_notes_input"
+          />
+          <p className="text-xs text-muted-foreground">
+            This text appears in the customer information section of every
+            receipt PDF for this profile.
+          </p>
+        </section>
+
+        {/* Save Changes Button */}
+        <Button
+          className="w-full"
+          onClick={handleSave}
+          disabled={isSaving || updateProfile.isPending}
+          data-ocid="super_admin.selected_profile.save_button"
+        >
+          {isSaving || updateProfile.isPending ? (
+            <span className="flex items-center gap-2">
+              <span className="w-3.5 h-3.5 border-2 border-primary-foreground/40 border-t-primary-foreground rounded-full animate-spin" />
+              Saving…
+            </span>
+          ) : (
+            "Save Changes"
+          )}
+        </Button>
+
+        {/* Profile Key Section */}
+        <section className="space-y-3 pt-2 border-t border-border">
+          <div className="flex items-center gap-2">
+            <Key className="w-4 h-4 text-primary" />
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              Profile Key
+            </h3>
+          </div>
+          <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 dark:bg-amber-950/20 dark:border-amber-800/30">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5 dark:text-amber-400" />
+              <p className="text-xs text-amber-800 dark:text-amber-300">
+                Changing the profile key will disconnect all existing users from
+                this profile. They will need to rejoin using the new key.
+              </p>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="sp-profile-key">Profile Key</Label>
+            <Input
+              id="sp-profile-key"
+              value={form.profile_key_edit}
+              onChange={(e) =>
+                setField("profile_key_edit", e.target.value.toLowerCase())
+              }
+              className={`font-mono ${errors.profile_key_edit ? "border-destructive" : ""}`}
+              data-ocid="super_admin.selected_profile.profile_key_input"
+            />
+            {errors.profile_key_edit && (
+              <p className="text-xs text-destructive">
+                {errors.profile_key_edit}
+              </p>
+            )}
+          </div>
+          <Button
+            variant="outline"
+            className="w-full"
+            onClick={handleUpdateKey}
+            disabled={isUpdatingKey || updateProfileKey.isPending}
+            data-ocid="super_admin.selected_profile.update_key_button"
+          >
+            {isUpdatingKey || updateProfileKey.isPending ? (
+              <span className="flex items-center gap-2">
+                <span className="w-3.5 h-3.5 border-2 border-foreground/20 border-t-foreground/60 rounded-full animate-spin" />
+                Updating Key…
+              </span>
+            ) : (
+              <>
+                <Key className="w-3.5 h-3.5 mr-1.5" />
+                Update Profile Key
+              </>
+            )}
+          </Button>
+        </section>
+
+        {/* Danger Zone */}
+        <section className="space-y-3 pt-2 border-t border-destructive/20">
+          <h3 className="text-xs font-semibold text-destructive uppercase tracking-wide">
+            Danger Zone
+          </h3>
+          <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-4 flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">
+                Delete This Profile
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Permanently removes the profile and all its data.
+              </p>
+            </div>
+            <Button
+              variant="destructive"
+              size="sm"
+              className="flex-shrink-0"
+              onClick={() => setShowDeleteDialog(true)}
+              data-ocid="super_admin.selected_profile.delete_button"
+            >
+              <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+              Delete
+            </Button>
+          </div>
+        </section>
+      </div>
+
+      {/* Delete Confirmation Dialog */}
+      <DeleteProfileDialog
+        open={showDeleteDialog}
+        profileName={profile.business_name}
+        profileKey={profile.profile_key}
+        onClose={() => setShowDeleteDialog(false)}
+        onConfirm={handleDelete}
+        isPending={deleteProfile.isPending}
+      />
+    </div>
+  );
+}
+
+// ─── Profile Users Panel ──────────────────────────────────────────────────────
+
+interface ProfileUsersPanelProps {
+  profileKey: string;
+  index: number;
+}
+
+function ProfileUsersPanel({ profileKey, index }: ProfileUsersPanelProps) {
+  const { data: users = [], isLoading } = useGetUsersByProfile(profileKey);
+  const assignRole = useAssignUserRole();
+
+  const handleRoleChange = async (
+    userId: import("../backend").UserId,
+    role: string,
+  ) => {
+    const roleMap: Record<string, UserRole> = {
+      admin: UserRole.admin,
+      staff: UserRole.staff,
+      superAdmin: UserRole.superAdmin,
+    };
+    const backendRole = roleMap[role];
+    if (!backendRole) return;
+    try {
+      await assignRole.mutateAsync({
+        targetUserId: userId,
+        newRole: backendRole,
+        profileKey,
+      });
+      toast.success("Role updated.");
+    } catch {
+      toast.error("Failed to update role.");
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div
+        className="space-y-2 py-2"
+        data-ocid={`super_admin.profile_users.loading_state.${index}`}
+      >
+        {[1, 2].map((i) => (
+          <Skeleton key={i} className="h-10 rounded-lg" />
+        ))}
+      </div>
+    );
+  }
+
+  if (users.length === 0) {
+    return (
+      <div
+        className="py-4 text-center text-sm text-muted-foreground"
+        data-ocid={`super_admin.profile_users.empty_state.${index}`}
+      >
+        No users in this profile yet.
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="space-y-1.5"
+      data-ocid={`super_admin.profile_users_list.${index}`}
+    >
+      {(users as UserProfilePublic[]).map((user, uIdx) => {
+        const userId = user.principal;
+        const displayName = user.display_name ?? "—";
+        const rawRole = String(user.role);
+        const displayRole = rawRole === "subAdmin" ? "staff" : rawRole;
+        const warehouse = user.warehouse_name ?? "—";
+        const itemKey = `${String(userId)}-${uIdx}`;
+        return (
+          <div
+            key={itemKey}
+            className="flex items-center gap-3 px-3 py-2 rounded-md bg-card border border-border"
+            data-ocid={`super_admin.profile_user.item.${uIdx + 1}`}
+          >
+            <div className="w-7 h-7 rounded-full bg-secondary flex items-center justify-center flex-shrink-0 text-xs font-semibold text-secondary-foreground uppercase">
+              {displayName.charAt(0)}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-foreground truncate">
+                {displayName}
+              </p>
+              <p className="text-xs text-muted-foreground truncate">
+                {warehouse}
+              </p>
+            </div>
+            <Select
+              value={displayRole}
+              onValueChange={(v) => handleRoleChange(userId, v)}
+              disabled={assignRole.isPending}
+            >
+              <SelectTrigger
+                className="h-7 text-xs w-28 flex-shrink-0"
+                data-ocid={`super_admin.profile_user.role_select.${uIdx + 1}`}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="admin" className="text-xs">
+                  Admin
+                </SelectItem>
+                <SelectItem value="staff" className="text-xs">
+                  Staff
+                </SelectItem>
+                <SelectItem value="superAdmin" className="text-xs">
+                  Super Admin
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Profile Row (compact list item) ─────────────────────────────────────────
+
+interface ProfileListRowProps {
+  profile: ProfileStats | ProfileStatsExtended;
+  index: number;
+  isSelected: boolean;
+  onSelect: () => void;
+  isExpanded: boolean;
+  onToggleExpand: () => void;
+}
+
+function ProfileListRow({
   profile,
   index,
+  isSelected,
+  onSelect,
   isExpanded,
-  onToggle,
-}: ExtendedProfileRowProps) {
+  onToggleExpand,
+}: ProfileListRowProps) {
   const enableProfile = useEnableProfile();
   const setProfileWindow = useSetProfileWindow();
+  const { startImpersonation } = useImpersonation();
 
   const ext = profile as ProfileStatsExtended;
   const isEnabled = "is_enabled" in ext ? ext.is_enabled : true;
-  // start_date/end_date are nanosecond timestamps from backend
   const startDateNs =
     "start_date" in ext && ext.start_date ? ext.start_date : null;
   const endDateNs = "end_date" in ext && ext.end_date ? ext.end_date : null;
@@ -289,10 +1194,10 @@ function ExtendedProfileRow({
   const [startInput, setStartInput] = useState(msToDateInput(startDateNs));
   const [endInput, setEndInput] = useState(msToDateInput(endDateNs));
   const [isSavingWindow, setIsSavingWindow] = useState(false);
+  const [showUsers, setShowUsers] = useState(false);
 
   const status = getProfileStatus(profile);
   const statusCfg = STATUS_CONFIG[status];
-  const delay = `${index * 0.06}s`;
 
   const handleToggleEnabled = async (checked: boolean) => {
     try {
@@ -326,39 +1231,50 @@ function ExtendedProfileRow({
     }
   };
 
+  const handleImpersonate = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    startImpersonation(profile.profile_key, profile.business_name);
+    toast.success(
+      `Now viewing as Staff for "${profile.business_name}". Use the banner at the top to exit.`,
+    );
+  };
+
   return (
     <div
-      className="stagger-item border border-border rounded-lg overflow-hidden bg-card"
-      style={{ animationDelay: delay }}
+      className={`stagger-item border rounded-lg overflow-hidden transition-colors duration-150 ${
+        isSelected
+          ? "border-primary bg-primary/5 shadow-sm"
+          : "border-border bg-card hover:border-primary/40"
+      }`}
       data-ocid={`super_admin.profile_row.${index + 1}`}
     >
-      {/* Summary Row */}
+      {/* Summary Row — click to SELECT */}
       <button
         type="button"
-        className="w-full text-left px-4 py-3.5 flex items-center gap-3 hover:bg-muted/40 transition-colors duration-150"
-        onClick={onToggle}
-        data-ocid={`super_admin.profile_toggle.${index + 1}`}
-        aria-expanded={isExpanded}
+        className="w-full text-left px-4 py-3.5 flex items-center gap-3 cursor-pointer hover:bg-muted/20 transition-colors"
+        onClick={onSelect}
+        aria-pressed={isSelected}
+        data-ocid={`super_admin.profile_select.${index + 1}`}
       >
         {/* Icon */}
-        <div className="w-8 h-8 rounded-md bg-secondary flex items-center justify-center flex-shrink-0">
-          <Building2 className="w-4 h-4 text-secondary-foreground" />
+        <div
+          className={`w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0 ${
+            isSelected ? "bg-primary/20" : "bg-secondary"
+          }`}
+        >
+          <Building2
+            className={`w-4 h-4 ${isSelected ? "text-primary" : "text-secondary-foreground"}`}
+          />
         </div>
 
         {/* Details */}
-        <div className="flex-1 min-w-0 grid grid-cols-2 md:grid-cols-5 gap-x-4 gap-y-1 items-center">
+        <div className="flex-1 min-w-0 grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1 items-center">
           <div className="col-span-2 md:col-span-1 min-w-0">
             <p className="text-sm font-semibold text-foreground truncate">
               {profile.business_name}
             </p>
             <p className="text-xs text-muted-foreground font-mono truncate">
               {profile.profile_key}
-            </p>
-          </div>
-          <div className="hidden md:block">
-            <p className="text-xs text-muted-foreground">Owner</p>
-            <p className="text-xs font-mono text-foreground">
-              {truncatePrincipal(profile.owner_principal)}
             </p>
           </div>
           <div className="flex items-center gap-1">
@@ -384,17 +1300,63 @@ function ExtendedProfileRow({
           </div>
         </div>
 
-        {/* Chevron */}
-        <div className="flex-shrink-0">
-          {isExpanded ? (
-            <ChevronUp className="w-4 h-4 text-muted-foreground" />
-          ) : (
-            <ChevronDown className="w-4 h-4 text-muted-foreground" />
-          )}
+        {/* Action buttons + Expand toggle — stopPropagation handled per element */}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs gap-1.5 hidden sm:flex"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleImpersonate(e);
+            }}
+            data-ocid={`super_admin.profile_impersonate.${index + 1}`}
+          >
+            <Waypoints className="w-3 h-3" />
+            View as Staff
+          </Button>
+          <span
+            role="presentation"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleExpand();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.stopPropagation();
+                onToggleExpand();
+              }
+            }}
+            className="p-1.5 rounded hover:bg-muted transition-colors"
+            aria-label="Toggle governance details"
+            data-ocid={`super_admin.profile_toggle.${index + 1}`}
+          >
+            {isExpanded ? (
+              <ChevronUp className="w-4 h-4 text-muted-foreground" />
+            ) : (
+              <ChevronDown className="w-4 h-4 text-muted-foreground" />
+            )}
+          </span>
         </div>
       </button>
 
-      {/* Expanded Panel */}
+      {/* Mobile impersonate button */}
+      <div className="sm:hidden px-4 pb-2">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="w-full h-8 text-xs gap-1.5"
+          onClick={handleImpersonate}
+          data-ocid={`super_admin.profile_impersonate_mobile.${index + 1}`}
+        >
+          <Waypoints className="w-3 h-3" />
+          View as Staff
+        </Button>
+      </div>
+
+      {/* Expanded Governance Panel */}
       {isExpanded && (
         <div
           className="border-t border-border bg-muted/30 px-4 py-4 space-y-4"
@@ -471,8 +1433,7 @@ function ExtendedProfileRow({
               </p>
             </div>
             <p className="text-xs text-muted-foreground">
-              Restrict this profile to a specific date range. Transactions
-              outside this window are blocked with a 403 Restricted response.
+              Restrict this profile to a specific date range.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
@@ -519,19 +1480,180 @@ function ExtendedProfileRow({
             </Button>
           </div>
 
+          {/* Users Sub-section */}
+          <div className="rounded-md bg-card border border-border px-3 py-3 space-y-3">
+            <button
+              type="button"
+              className="w-full flex items-center justify-between"
+              onClick={() => setShowUsers((v) => !v)}
+              data-ocid={`super_admin.profile_users_toggle.${index + 1}`}
+            >
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-primary" />
+                <p className="text-sm font-medium text-foreground">
+                  Profile Users
+                </p>
+              </div>
+              {showUsers ? (
+                <ChevronUp className="w-4 h-4 text-muted-foreground" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-muted-foreground" />
+              )}
+            </button>
+            {showUsers && (
+              <ProfileUsersPanel
+                profileKey={profile.profile_key}
+                index={index}
+              />
+            )}
+          </div>
+
           {/* Owner Info */}
           <div className="rounded-md bg-card border border-border px-3 py-2.5">
             <p className="text-xs text-muted-foreground mb-1">
               Owner Principal
             </p>
             <p className="text-xs font-mono text-foreground break-all">
-              {typeof profile.owner_principal === "string"
-                ? profile.owner_principal
-                : ((
-                    profile.owner_principal as { toText?: () => string }
-                  ).toText?.() ?? String(profile.owner_principal))}
+              {principalToText(profile.owner_principal)}
             </p>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── All Users Panel ──────────────────────────────────────────────────────────
+
+function AllUsersPanel() {
+  const { data: allUsers = [], isLoading } = useGetAllUsersForAdmin();
+  const assignRole = useAssignUserRole();
+  const [search, setSearch] = useState("");
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return allUsers as UserProfilePublic[];
+    const q = search.toLowerCase();
+    return (allUsers as UserProfilePublic[]).filter((u) => {
+      return (
+        (u.display_name ?? "").toLowerCase().includes(q) ||
+        (u.profile_key ?? "").toLowerCase().includes(q) ||
+        String(u.role).toLowerCase().includes(q)
+      );
+    });
+  }, [allUsers, search]);
+
+  const handleRoleChange = async (user: UserProfilePublic, role: string) => {
+    const roleMap: Record<string, UserRole> = {
+      admin: UserRole.admin,
+      staff: UserRole.staff,
+      superAdmin: UserRole.superAdmin,
+    };
+    const backendRole = roleMap[role];
+    if (!backendRole) return;
+    try {
+      await assignRole.mutateAsync({
+        targetUserId: user.principal,
+        newRole: backendRole,
+        profileKey: user.profile_key,
+      });
+      toast.success("Role updated.");
+    } catch {
+      toast.error("Failed to update role.");
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div
+        className="space-y-3"
+        data-ocid="super_admin.all_users.loading_state"
+      >
+        {[1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-14 rounded-lg" />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="relative">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+        <Input
+          placeholder="Search users by name, profile, or role…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="pl-8 h-9 text-sm"
+          data-ocid="super_admin.all_users.search_input"
+        />
+      </div>
+
+      {filtered.length === 0 ? (
+        <div
+          className="py-10 text-center text-muted-foreground text-sm"
+          data-ocid="super_admin.all_users.empty_state"
+        >
+          {allUsers.length === 0
+            ? "No users registered yet."
+            : "No users match your search."}
+        </div>
+      ) : (
+        <div className="space-y-2" data-ocid="super_admin.all_users.list">
+          {filtered.map((user, idx) => {
+            const displayName = user.display_name ?? "—";
+            const rawRole = String(user.role);
+            const displayRole = rawRole === "subAdmin" ? "staff" : rawRole;
+            const warehouse = user.warehouse_name ?? "—";
+            const profileKey = user.profile_key ?? "—";
+            const rowKey = `${String(user.principal)}-${profileKey}-${idx}`;
+            return (
+              <div
+                key={rowKey}
+                className="flex items-center gap-3 p-3 rounded-lg border border-border bg-card"
+                data-ocid={`super_admin.all_users.item.${idx + 1}`}
+              >
+                <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center flex-shrink-0 text-xs font-semibold text-secondary-foreground uppercase">
+                  {displayName.charAt(0)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate">
+                    {displayName}
+                  </p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-muted-foreground font-mono">
+                      {profileKey}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      · {warehouse}
+                    </span>
+                  </div>
+                </div>
+                <Select
+                  value={displayRole}
+                  onValueChange={(v) => handleRoleChange(user, v)}
+                  disabled={assignRole.isPending}
+                >
+                  <SelectTrigger
+                    className="h-7 text-xs w-28 flex-shrink-0"
+                    data-ocid={`super_admin.all_users.role_select.${idx + 1}`}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="admin" className="text-xs">
+                      Admin
+                    </SelectItem>
+                    <SelectItem value="staff" className="text-xs">
+                      Staff
+                    </SelectItem>
+                    <SelectItem value="superAdmin" className="text-xs">
+                      Super Admin
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -568,12 +1690,14 @@ interface PageHeaderProps {
   lastRefreshed: string | null;
   isRefreshing: boolean;
   onRefresh: () => void;
+  onCreateProfile: () => void;
 }
 
 function PageHeader({
   lastRefreshed,
   isRefreshing,
   onRefresh,
+  onCreateProfile,
 }: PageHeaderProps) {
   return (
     <div className="flex items-start justify-between gap-3">
@@ -592,24 +1716,38 @@ function PageHeader({
           </p>
         </div>
       </div>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={onRefresh}
-        disabled={isRefreshing}
-        className="flex items-center gap-1.5 flex-shrink-0"
-        data-ocid="super_admin.refresh_button"
-      >
-        <RefreshCw
-          className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin" : ""}`}
-        />
-        <span className="hidden sm:inline">Refresh</span>
-      </Button>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onCreateProfile}
+          className="flex items-center gap-1.5"
+          data-ocid="super_admin.create_profile_button"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">New Profile</span>
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onRefresh}
+          disabled={isRefreshing}
+          className="flex items-center gap-1.5"
+          data-ocid="super_admin.refresh_button"
+        >
+          <RefreshCw
+            className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin" : ""}`}
+          />
+          <span className="hidden sm:inline">Refresh</span>
+        </Button>
+      </div>
     </div>
   );
 }
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
+
+type ActiveTab = "profiles" | "users";
 
 export function SuperAdminPage({ onNavigate: _ }: SuperAdminPageProps) {
   const { userProfile } = useProfile();
@@ -627,8 +1765,11 @@ export function SuperAdminPage({ onNavigate: _ }: SuperAdminPageProps) {
   const initSuperAdmin = useInitSuperAdmin();
 
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [search, setSearch] = useState("");
+  const [activeTab, setActiveTab] = useState<ActiveTab>("profiles");
+  const [showCreateProfile, setShowCreateProfile] = useState(false);
 
   const isSuperAdmin =
     userProfile?.role != null &&
@@ -664,13 +1805,10 @@ export function SuperAdminPage({ onNavigate: _ }: SuperAdminPageProps) {
       })
     : null;
 
-  // Merge stats.profiles with extProfiles (extended data takes priority)
   const mergedProfiles = useMemo(() => {
     const base: (ProfileStats | ProfileStatsExtended)[] = stats?.profiles ?? [];
     if (!extProfiles || extProfiles.length === 0) return base;
-    // Build a map from extProfiles keyed by profile_key
     const extMap = new Map(extProfiles.map((p) => [p.profile_key, p]));
-    // Replace base entries with extended ones where available
     return base.map((p) => extMap.get(p.profile_key) ?? p);
   }, [stats?.profiles, extProfiles]);
 
@@ -683,6 +1821,14 @@ export function SuperAdminPage({ onNavigate: _ }: SuperAdminPageProps) {
         p.profile_key.toLowerCase().includes(q),
     );
   }, [mergedProfiles, search]);
+
+  const selectedProfile = useMemo(
+    () =>
+      selectedKey
+        ? (mergedProfiles.find((p) => p.profile_key === selectedKey) ?? null)
+        : null,
+    [mergedProfiles, selectedKey],
+  );
 
   // ─── Access Control ──────────────────────────────────────────────────────
 
@@ -716,8 +1862,7 @@ export function SuperAdminPage({ onNavigate: _ }: SuperAdminPageProps) {
                 Access Restricted
               </h2>
               <p className="text-sm text-muted-foreground max-w-sm">
-                This area is reserved for the Super Admin. You do not have
-                permission to view this page.
+                This area is reserved for the Super Admin.
               </p>
             </div>
 
@@ -726,8 +1871,8 @@ export function SuperAdminPage({ onNavigate: _ }: SuperAdminPageProps) {
                 <div className="flex items-start gap-2 mb-3">
                   <AlertTriangle className="w-4 h-4 text-accent mt-0.5 flex-shrink-0" />
                   <p className="text-xs text-muted-foreground">
-                    No Super Admin has been set for this app yet. If you are the
-                    first administrator, you can claim this role.
+                    No Super Admin has been set. If you are the first
+                    administrator, you can claim this role.
                   </p>
                 </div>
                 <Button
@@ -756,6 +1901,7 @@ export function SuperAdminPage({ onNavigate: _ }: SuperAdminPageProps) {
           lastRefreshed={null}
           isRefreshing={false}
           onRefresh={handleRefresh}
+          onCreateProfile={() => setShowCreateProfile(true)}
         />
         <PageSkeleton />
       </div>
@@ -769,6 +1915,7 @@ export function SuperAdminPage({ onNavigate: _ }: SuperAdminPageProps) {
           lastRefreshed={lastRefreshed}
           isRefreshing={isRefreshing}
           onRefresh={handleRefresh}
+          onCreateProfile={() => setShowCreateProfile(true)}
         />
         <Card className="card-elevated" data-ocid="super_admin.empty_state">
           <CardContent className="pt-10 pb-10 flex flex-col items-center text-center gap-4">
@@ -780,12 +1927,23 @@ export function SuperAdminPage({ onNavigate: _ }: SuperAdminPageProps) {
                 No Profiles Yet
               </h2>
               <p className="text-sm text-muted-foreground max-w-sm">
-                No business profiles have been created. Profiles will appear
-                here once users sign up and create a business.
+                No business profiles have been created. Click "New Profile" to
+                create the first one.
               </p>
             </div>
+            <Button
+              onClick={() => setShowCreateProfile(true)}
+              data-ocid="super_admin.empty.create_profile_button"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Create First Profile
+            </Button>
           </CardContent>
         </Card>
+        <CreateProfileModal
+          open={showCreateProfile}
+          onClose={() => setShowCreateProfile(false)}
+        />
       </div>
     );
   }
@@ -804,6 +1962,7 @@ export function SuperAdminPage({ onNavigate: _ }: SuperAdminPageProps) {
         lastRefreshed={lastRefreshed}
         isRefreshing={isRefreshing}
         onRefresh={handleRefresh}
+        onCreateProfile={() => setShowCreateProfile(true)}
       />
 
       {/* KPI Cards */}
@@ -837,74 +1996,156 @@ export function SuperAdminPage({ onNavigate: _ }: SuperAdminPageProps) {
       {/* Governance Info */}
       <GovernanceInfoPanel />
 
-      {/* Profiles List */}
-      <Card className="card-elevated" data-ocid="super_admin.profiles_card">
-        <CardHeader className="pb-3 border-b border-border">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      {/* Tab Switcher */}
+      <div
+        className="flex gap-1 p-1 rounded-lg bg-muted w-full sm:w-auto"
+        data-ocid="super_admin.tab_list"
+      >
+        <button
+          type="button"
+          onClick={() => setActiveTab("profiles")}
+          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+            activeTab === "profiles"
+              ? "bg-card text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+          data-ocid="super_admin.profiles.tab"
+        >
+          <Building2 className="w-3.5 h-3.5" />
+          Profiles
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("users")}
+          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+            activeTab === "users"
+              ? "bg-card text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+          data-ocid="super_admin.users.tab"
+        >
+          <UserCog className="w-3.5 h-3.5" />
+          User Management
+        </button>
+      </div>
+
+      {/* Profiles Tab — Split Panel Layout */}
+      {activeTab === "profiles" && (
+        <div
+          className={`flex gap-4 ${selectedProfile ? "flex-col lg:flex-row lg:items-start" : ""}`}
+          data-ocid="super_admin.profiles_section"
+        >
+          {/* Profile List Panel */}
+          <Card
+            className={`card-elevated ${selectedProfile ? "lg:w-2/5 xl:w-1/3" : "w-full"}`}
+            data-ocid="super_admin.profiles_card"
+          >
+            <CardHeader className="pb-3 border-b border-border">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-base font-semibold">
+                    Business Profiles
+                  </CardTitle>
+                  <Badge variant="secondary" className="text-xs">
+                    {mergedProfiles.length} total
+                  </Badge>
+                </div>
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                  <Input
+                    placeholder="Search profiles…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="pl-8 h-8 text-sm w-full sm:w-56"
+                    data-ocid="super_admin.search_input"
+                  />
+                </div>
+              </div>
+              {selectedProfile && (
+                <p className="text-xs text-primary mt-1">
+                  Click a profile row to view/edit details →
+                </p>
+              )}
+            </CardHeader>
+            <CardContent className="pt-4">
+              <div className="space-y-2" data-ocid="super_admin.profiles_list">
+                {filteredProfiles.length === 0 ? (
+                  <div
+                    className="py-10 text-center text-muted-foreground text-sm"
+                    data-ocid="super_admin.profiles_empty_state"
+                  >
+                    No profiles match your search.
+                  </div>
+                ) : (
+                  filteredProfiles.map((profile, idx) => (
+                    <ProfileListRow
+                      key={profile.profile_key}
+                      profile={profile}
+                      index={idx}
+                      isSelected={selectedKey === profile.profile_key}
+                      onSelect={() =>
+                        setSelectedKey(
+                          selectedKey === profile.profile_key
+                            ? null
+                            : profile.profile_key,
+                        )
+                      }
+                      isExpanded={expandedKey === profile.profile_key}
+                      onToggleExpand={() =>
+                        setExpandedKey(
+                          expandedKey === profile.profile_key
+                            ? null
+                            : profile.profile_key,
+                        )
+                      }
+                    />
+                  ))
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Selected Profile Detail Panel */}
+          {selectedProfile && (
+            <Card
+              className="card-elevated lg:flex-1 lg:sticky lg:top-4"
+              data-ocid="super_admin.selected_profile_card"
+            >
+              <SelectedProfilePanel
+                profile={selectedProfile}
+                onClose={() => setSelectedKey(null)}
+                onDeleted={() => setSelectedKey(null)}
+                onRefresh={handleRefresh}
+              />
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* User Management Tab */}
+      {activeTab === "users" && (
+        <Card className="card-elevated" data-ocid="super_admin.users_card">
+          <CardHeader className="pb-3 border-b border-border">
             <div className="flex items-center gap-2">
               <CardTitle className="text-base font-semibold">
-                Business Profiles
+                All Users
               </CardTitle>
               <Badge variant="secondary" className="text-xs">
-                {mergedProfiles.length} total
+                Across all profiles
               </Badge>
             </div>
-            {/* Search */}
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-              <Input
-                placeholder="Search profiles…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-8 h-8 text-sm w-full sm:w-56"
-                data-ocid="super_admin.search_input"
-              />
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="pt-4">
-          {/* Column Headers (md+) */}
-          <div className="hidden md:grid grid-cols-5 gap-4 px-4 mb-2">
-            {["Profile / Key", "Owner", "Users", "Storage", "Status"].map(
-              (h) => (
-                <p
-                  key={h}
-                  className="text-xs font-medium text-muted-foreground uppercase tracking-wide"
-                >
-                  {h}
-                </p>
-              ),
-            )}
-          </div>
+          </CardHeader>
+          <CardContent className="pt-4">
+            <AllUsersPanel />
+          </CardContent>
+        </Card>
+      )}
 
-          <div className="space-y-2" data-ocid="super_admin.profiles_list">
-            {filteredProfiles.length === 0 ? (
-              <div
-                className="py-10 text-center text-muted-foreground text-sm"
-                data-ocid="super_admin.profiles_empty_state"
-              >
-                No profiles match your search.
-              </div>
-            ) : (
-              filteredProfiles.map((profile, idx) => (
-                <ExtendedProfileRow
-                  key={profile.profile_key}
-                  profile={profile}
-                  index={idx}
-                  isExpanded={expandedKey === profile.profile_key}
-                  onToggle={() =>
-                    setExpandedKey(
-                      expandedKey === profile.profile_key
-                        ? null
-                        : profile.profile_key,
-                    )
-                  }
-                />
-              ))
-            )}
-          </div>
-        </CardContent>
-      </Card>
+      {/* Create Profile Modal */}
+      <CreateProfileModal
+        open={showCreateProfile}
+        onClose={() => setShowCreateProfile(false)}
+      />
     </div>
   );
 }

@@ -8,6 +8,7 @@ import UserTypes "../types/users";
 
 module {
   public type CustomerStore = Map.Map<Common.CustomerId, CustomerTypes.Customer>;
+  public type BodyCompositionStore = Map.Map<Text, CustomerTypes.BodyCompositionEntry>;
 
   func callerProfileKey(userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId) : Common.ProfileKey {
     switch (userStore.get(caller)) {
@@ -31,6 +32,8 @@ module {
       discount_applicable = c.discount_applicable;
       discount_value = c.discount_value;
       notes = c.notes;
+      date_of_birth = c.date_of_birth;
+      gender = c.gender;
     }
   };
 
@@ -86,9 +89,6 @@ module {
     }
   };
 
-  // DRY-RUN: Who-column auto-population
-  //   createCustomer: created_by = caller, creation_date = now, last_updated_by = caller, last_update_date = now
-  //   updateCustomer: created_by preserved, creation_date preserved, last_updated_by = caller, last_update_date = now
   public func createCustomer(
     store : CustomerStore,
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
@@ -115,6 +115,8 @@ module {
         case (?n) [n];
         case null [];
       };
+      date_of_birth = input.date_of_birth;
+      gender = input.gender;
       // Who-columns: auto-populated from caller principal and current time
       created_by = caller;
       last_updated_by = caller;
@@ -133,6 +135,13 @@ module {
     input : CustomerTypes.CustomerInput,
   ) : Bool {
     let profileKey = callerProfileKey(userStore, caller);
+    // Allow #admin, #staff, and #superAdmin to update customers
+    switch (userStore.get(caller)) {
+      case (?up) {
+        if (up.role != #admin and up.role != #staff and up.role != #superAdmin) return false;
+      };
+      case null return false;
+    };
     switch (store.get(id)) {
       case null false;
       case (?existing) {
@@ -152,6 +161,8 @@ module {
           discount_applicable = input.discount_applicable;
           discount_value = input.discount_value;
           notes = updatedNotes;
+          date_of_birth = input.date_of_birth;
+          gender = input.gender;
           // Who-columns: last_updated_by and last_update_date updated; created_by and creation_date preserved
           last_updated_by = caller;
           last_update_date = now;
@@ -174,7 +185,6 @@ module {
   };
 
   /// Called after a sale completes — bumps total_sales by saleCountDelta, updates lifetime_revenue by revenueDelta.
-  /// Use saleCountDelta=1 for new sales, saleCountDelta=0 for updates (only revenue changes).
   public func recordSale(store : CustomerStore, id : Common.CustomerId, revenue : Float, timestamp : Common.Timestamp) {
     switch (store.get(id)) {
       case null {};
@@ -191,7 +201,6 @@ module {
   };
 
   /// Called after an order is edited — adjusts lifetime_revenue by revenueDelta (can be negative)
-  /// without incrementing total_sales count.
   public func adjustRevenue(store : CustomerStore, id : Common.CustomerId, revenueDelta : Float, timestamp : Common.Timestamp) {
     switch (store.get(id)) {
       case null {};
@@ -201,6 +210,84 @@ module {
           lifetime_revenue = existing.lifetime_revenue + revenueDelta;
           last_update_date = timestamp;
         });
+      };
+    }
+  };
+
+  // ── Body Composition History ───────────────────────────────────────────────
+
+  /// Create a body composition entry for a customer.
+  /// Uses Time.now() as a unique ID suffix to avoid collisions.
+  public func createBodyCompositionEntry(
+    bcStore : BodyCompositionStore,
+    userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
+    caller : Common.UserId,
+    customerId : Common.CustomerId,
+    input : CustomerTypes.BodyCompositionInput,
+  ) : ?CustomerTypes.BodyCompositionEntry {
+    let profileKey = callerProfileKey(userStore, caller);
+    let now = Time.now();
+    let callerText = caller.toText();
+    // Generate a unique ID from timestamp + caller principal size
+    let idSuffix = callerText.size() % 26;
+    let id = now.toText() # "_" # idSuffix.toText() # "_" # customerId.toText();
+    let entry : CustomerTypes.BodyCompositionEntry = {
+      id;
+      customer_id = customerId.toText();
+      profile_key = profileKey;
+      date = input.date;
+      weight = input.weight;
+      body_fat = input.body_fat;
+      visceral_fat = input.visceral_fat;
+      bmr = input.bmr;
+      bmi = input.bmi;
+      body_age = input.body_age;
+      trunk_fat = input.trunk_fat;
+      muscle_mass = input.muscle_mass;
+      created_by = callerText;
+      creation_date = now;
+    };
+    bcStore.add(id, entry);
+    ?entry
+  };
+
+  /// Returns body composition history for a customer, sorted by date descending.
+  public func getBodyCompositionHistory(
+    bcStore : BodyCompositionStore,
+    userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
+    caller : Common.UserId,
+    customerId : Common.CustomerId,
+  ) : [CustomerTypes.BodyCompositionEntry] {
+    let profileKey = callerProfileKey(userStore, caller);
+    let custIdText = customerId.toText();
+    let entries = bcStore.entries()
+      .filter(func((_id, e)) {
+        e.profile_key == profileKey and e.customer_id == custIdText
+      })
+      .map(func((_id, e) : (Text, CustomerTypes.BodyCompositionEntry)) : CustomerTypes.BodyCompositionEntry { e })
+      .toArray();
+    // Sort by creation_date descending (newest first)
+    entries.sort(func(a, b) {
+      if (a.creation_date > b.creation_date) #less
+      else if (a.creation_date < b.creation_date) #greater
+      else #equal
+    })
+  };
+
+  /// Delete a body composition entry — checks it belongs to caller's profile.
+  public func deleteBodyCompositionEntry(
+    bcStore : BodyCompositionStore,
+    userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
+    caller : Common.UserId,
+    id : Text,
+  ) : Bool {
+    let profileKey = callerProfileKey(userStore, caller);
+    switch (bcStore.get(id)) {
+      case null false;
+      case (?entry) {
+        if (entry.profile_key != profileKey) return false;
+        bcStore.remove(id);
+        true
       };
     }
   };

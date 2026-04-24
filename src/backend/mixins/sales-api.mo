@@ -22,15 +22,6 @@ mixin (
   public shared ({ caller }) func createSale(input : SalesTypes.SaleInput) : async ?Common.SaleId {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
 
-    // Dry-run — Governance Gatekeeper (Sale):
-    //   checkProfileAccess verifies two conditions before allowing any transaction:
-    //   1. profile.is_enabled == true    → else traps with variant #ProfileDisabled
-    //   2. current time within [start_date, end_date] window → else #OutsideActiveWindow
-    //   Example scenario: profile end_date = yesterday → now > end_date
-    //     → checkProfileAccess returns #err(#OutsideActiveWindow)
-    //     → createSale returns null (equivalent to HTTP 403 for the frontend)
-    //   The frontend maps null + stored error variant to the appropriate user message.
-    //   This runs BEFORE any inventory deduction, ensuring atomicity is preserved.
     switch (ProfileLib.checkProfileAccess(profileStore, userStore, caller)) {
       case (#err(_)) { return null };
       case (#ok) {};
@@ -47,9 +38,8 @@ mixin (
     result
   };
 
-  /// Edit a placed order — replaces cart items, recomputes discount & balance.
+  /// Edit a placed order — only #admin or #superAdmin may update.
   /// Stock from original items is returned before new items are deducted.
-  /// Governance check applies: editing is blocked if the profile is outside its active window.
   public shared ({ caller }) func updateSale(input : SalesTypes.UpdateSaleInput) : async Bool {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
     switch (ProfileLib.checkProfileAccess(profileStore, userStore, caller)) {
@@ -76,11 +66,11 @@ mixin (
 
   public shared query ({ caller }) func getSale(sale_id : Common.SaleId) : async ?SalesTypes.Sale {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
-    SalesLib.getSale(saleStore, caller, sale_id)
+    SalesLib.getSale(saleStore, userStore, caller, sale_id)
   };
 
   public shared query ({ caller }) func getSaleItems(sale_id : Common.SaleId) : async [SalesTypes.SaleItem] {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
-    SalesLib.getSaleItems(saleStore, saleItemStore, caller, sale_id)
+    SalesLib.getSaleItems(saleStore, saleItemStore, userStore, caller, sale_id)
   };
 };

@@ -56,7 +56,10 @@ import type {
   DiscountType,
 } from "@/types";
 import { ROLES } from "@/types";
+import { useActor } from "@caffeineai/core-infrastructure";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Activity,
   AlertTriangle,
   ChevronDown,
   ChevronUp,
@@ -81,6 +84,12 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { createActor } from "../backend";
+import type {
+  BodyCompositionEntry,
+  BodyCompositionInput,
+  CustomerId,
+} from "../backend";
 
 interface CustomersPageProps {
   onNavigate: (path: string, saleId?: bigint) => void;
@@ -143,6 +152,411 @@ function DiscountBadge({
   );
 }
 
+// ─── Body Composition Hooks (local, using actor pattern) ──────────────────────
+
+function useBackendActor() {
+  return useActor(createActor);
+}
+
+function useGetBodyCompositionHistory(customerId: CustomerId | null) {
+  const { actor, isFetching } = useBackendActor();
+  return useQuery<BodyCompositionEntry[]>({
+    queryKey: ["body-composition", customerId?.toString()],
+    queryFn: async () => {
+      if (!actor || !customerId) return [];
+      return actor.getBodyCompositionHistory(customerId);
+    },
+    enabled: !!actor && !isFetching && !!customerId,
+  });
+}
+
+function useCreateBodyCompositionEntry() {
+  const { actor } = useBackendActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      customerId,
+      input,
+    }: {
+      customerId: CustomerId;
+      input: BodyCompositionInput;
+    }) => {
+      if (!actor) throw new Error("Actor not ready");
+      return actor.createBodyCompositionEntry(customerId, input);
+    },
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({
+        queryKey: ["body-composition", variables.customerId.toString()],
+      });
+    },
+  });
+}
+
+function useDeleteBodyCompositionEntry() {
+  const { actor } = useBackendActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      customerId: _customerId,
+    }: {
+      id: string;
+      customerId: CustomerId;
+    }) => {
+      if (!actor) throw new Error("Actor not ready");
+      return actor.deleteBodyCompositionEntry(id);
+    },
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({
+        queryKey: ["body-composition", variables.customerId.toString()],
+      });
+    },
+  });
+}
+
+// ─── Body Composition Entry Form ──────────────────────────────────────────────
+
+const EMPTY_BODY_COMP: BodyCompositionInput = { date: "" };
+
+interface BodyCompFormProps {
+  open: boolean;
+  customerId: CustomerId;
+  onClose: () => void;
+}
+
+function BodyCompositionEntryDialog({
+  open,
+  customerId,
+  onClose,
+}: BodyCompFormProps) {
+  const createEntry = useCreateBodyCompositionEntry();
+  const [form, setForm] = useState<BodyCompositionInput>(EMPTY_BODY_COMP);
+
+  useEffect(() => {
+    if (open) setForm({ date: new Date().toISOString().split("T")[0] });
+  }, [open]);
+
+  function numField(
+    key: keyof Omit<BodyCompositionInput, "date" | "body_age">,
+    value: string,
+  ) {
+    const v = value === "" ? undefined : Number.parseFloat(value);
+    setForm((prev) => ({ ...prev, [key]: v }));
+  }
+
+  function bodyAgeField(value: string) {
+    const v = value === "" ? undefined : BigInt(Math.floor(Number(value)));
+    setForm((prev) => ({ ...prev, body_age: v }));
+  }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.date) {
+      toast.error("Date is required");
+      return;
+    }
+    try {
+      await createEntry.mutateAsync({ customerId, input: form });
+      toast.success("Body composition entry saved");
+      onClose();
+    } catch {
+      toast.error("Failed to save entry");
+    }
+  }
+
+  const fieldCls = "space-y-1.5";
+  const inputCls = "h-8 text-xs";
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent
+        className="max-w-lg"
+        data-ocid="body_composition.add.dialog"
+      >
+        <DialogHeader>
+          <DialogTitle>Add Body Composition Entry</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSave} className="space-y-4">
+          <div className={fieldCls}>
+            <Label htmlFor="bc-date" className="text-xs">
+              Date *
+            </Label>
+            <Input
+              id="bc-date"
+              type="date"
+              className={inputCls}
+              value={form.date}
+              onChange={(e) => setForm((p) => ({ ...p, date: e.target.value }))}
+              required
+              data-ocid="body_composition.date.input"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {(
+              [
+                ["weight", "Weight (kg)"],
+                ["body_fat", "Body Fat (%)"],
+                ["visceral_fat", "Visceral Fat"],
+                ["bmr", "BMR (kcal)"],
+                ["bmi", "BMI"],
+                ["trunk_fat", "Trunk Fat (%)"],
+                ["muscle_mass", "Muscle Mass (kg)"],
+              ] as [
+                keyof Omit<BodyCompositionInput, "date" | "body_age">,
+                string,
+              ][]
+            ).map(([key, label]) => (
+              <div key={key} className={fieldCls}>
+                <Label htmlFor={`bc-${key}`} className="text-xs">
+                  {label}
+                </Label>
+                <Input
+                  id={`bc-${key}`}
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  className={inputCls}
+                  value={form[key] !== undefined ? String(form[key]) : ""}
+                  onChange={(e) => numField(key, e.target.value)}
+                  data-ocid={`body_composition.${key}.input`}
+                />
+              </div>
+            ))}
+            <div className={fieldCls}>
+              <Label htmlFor="bc-body-age" className="text-xs">
+                Body Age (yrs)
+              </Label>
+              <Input
+                id="bc-body-age"
+                type="number"
+                step="1"
+                min={0}
+                className={inputCls}
+                value={form.body_age !== undefined ? String(form.body_age) : ""}
+                onChange={(e) => bodyAgeField(e.target.value)}
+                data-ocid="body_composition.body_age.input"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onClose}
+              data-ocid="body_composition.cancel_button"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={createEntry.isPending}
+              data-ocid="body_composition.save_button"
+            >
+              {createEntry.isPending ? "Saving…" : "Save Entry"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Body Composition Tab ─────────────────────────────────────────────────────
+
+function BodyCompositionTab({ customer }: { customer: CustomerPublic }) {
+  const { data: entries = [], isLoading } = useGetBodyCompositionHistory(
+    customer.id,
+  );
+  const deleteEntry = useDeleteBodyCompositionEntry();
+  const [addOpen, setAddOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+
+  const sorted = [...entries].sort((a, b) => {
+    if (a.date < b.date) return 1;
+    if (a.date > b.date) return -1;
+    return 0;
+  });
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    try {
+      await deleteEntry.mutateAsync({
+        id: deleteTarget,
+        customerId: customer.id,
+      });
+      toast.success("Entry deleted");
+    } catch {
+      toast.error("Failed to delete entry");
+    } finally {
+      setDeleteTarget(null);
+    }
+  }
+
+  function fmt(v: number | undefined, decimals = 1): string {
+    if (v === undefined) return "—";
+    return v.toFixed(decimals);
+  }
+
+  return (
+    <div className="space-y-4" data-ocid="customer.body_composition.panel">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">
+          {entries.length} {entries.length === 1 ? "entry" : "entries"} recorded
+        </p>
+        <Button
+          size="sm"
+          onClick={() => setAddOpen(true)}
+          data-ocid="body_composition.add_button"
+        >
+          <Plus className="w-3.5 h-3.5 mr-1.5" />
+          Add Entry
+        </Button>
+      </div>
+
+      {isLoading && (
+        <div className="space-y-2" data-ocid="body_composition.loading_state">
+          {[1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-14 w-full rounded-lg" />
+          ))}
+        </div>
+      )}
+
+      {!isLoading && sorted.length === 0 && (
+        <div
+          className="flex flex-col items-center gap-3 py-8 text-muted-foreground"
+          data-ocid="body_composition.empty_state"
+        >
+          <Activity className="w-10 h-10 opacity-30" />
+          <div className="text-center">
+            <p className="text-sm font-medium text-foreground">
+              No body composition data
+            </p>
+            <p className="text-xs mt-0.5">
+              Add an entry to track progress over time
+            </p>
+          </div>
+        </div>
+      )}
+
+      {!isLoading && sorted.length > 0 && (
+        <div className="rounded-lg border border-border overflow-hidden">
+          <div className="overflow-x-auto">
+            <table
+              className="w-full text-xs min-w-[560px]"
+              data-ocid="body_composition.table"
+            >
+              <thead>
+                <tr className="border-b border-border bg-muted/40">
+                  {[
+                    "Date",
+                    "Weight",
+                    "Body Fat",
+                    "Visceral",
+                    "BMR",
+                    "BMI",
+                    "Body Age",
+                    "Trunk Fat",
+                    "Muscle",
+                    "",
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      className="px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap"
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((entry, idx) => (
+                  <tr
+                    key={entry.id}
+                    className="border-b border-border last:border-0 hover:bg-muted/10 transition-colors"
+                    data-ocid={`body_composition.item.${idx + 1}`}
+                  >
+                    <td className="px-3 py-2 font-medium whitespace-nowrap">
+                      {entry.date}
+                    </td>
+                    <td className="px-3 py-2 tabular-nums">
+                      {fmt(entry.weight)} kg
+                    </td>
+                    <td className="px-3 py-2 tabular-nums">
+                      {fmt(entry.body_fat)}%
+                    </td>
+                    <td className="px-3 py-2 tabular-nums">
+                      {fmt(entry.visceral_fat)}
+                    </td>
+                    <td className="px-3 py-2 tabular-nums">
+                      {fmt(entry.bmr, 0)} kcal
+                    </td>
+                    <td className="px-3 py-2 tabular-nums">{fmt(entry.bmi)}</td>
+                    <td className="px-3 py-2 tabular-nums">
+                      {entry.body_age !== undefined
+                        ? `${entry.body_age} yrs`
+                        : "—"}
+                    </td>
+                    <td className="px-3 py-2 tabular-nums">
+                      {fmt(entry.trunk_fat)}%
+                    </td>
+                    <td className="px-3 py-2 tabular-nums">
+                      {fmt(entry.muscle_mass)} kg
+                    </td>
+                    <td className="px-3 py-2">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 text-destructive hover:text-destructive"
+                        onClick={() => setDeleteTarget(entry.id)}
+                        aria-label="Delete entry"
+                        data-ocid={`body_composition.delete_button.${idx + 1}`}
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <BodyCompositionEntryDialog
+        open={addOpen}
+        customerId={customer.id}
+        onClose={() => setAddOpen(false)}
+      />
+
+      <AlertDialog
+        open={!!deleteTarget}
+        onOpenChange={(o) => !o && setDeleteTarget(null)}
+      >
+        <AlertDialogContent data-ocid="body_composition.delete.dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Entry?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This body composition entry will be permanently removed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-ocid="body_composition.delete.cancel_button">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-ocid="body_composition.delete.confirm_button"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
 // ─── Customer Form / Create Dialog ───────────────────────────────────────────
 
 interface CustomerDialogProps {
@@ -159,6 +573,8 @@ const EMPTY_FORM: CustomerInputExtended = {
   discount_applicable: undefined,
   discount_value: undefined,
   notes: "",
+  date_of_birth: undefined,
+  gender: undefined,
 };
 
 type DuplicateState =
@@ -191,6 +607,8 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
           discount_applicable: ext.discount_applicable,
           discount_value: ext.discount_value,
           notes: ext.notesText ?? "",
+          date_of_birth: ext.date_of_birth ?? "",
+          gender: ext.gender ?? "",
         });
       } else {
         setForm(EMPTY_FORM);
@@ -251,10 +669,6 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!validate()) return;
-    // Include discount fields in the input — backend CustomerInput now accepts them.
-    // Map frontend DiscountType string values to the backend DiscountType enum values.
-    // DRY-RUN: Discount/Order Edit Collision — discount stored on customer record;
-    // when a sale is created the discount is fetched and applied to the subtotal.
     const customerInput = {
       name: form.name.trim(),
       phone: form.phone.trim(),
@@ -267,6 +681,8 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
         discount_value: form.discount_value,
       }),
       ...(form.notes && { note: form.notes }),
+      ...(form.date_of_birth && { date_of_birth: form.date_of_birth }),
+      ...(form.gender && form.gender !== "" && { gender: form.gender }),
     };
     try {
       if (editing) {
@@ -413,6 +829,50 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
                   onChange={(e) => setField("address", e.target.value)}
                   placeholder="123 Green Lane, Mumbai"
                 />
+              </div>
+
+              {/* Date of Birth + Gender row */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="cust-dob" className="text-xs">
+                    Date of Birth
+                  </Label>
+                  <Input
+                    id="cust-dob"
+                    type="date"
+                    className="h-9 text-sm"
+                    data-ocid="customer.dob.input"
+                    value={form.date_of_birth ?? ""}
+                    onChange={(e) =>
+                      setField("date_of_birth", e.target.value || undefined)
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="cust-gender" className="text-xs">
+                    Gender
+                  </Label>
+                  <Select
+                    value={form.gender ?? "none"}
+                    onValueChange={(v) =>
+                      setField("gender", v === "none" ? undefined : v)
+                    }
+                  >
+                    <SelectTrigger
+                      id="cust-gender"
+                      className="h-9 text-sm"
+                      data-ocid="customer.gender.select"
+                    >
+                      <SelectValue placeholder="Select" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Not specified</SelectItem>
+                      <SelectItem value="Male">Male</SelectItem>
+                      <SelectItem value="Female">Female</SelectItem>
+                      <SelectItem value="Other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
               {/* Discount section */}
@@ -730,7 +1190,7 @@ function CustomerDetailSheet({
   return (
     <Sheet open={!!customer} onOpenChange={(o) => !o && onClose()}>
       <SheetContent
-        className="w-full sm:max-w-md overflow-y-auto"
+        className="w-full sm:max-w-lg overflow-y-auto"
         data-ocid="customer.detail.sheet"
       >
         {customer && (
@@ -790,27 +1250,34 @@ function CustomerDetailSheet({
               onValueChange={setActiveTab}
               className="mt-4"
             >
-              <TabsList className="w-full">
+              <TabsList className="w-full grid grid-cols-4">
                 <TabsTrigger
                   value="info"
-                  className="flex-1 text-xs"
+                  className="text-xs"
                   data-ocid="customer.detail.info_tab"
                 >
-                  <User className="w-3.5 h-3.5 mr-1.5" /> Info
+                  <User className="w-3.5 h-3.5 mr-1" /> Info
                 </TabsTrigger>
                 <TabsTrigger
                   value="history"
-                  className="flex-1 text-xs"
+                  className="text-xs"
                   data-ocid="customer.detail.history_tab"
                 >
-                  <Clock className="w-3.5 h-3.5 mr-1.5" /> History
+                  <Clock className="w-3.5 h-3.5 mr-1" /> History
                 </TabsTrigger>
                 <TabsTrigger
                   value="notes"
-                  className="flex-1 text-xs"
+                  className="text-xs"
                   data-ocid="customer.detail.notes_tab"
                 >
-                  <MessageSquare className="w-3.5 h-3.5 mr-1.5" /> Notes
+                  <MessageSquare className="w-3.5 h-3.5 mr-1" /> Notes
+                </TabsTrigger>
+                <TabsTrigger
+                  value="body"
+                  className="text-xs"
+                  data-ocid="customer.detail.body_tab"
+                >
+                  <Activity className="w-3.5 h-3.5 mr-1" /> Body
                 </TabsTrigger>
               </TabsList>
 
@@ -831,6 +1298,34 @@ function CustomerDetailSheet({
                   <MapPin className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
                   <span>{customer.address || "—"}</span>
                 </div>
+
+                {/* Date of Birth & Gender */}
+                {(customer.date_of_birth || customer.gender) && (
+                  <div className="pt-2 border-t border-border space-y-2">
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Personal
+                    </h3>
+                    {customer.date_of_birth && (
+                      <div className="flex items-center gap-2.5 text-sm">
+                        <span className="text-muted-foreground text-xs w-20 shrink-0">
+                          Date of Birth
+                        </span>
+                        <span>{customer.date_of_birth}</span>
+                      </div>
+                    )}
+                    {customer.gender && (
+                      <div className="flex items-center gap-2.5 text-sm">
+                        <span className="text-muted-foreground text-xs w-20 shrink-0">
+                          Gender
+                        </span>
+                        <Badge variant="secondary" className="text-xs">
+                          {customer.gender}
+                        </Badge>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {customer.discount_applicable &&
                   customer.discount_value !== undefined &&
                   customer.discount_value > 0 && (
@@ -878,6 +1373,11 @@ function CustomerDetailSheet({
                     No notes yet.
                   </p>
                 )}
+              </TabsContent>
+
+              {/* Body Composition tab */}
+              <TabsContent value="body" className="pt-4">
+                <BodyCompositionTab customer={customer} />
               </TabsContent>
             </Tabs>
           </>
@@ -1217,9 +1717,11 @@ export function CustomersPage({ onNavigate: _onNavigate }: CustomersPageProps) {
     useState<CustomerPublicWithDiscount | null>(null);
 
   const role = userProfile?.role as string | undefined;
-  const isSubAdmin = role === ROLES.SUB_ADMIN;
-  const canEdit = role === ROLES.ADMIN || role === ROLES.SUPER_ADMIN;
-  const canDelete = role === ROLES.ADMIN || role === ROLES.SUPER_ADMIN;
+  // Staff (formerly Sub-Admin) can also edit/delete customers per requirements
+  const canEdit =
+    role === ROLES.ADMIN || role === ROLES.SUPER_ADMIN || role === ROLES.STAFF;
+  const canDelete =
+    role === ROLES.ADMIN || role === ROLES.SUPER_ADMIN || role === ROLES.STAFF;
 
   const filtered = customers.filter((c) => {
     if (!search) return true;
@@ -1272,14 +1774,16 @@ export function CustomersPage({ onNavigate: _onNavigate }: CustomersPageProps) {
             Manage your customer base and view purchase history
           </p>
         </div>
-        <Button
-          onClick={openAdd}
-          className="sm:shrink-0"
-          data-ocid="customers.add_button"
-        >
-          <Plus className="w-4 h-4 mr-1.5" />
-          Add Customer
-        </Button>
+        {canEdit && (
+          <Button
+            onClick={openAdd}
+            className="sm:shrink-0"
+            data-ocid="customers.add_button"
+          >
+            <Plus className="w-4 h-4 mr-1.5" />
+            Add Customer
+          </Button>
+        )}
       </div>
 
       {/* KPI strip */}
@@ -1336,15 +1840,6 @@ export function CustomersPage({ onNavigate: _onNavigate }: CustomersPageProps) {
           data-ocid="customers.search_input"
         />
       </div>
-
-      {/* Sub-Admin info bar */}
-      {isSubAdmin && (
-        <div className="flex items-center gap-2 rounded-lg bg-secondary/30 border border-border px-4 py-2.5 text-sm text-muted-foreground">
-          <AlertTriangle className="w-4 h-4 text-primary shrink-0" />
-          You have view and create access only. Contact an Admin to edit or
-          delete customers.
-        </div>
-      )}
 
       {/* Customer table */}
       <CustomerList

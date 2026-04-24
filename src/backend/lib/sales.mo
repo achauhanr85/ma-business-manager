@@ -15,13 +15,6 @@ module {
   public type SaleItemStore = Map.Map<Common.SaleId, [SalesTypes.SaleItem]>;
 
   // ── Discount calculation helper ───────────────────────────────────────────────
-  // DRY-RUN: Discount/Order Edit Collision
-  //   Given customer with discount_applicable=#Percentage, discount_value=10.0:
-  //     subtotal = $100  →  discount_amount = 100 * (10/100) = $10
-  //     total_revenue    = $100 - $10 = $90
-  //     balance_due      = $90 - amount_paid (recalculated on every edit)
-  //   If an item is added later (updateSale): subtotal is rebuilt from scratch,
-  //   discount re-fetched from customer record, totals fully recomputed, balance_due updated.
   func computeDiscount(subtotal : Float, discountType : ?Common.DiscountType, discountValue : ?Float) : Float {
     switch (discountType, discountValue) {
       case (?#Percentage, ?pct) {
@@ -36,9 +29,6 @@ module {
   };
 
   // ── Build sale items from cart, deducting FIFO inventory ─────────────────────
-  // Returns null if any product is not found, profile mismatch, or insufficient stock.
-  // On null return the caller MUST NOT commit — Motoko actor messages are atomic,
-  // so any inventory mutations made before the null return are rolled back with the message.
   func buildItems(
     batchStore : Map.Map<Common.BatchId, InventoryTypes.InventoryBatch>,
     productStore : Map.Map<Common.ProductId, CatalogTypes.Product>,
@@ -93,8 +83,6 @@ module {
   };
 
   // ── Return stock to inventory (FIFO unwind for order edits) ──────────────────
-  // For each original sale item, add back a batch with the snapshotted unit_cost.
-  // This is equivalent to returning the goods to the warehouse at the original cost.
   func returnItemsToInventory(
     batchStore : Map.Map<Common.BatchId, InventoryTypes.InventoryBatch>,
     caller : Common.UserId,
@@ -113,16 +101,6 @@ module {
   };
 
   // ── createSale ────────────────────────────────────────────────────────────────
-  // DRY-RUN: Stock-PO Loop analog:
-  //   Each FIFO deduct mutates batch.quantity_remaining in place.
-  //   If any item returns null (out of stock / product missing), this function
-  //   returns null.  Since a Motoko update message is atomic, all prior mutations
-  //   to batch.quantity_remaining within the same message are rolled back.
-  //   The sale record is never written to saleStore on failure.
-  //
-  // DRY-RUN: Who-column auto-population
-  //   created_by = caller principal, creation_date = Time.now() — set once, never changed.
-  //   last_updated_by = caller, last_update_date = Time.now() — also set on create.
   public func createSale(
     saleStore : SaleStore,
     saleItemStore : SaleItemStore,
@@ -200,24 +178,7 @@ module {
   };
 
   // ── updateSale ────────────────────────────────────────────────────────────────
-  // Allows editing a placed order. Full replacement semantics:
-  //   1. Load original items, reverse their inventory deductions (return to stock)
-  //   2. Deduct inventory for the new item list (FIFO)
-  //   3. Recompute totals including customer discount (re-fetched live)
-  //   4. Update Sale record with new totals, discount info, payment info
-  //   5. Update sale item store
-  //
-  // DRY-RUN: Order Edit Collision (10% discount + add $100 item)
-  //   Original subtotal = $X, customer has 10% discount.
-  //   Add $100 item → new_subtotal = $X + $100
-  //   discount_amount = new_subtotal * 0.10
-  //   total_revenue   = new_subtotal - discount_amount
-  //   balance_due     = total_revenue - amount_paid (recalculated)
-  //   Inventory for original items is restored before new deductions, ensuring
-  //   net stock delta = exactly the difference between old and new quantities.
-  //
-  // Returns (success, newNextBatchId).
-  // Returns (false, unchanged) if sale/customer not found or profile mismatch.
+  // Only #admin or #superAdmin may update a sale. #staff and regular users are read-only.
   public func updateSale(
     saleStore : SaleStore,
     saleItemStore : SaleItemStore,
@@ -232,6 +193,10 @@ module {
     let up = switch (userStore.get(caller)) {
       case (?u) u;
       case null return (false, nextBatchId);
+    };
+    // Role check: only #admin or #superAdmin can update orders
+    if (up.role != #admin and up.role != #superAdmin) {
+      return (false, nextBatchId);
     };
     // Fetch the original sale and verify ownership
     let existingSale = switch (saleStore.get(input.sale_id)) {
@@ -300,7 +265,6 @@ module {
     saleItemStore.add(input.sale_id, newSaleItems);
 
     // Update customer lifetime revenue delta (new revenue - old revenue)
-    // Does NOT increment total_sales count — the order count stays the same on edits
     let oldRevenue = existingSale.total_revenue;
     let revenueDelta = finalRevenue - oldRevenue;
     if (revenueDelta != 0.0) {
@@ -332,21 +296,28 @@ module {
       .toArray()
   };
 
-  public func getSale(saleStore : SaleStore, caller : Common.UserId, sale_id : Common.SaleId) : ?SalesTypes.Sale {
+  public func getSale(saleStore : SaleStore, userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId, sale_id : Common.SaleId) : ?SalesTypes.Sale {
+    let up = switch (userStore.get(caller)) {
+      case (?u) u;
+      case null Runtime.trap("Caller has no profile");
+    };
     switch (saleStore.get(sale_id)) {
       case (?s) {
-        if (s.owner == caller or s.sold_by == caller) ?s
-        else null
+        if (s.profile_key == up.profile_key) ?s else null
       };
       case null null;
     }
   };
 
-  public func getSaleItems(saleStore : SaleStore, itemStore : SaleItemStore, caller : Common.UserId, sale_id : Common.SaleId) : [SalesTypes.SaleItem] {
+  public func getSaleItems(saleStore : SaleStore, itemStore : SaleItemStore, userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId, sale_id : Common.SaleId) : [SalesTypes.SaleItem] {
+    let up = switch (userStore.get(caller)) {
+      case (?u) u;
+      case null Runtime.trap("Caller has no profile");
+    };
     switch (saleStore.get(sale_id)) {
       case null [];
       case (?s) {
-        if (s.owner != caller and s.sold_by != caller) return [];
+        if (s.profile_key != up.profile_key) return [];
         switch (itemStore.get(sale_id)) {
           case (?items) items;
           case null [];

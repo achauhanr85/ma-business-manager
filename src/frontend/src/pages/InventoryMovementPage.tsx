@@ -89,7 +89,7 @@ function AccessDenied({ onNavigate }: { onNavigate: (path: string) => void }) {
       <div className="text-center space-y-1">
         <p className="font-semibold text-foreground text-lg">Access Denied</p>
         <p className="text-sm text-muted-foreground max-w-xs">
-          Inventory movement is only available to Admins and Sub-Admins.
+          Inventory movement is only available to Admins and Staff.
         </p>
       </div>
       <Button
@@ -107,20 +107,23 @@ interface TransferFormProps {
   products: Product[];
   levels: InventoryLevel[];
   userWarehouse: string;
-  isSubAdmin: boolean;
+  isStaff: boolean;
 }
 
 function TransferForm({
   products,
   levels,
   userWarehouse,
-  isSubAdmin,
+  isStaff,
 }: TransferFormProps) {
+  const MAIN_WAREHOUSE = "Main Warehouse";
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [fromWarehouse, setFromWarehouse] = useState<string>(
-    isSubAdmin ? userWarehouse : "",
+    isStaff ? MAIN_WAREHOUSE : "",
   );
-  const [toWarehouse, setToWarehouse] = useState<string>("");
+  const [toWarehouse, setToWarehouse] = useState<string>(
+    isStaff ? userWarehouse : "",
+  );
   const [quantity, setQuantity] = useState<string>("");
 
   const moveInventory = useMoveInventory();
@@ -201,9 +204,11 @@ function TransferForm({
         description: `Moved ${parsedQty} units of ${product?.name ?? "product"} from ${fromWarehouse} → ${toWarehouse}`,
       });
       setSelectedProductId("");
-      setToWarehouse("");
       setQuantity("");
-      if (!isSubAdmin) setFromWarehouse("");
+      if (!isStaff) {
+        setFromWarehouse("");
+        setToWarehouse("");
+      }
     } else {
       toast.error("Transfer failed", {
         description:
@@ -233,17 +238,17 @@ function TransferForm({
               <Label htmlFor="from-warehouse" className="text-sm font-medium">
                 From Warehouse
               </Label>
-              {isSubAdmin ? (
+              {isStaff ? (
                 <div className="flex items-center gap-2 h-9 px-3 rounded-md border border-border bg-muted/50">
                   <Warehouse className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                   <span className="text-sm font-medium text-foreground truncate">
-                    {fromWarehouse}
+                    {MAIN_WAREHOUSE}
                   </span>
                   <Badge
                     variant="secondary"
                     className="ml-auto text-xs shrink-0"
                   >
-                    Your warehouse
+                    Main Warehouse
                   </Badge>
                 </div>
               ) : (
@@ -275,13 +280,28 @@ function TransferForm({
               <Label htmlFor="to-warehouse" className="text-sm font-medium">
                 To Warehouse
               </Label>
-              <Input
-                id="to-warehouse"
-                placeholder="Enter destination warehouse"
-                value={toWarehouse}
-                onChange={(e) => setToWarehouse(e.target.value)}
-                data-ocid="inventory_movement.to_warehouse.input"
-              />
+              {isStaff ? (
+                <div className="flex items-center gap-2 h-9 px-3 rounded-md border border-border bg-muted/50">
+                  <Warehouse className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                  <span className="text-sm font-medium text-foreground truncate">
+                    {userWarehouse}
+                  </span>
+                  <Badge
+                    variant="secondary"
+                    className="ml-auto text-xs shrink-0"
+                  >
+                    Your warehouse
+                  </Badge>
+                </div>
+              ) : (
+                <Input
+                  id="to-warehouse"
+                  placeholder="Enter destination warehouse"
+                  value={toWarehouse}
+                  onChange={(e) => setToWarehouse(e.target.value)}
+                  data-ocid="inventory_movement.to_warehouse.input"
+                />
+              )}
               {isSameWarehouse && (
                 <p
                   className="text-xs text-destructive"
@@ -555,9 +575,9 @@ export function InventoryMovementPage({
   const role = userProfile?.role;
   const isSuperAdmin = role === UserRole.superAdmin;
   const isAdmin = role === UserRole.admin;
-  const isSubAdmin = role === UserRole.subAdmin;
+  const isStaff = role === UserRole.staff;
 
-  // Only admin and subAdmin may access; redirect superAdmin and unauthenticated
+  // Only admin and staff may access; redirect superAdmin and unauthenticated
   if (!userProfile || isSuperAdmin) {
     return <AccessDenied onNavigate={onNavigate} />;
   }
@@ -577,21 +597,21 @@ export function InventoryMovementPage({
             Inventory Movement
           </h1>
           <p className="text-sm text-muted-foreground">
-            {isSubAdmin
-              ? `Transfer stock from your warehouse (${userWarehouse}) to another location`
+            {isStaff
+              ? `Transfer stock from Main Warehouse to your warehouse (${userWarehouse})`
               : "Transfer stock between warehouses and track movement history"}
           </p>
         </div>
 
         {/* Role badge */}
         <div className="ml-auto">
-          {isSubAdmin ? (
+          {isStaff ? (
             <Badge
               variant="secondary"
               className="text-xs"
               data-ocid="inventory_movement.role_badge"
             >
-              Sub-Admin
+              Staff
             </Badge>
           ) : isAdmin ? (
             <Badge
@@ -626,7 +646,7 @@ export function InventoryMovementPage({
           products={products}
           levels={levels}
           userWarehouse={userWarehouse}
-          isSubAdmin={isSubAdmin}
+          isStaff={isStaff}
         />
       )}
 

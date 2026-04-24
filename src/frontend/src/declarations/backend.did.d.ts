@@ -11,6 +11,33 @@ import type { IDL } from '@icp-sdk/core/candid';
 import type { Principal } from '@icp-sdk/core/principal';
 
 export type BatchId = bigint;
+export interface BodyCompositionEntry {
+  'id' : string,
+  'bmi' : [] | [number],
+  'bmr' : [] | [number],
+  'weight' : [] | [number],
+  'date' : string,
+  'created_by' : string,
+  'visceral_fat' : [] | [number],
+  'customer_id' : string,
+  'muscle_mass' : [] | [number],
+  'body_age' : [] | [bigint],
+  'body_fat' : [] | [number],
+  'trunk_fat' : [] | [number],
+  'profile_key' : ProfileKey,
+  'creation_date' : Timestamp,
+}
+export interface BodyCompositionInput {
+  'bmi' : [] | [number],
+  'bmr' : [] | [number],
+  'weight' : [] | [number],
+  'date' : string,
+  'visceral_fat' : [] | [number],
+  'muscle_mass' : [] | [number],
+  'body_age' : [] | [bigint],
+  'body_fat' : [] | [number],
+  'trunk_fat' : [] | [number],
+}
 export interface CartItem {
   'product_id' : ProductId,
   'quantity' : bigint,
@@ -37,6 +64,8 @@ export interface CustomerInput {
   'email' : string,
   'discount_applicable' : [] | [DiscountType],
   'address' : string,
+  'gender' : [] | [string],
+  'date_of_birth' : [] | [string],
   'phone' : string,
 }
 export interface CustomerOrderDetail {
@@ -54,7 +83,9 @@ export interface CustomerPublic {
   'email' : string,
   'discount_applicable' : [] | [DiscountType],
   'address' : string,
+  'gender' : [] | [string],
   'notes' : Array<string>,
+  'date_of_birth' : [] | [string],
   'phone' : string,
   'profile_key' : ProfileKey,
 }
@@ -151,6 +182,7 @@ export interface ProfileInput {
   'email' : string,
   'business_address' : string,
   'logo_url' : string,
+  'receipt_notes' : string,
   'phone_number' : string,
   'theme_color' : string,
   'profile_key' : ProfileKey,
@@ -168,6 +200,7 @@ export interface ProfilePublic {
   'business_address' : string,
   'start_date' : [] | [Timestamp],
   'logo_url' : string,
+  'receipt_notes' : string,
   'phone_number' : string,
   'theme_color' : string,
   'profile_key' : ProfileKey,
@@ -299,15 +332,24 @@ export interface UserProfilePublic {
 }
 export type UserRole = { 'admin' : null } |
   { 'superAdmin' : null } |
-  { 'subAdmin' : null };
+  { 'staff' : null };
 export type WarehouseName = string;
 export interface _SERVICE {
+  'assignUserRole' : ActorMethod<[UserId, UserRole, ProfileKey], boolean>,
   'checkCustomerDuplicate' : ActorMethod<[string], DuplicateCheckResult>,
+  /**
+   * / Claim or re-claim superAdmin role.
+   */
+  'claimSuperAdmin' : ActorMethod<[], boolean>,
   /**
    * / Wipe ALL stored data — clears every Map store and resets the super admin principal.
    * / Use this in preview/development to start with a completely fresh state.
    */
   'clearAllData' : ActorMethod<[], undefined>,
+  'createBodyCompositionEntry' : ActorMethod<
+    [CustomerId, BodyCompositionInput],
+    [] | [BodyCompositionEntry]
+  >,
   'createCategory' : ActorMethod<[CategoryInput], CategoryId>,
   'createCustomer' : ActorMethod<[CustomerInput], CustomerId>,
   'createProduct' : ActorMethod<[ProductInput], [] | [ProductId]>,
@@ -317,11 +359,18 @@ export interface _SERVICE {
     [] | [PurchaseOrderId]
   >,
   'createSale' : ActorMethod<[SaleInput], [] | [SaleId]>,
+  'deleteBodyCompositionEntry' : ActorMethod<[string], boolean>,
   'deleteCategory' : ActorMethod<[CategoryId], boolean>,
   'deleteCustomer' : ActorMethod<[CustomerId], boolean>,
   'deleteProduct' : ActorMethod<[ProductId], boolean>,
+  'deleteProfile' : ActorMethod<[ProfileKey], boolean>,
   'enableProfile' : ActorMethod<[ProfileKey, boolean], boolean>,
   'getAllProfilesForAdmin' : ActorMethod<[], Array<ProfilePublic>>,
+  'getAllUsersForAdmin' : ActorMethod<[], Array<UserProfilePublic>>,
+  'getBodyCompositionHistory' : ActorMethod<
+    [CustomerId],
+    Array<BodyCompositionEntry>
+  >,
   'getCategories' : ActorMethod<[], Array<Category>>,
   'getCustomer' : ActorMethod<[CustomerId], [] | [CustomerPublic]>,
   'getCustomerOrders' : ActorMethod<[CustomerId], Array<CustomerOrderDetail>>,
@@ -341,13 +390,17 @@ export interface _SERVICE {
   >,
   'getPurchaseOrders' : ActorMethod<[], Array<PurchaseOrder>>,
   'getSale' : ActorMethod<[SaleId], [] | [Sale]>,
+  /**
+   * / Helper: upsert userStore entry with #superAdmin role for the given principal.
+   */
   'getSaleItems' : ActorMethod<[SaleId], Array<SaleItem>>,
   'getSales' : ActorMethod<[], Array<Sale>>,
   'getSalesByCustomer' : ActorMethod<[CustomerId], Array<Sale>>,
   'getSuperAdminStats' : ActorMethod<[], SuperAdminStats>,
   'getUserProfile' : ActorMethod<[], [] | [UserProfilePublic]>,
+  'getUsersByProfile' : ActorMethod<[ProfileKey], Array<UserProfilePublic>>,
   /**
-   * / One-time bootstrap: first caller becomes super admin (if not already set)
+   * / One-time bootstrap: first caller becomes super admin (if not already set).
    */
   'initSuperAdmin' : ActorMethod<[], boolean>,
   'joinProfile' : ActorMethod<[ProfileKey, string, WarehouseName], boolean>,
@@ -361,6 +414,7 @@ export interface _SERVICE {
   'updateCustomer' : ActorMethod<[CustomerId, CustomerInput], boolean>,
   'updateProduct' : ActorMethod<[ProductId, ProductInput], boolean>,
   'updateProfile' : ActorMethod<[ProfileInput], boolean>,
+  'updateProfileKey' : ActorMethod<[ProfileKey, ProfileKey], boolean>,
   'updateSale' : ActorMethod<[UpdateSaleInput], boolean>,
   'updateUserProfile' : ActorMethod<[UserProfileInput], boolean>,
 }

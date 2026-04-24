@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createActor } from "../backend";
 import { PaymentMode, PaymentStatus } from "../backend";
 import type {
+  BodyCompositionInput,
   CartItem,
   CategoryInput,
   CustomerId,
@@ -147,6 +148,23 @@ export function useInitSuperAdmin() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["user-profile"] });
+    },
+  });
+}
+
+export function useClaimSuperAdmin() {
+  const { actor } = useBackendActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      if (!actor) throw new Error("Actor not ready");
+      return actor.claimSuperAdmin();
+    },
+    onSuccess: (succeeded) => {
+      if (succeeded) {
+        // Role was promoted — refetch user profile so routing re-evaluates
+        qc.invalidateQueries({ queryKey: ["user-profile"] });
+      }
     },
   });
 }
@@ -749,6 +767,156 @@ export function useSetProfileWindow() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-profiles"] });
       qc.invalidateQueries({ queryKey: ["super-admin-stats"] });
+    },
+  });
+}
+
+export function useDeleteProfile() {
+  const { actor } = useBackendActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (profileKey: string) => {
+      if (!actor) throw new Error("Actor not ready");
+      if (typeof actor.deleteProfile !== "function")
+        throw new Error("deleteProfile not available");
+      return actor.deleteProfile(profileKey);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-profiles"] });
+      qc.invalidateQueries({ queryKey: ["super-admin-stats"] });
+      qc.invalidateQueries({ queryKey: ["profile"] });
+    },
+  });
+}
+
+export function useUpdateProfileKey() {
+  const { actor } = useBackendActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      oldKey,
+      newKey,
+    }: {
+      oldKey: string;
+      newKey: string;
+    }) => {
+      if (!actor) throw new Error("Actor not ready");
+      if (typeof actor.updateProfileKey !== "function")
+        throw new Error("updateProfileKey not available");
+      return actor.updateProfileKey(oldKey, newKey);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-profiles"] });
+      qc.invalidateQueries({ queryKey: ["super-admin-stats"] });
+      qc.invalidateQueries({ queryKey: ["profile"] });
+    },
+  });
+}
+
+// ─── User Management (Super Admin) ───────────────────────────────────────────
+
+export function useGetAllUsersForAdmin() {
+  const { actor, isFetching } = useBackendActor();
+  return useQuery({
+    queryKey: ["admin-all-users"],
+    queryFn: async () => {
+      if (!actor) return [];
+      if (typeof actor.getAllUsersForAdmin !== "function") return [];
+      return actor.getAllUsersForAdmin();
+    },
+    enabled: !!actor && !isFetching,
+  });
+}
+
+export function useGetUsersByProfile(profileKey: string | null) {
+  const { actor, isFetching } = useBackendActor();
+  return useQuery({
+    queryKey: ["users-by-profile", profileKey],
+    queryFn: async () => {
+      if (!actor || !profileKey) return [];
+      if (typeof actor.getUsersByProfile !== "function") return [];
+      return actor.getUsersByProfile(profileKey);
+    },
+    enabled: !!actor && !isFetching && !!profileKey,
+  });
+}
+
+export function useAssignUserRole() {
+  const { actor } = useBackendActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      targetUserId,
+      newRole,
+      profileKey,
+    }: {
+      targetUserId: import("../backend").UserId;
+      newRole: import("../backend").UserRole;
+      profileKey: import("../backend").ProfileKey;
+    }) => {
+      if (!actor) throw new Error("Actor not ready");
+      return actor.assignUserRole(targetUserId, newRole, profileKey);
+    },
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ["admin-all-users"] });
+      qc.invalidateQueries({
+        queryKey: ["users-by-profile", variables.profileKey],
+      });
+    },
+  });
+}
+
+// ─── Body Composition ─────────────────────────────────────────────────────────
+
+export function useCreateBodyCompositionEntry() {
+  const { actor } = useBackendActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      customerId,
+      input,
+    }: {
+      customerId: bigint;
+      input: BodyCompositionInput;
+    }) => {
+      if (!actor) throw new Error("Actor not ready");
+      if (typeof actor.createBodyCompositionEntry !== "function")
+        throw new Error("createBodyCompositionEntry not available");
+      return actor.createBodyCompositionEntry(customerId, input);
+    },
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({
+        queryKey: ["body-composition", variables.customerId.toString()],
+      });
+    },
+  });
+}
+
+export function useGetBodyCompositionHistory(customerId: bigint | null) {
+  const { actor, isFetching } = useBackendActor();
+  return useQuery({
+    queryKey: ["body-composition", customerId?.toString()],
+    queryFn: async () => {
+      if (!actor || !customerId) return [];
+      if (typeof actor.getBodyCompositionHistory !== "function") return [];
+      return actor.getBodyCompositionHistory(customerId);
+    },
+    enabled: !!actor && !isFetching && !!customerId,
+  });
+}
+
+export function useDeleteBodyCompositionEntry() {
+  const { actor } = useBackendActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      if (!actor) throw new Error("Actor not ready");
+      if (typeof actor.deleteBodyCompositionEntry !== "function")
+        throw new Error("deleteBodyCompositionEntry not available");
+      return actor.deleteBodyCompositionEntry(id);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["body-composition"] });
     },
   });
 }

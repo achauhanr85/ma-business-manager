@@ -222,6 +222,7 @@ function CreateTab({ onSuccess }: { onSuccess: () => Promise<void> }) {
         fssai_number: form.fssai_number,
         email: form.email,
         logo_url: "",
+        receipt_notes: "",
         theme_color: "#16a34a",
       });
 

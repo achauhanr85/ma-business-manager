@@ -13,7 +13,7 @@ module {
   public type ProfileKey = Text;
 
   // Three-tier role hierarchy
-  public type UserRole = { #superAdmin; #admin; #subAdmin };
+  public type UserRole = { #superAdmin; #admin; #staff };
 
   // Warehouse
   public type WarehouseId = Nat;

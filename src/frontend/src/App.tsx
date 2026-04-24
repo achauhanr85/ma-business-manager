@@ -1,8 +1,13 @@
 import { UserRole } from "@/backend";
 import { Layout } from "@/components/Layout";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  ImpersonationProvider,
+  useImpersonation,
+} from "@/contexts/ImpersonationContext";
 import { ProfileProvider, useProfile } from "@/contexts/ProfileContext";
 import { useAuth } from "@/hooks/useAuth";
+import { useClaimSuperAdmin } from "@/hooks/useBackend";
 import { AnalyticsPage } from "@/pages/AnalyticsPage";
 import { CustomersPage } from "@/pages/CustomersPage";
 import { DashboardPage } from "@/pages/DashboardPage";
@@ -17,7 +22,7 @@ import { ReceiptPage } from "@/pages/ReceiptPage";
 import { SalesPage } from "@/pages/SalesPage";
 import { SuperAdminPage } from "@/pages/SuperAdminPage";
 import { SuperAdminSetupPage } from "@/pages/SuperAdminSetupPage";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type AppPath =
   | "/dashboard"
@@ -30,7 +35,8 @@ type AppPath =
   | "/profile"
   | "/receipt"
   | "/customers"
-  | "/super-admin";
+  | "/super-admin"
+  | "/user-management";
 
 function getPageTitle(path: string): string {
   const titles: Record<string, string> = {
@@ -45,6 +51,7 @@ function getPageTitle(path: string): string {
     "/receipt": "Sale Receipt",
     "/customers": "Customer Management",
     "/super-admin": "Super Admin",
+    "/user-management": "User Management",
   };
   return titles[path] ?? "MA Herb";
 }
@@ -99,16 +106,105 @@ function AppContent() {
   );
 }
 
+/** Super Admin's own dashboard — full access + impersonation controls */
 function SuperAdminApp() {
-  // Super Admin bypasses all onboarding/profile requirements.
-  // They land directly on the Super Admin dashboard.
+  const { isImpersonating, profileKey, profileName, stopImpersonation } =
+    useImpersonation();
+  const [currentPath, setCurrentPath] = useState<AppPath>(
+    isImpersonating ? "/dashboard" : "/super-admin",
+  );
+  const [receiptSaleId, setReceiptSaleId] = useState<bigint | null>(null);
+
+  const navigate = (path: string, saleId?: bigint) => {
+    setCurrentPath(path as AppPath);
+    if (saleId !== undefined) setReceiptSaleId(saleId);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  // When impersonation starts/stops, reset path to appropriate default
+  useEffect(() => {
+    if (isImpersonating) {
+      setCurrentPath("/dashboard");
+    } else {
+      setCurrentPath("/super-admin");
+    }
+  }, [isImpersonating]);
+
+  const renderPage = () => {
+    if (isImpersonating) {
+      // Show normal user views for the impersonated profile
+      switch (currentPath) {
+        case "/dashboard":
+          return <DashboardPage onNavigate={navigate} />;
+        case "/sales":
+          return <SalesPage onNavigate={navigate} />;
+        case "/inventory":
+          return <InventoryPage onNavigate={navigate} />;
+        case "/inventory-movement":
+          return <InventoryMovementPage onNavigate={navigate} />;
+        case "/purchase-orders":
+          return <PurchaseOrdersPage onNavigate={navigate} />;
+        case "/products":
+          return <ProductsPage onNavigate={navigate} />;
+        case "/analytics":
+          return <AnalyticsPage onNavigate={navigate} />;
+        case "/profile":
+          return <ProfilePage onNavigate={navigate} />;
+        case "/receipt":
+          return <ReceiptPage saleId={receiptSaleId} onNavigate={navigate} />;
+        case "/customers":
+          return <CustomersPage onNavigate={navigate} />;
+        default:
+          return <DashboardPage onNavigate={navigate} />;
+      }
+    }
+
+    // Normal super-admin view
+    switch (currentPath) {
+      case "/super-admin":
+        return <SuperAdminPage onNavigate={navigate} />;
+      case "/profile":
+        return <ProfilePage onNavigate={navigate} />;
+      default:
+        return <SuperAdminPage onNavigate={navigate} />;
+    }
+  };
+
   return (
     <Layout
-      currentPath="/super-admin"
-      pageTitle="Super Admin"
-      onNavigate={() => {}}
+      currentPath={currentPath}
+      pageTitle={getPageTitle(currentPath)}
+      onNavigate={navigate}
     >
-      <SuperAdminPage onNavigate={() => {}} />
+      {/* Impersonation banner */}
+      {isImpersonating && (
+        <div
+          className="sticky top-0 z-40 flex items-center justify-between gap-3 px-4 py-2.5 bg-amber-500/10 border-b border-amber-500/30 text-amber-700 dark:text-amber-400"
+          data-ocid="impersonation.banner"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-sm">👁️</span>
+            <p className="text-sm font-medium truncate">
+              Viewing as Staff of{" "}
+              <span className="font-bold">{profileName}</span>
+              {profileKey && (
+                <span className="text-xs font-normal opacity-70 ml-1">
+                  ({profileKey})
+                </span>
+              )}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={stopImpersonation}
+            className="flex-shrink-0 text-xs font-semibold px-3 py-1 rounded-md bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 transition-colors"
+            data-ocid="impersonation.exit_button"
+          >
+            Exit
+          </button>
+        </div>
+      )}
+      {renderPage()}
     </Layout>
   );
 }
@@ -120,44 +216,41 @@ function AuthenticatedApp() {
     hasFetchedProfile,
     isProfileDisabled,
   } = useProfile();
-  // superAdminSetupDone tracks whether the first-run setup page has been
-  // completed this session. It persists until the user refreshes.
   const [superAdminSetupDone, setSuperAdminSetupDone] = useState(false);
 
-  // ── Step 1: Wait for profile to load ────────────────────────────────────────
-  // Show loader while the actor is initialising OR while the fetch is in-flight.
-  // We also keep the loader until we have at least one confirmed fetch result so
-  // we never accidentally render the setup page due to a transient null state.
+  const claimSuperAdmin = useClaimSuperAdmin();
+  const claimAttempted = useRef(false);
+
+  useEffect(() => {
+    if (
+      !claimAttempted.current &&
+      hasFetchedProfile &&
+      userProfile !== null &&
+      userProfile?.role !== UserRole.superAdmin
+    ) {
+      claimAttempted.current = true;
+      claimSuperAdmin.mutate();
+    }
+  }, [hasFetchedProfile, userProfile, claimSuperAdmin]);
+
   if (isLoadingProfile || !hasFetchedProfile) return <AppLoader />;
 
-  // ── Step 2: Super Admin shortcut ─────────────────────────────────────────────
-  // If the user already has a Super Admin role, send them directly to the
-  // Super Admin dashboard — skip onboarding and setup entirely.
-  // This check MUST come before any onboarding/setup screen checks.
   if (userProfile?.role === UserRole.superAdmin) {
     return <SuperAdminApp />;
   }
 
-  // ── Step 3: Profile disabled gate ────────────────────────────────────────────
   if (isProfileDisabled) {
     return <ProfileDisabledPage />;
   }
 
-  // ── Step 4: First-run Super Admin setup ──────────────────────────────────────
-  // Only show the setup screen if:
-  // - We have confirmed (hasFetchedProfile = true) that the user truly has no profile
-  // - The setup hasn't been completed in this session
-  // hasFetchedProfile ensures we never show this page due to a loading race.
   if (!userProfile && !superAdminSetupDone) {
     return (
       <SuperAdminSetupPage onComplete={() => setSuperAdminSetupDone(true)} />
     );
   }
 
-  // ── Step 5: Business profile onboarding ──────────────────────────────────────
   if (!userProfile) return <OnboardingPage />;
 
-  // ── Step 6: Main application ─────────────────────────────────────────────────
   return <AppContent />;
 }
 
@@ -233,8 +326,10 @@ export default function App() {
   if (!isAuthenticated) return <LoginPage />;
 
   return (
-    <ProfileProvider>
-      <AuthenticatedApp />
-    </ProfileProvider>
+    <ImpersonationProvider>
+      <ProfileProvider>
+        <AuthenticatedApp />
+      </ProfileProvider>
+    </ImpersonationProvider>
   );
 }

@@ -104,6 +104,7 @@ const mockProfile: ProfilePublic = {
   fssai_number: "12345678901234",
   email: "info@maherb.com",
   logo_url: "",
+  receipt_notes: "",
   theme_color: "#16a34a",
   profile_key: PROFILE_KEY,
   created_at: NOW_NS,
@@ -145,6 +146,7 @@ const mockInventoryMovements: InventoryMovement[] = [];
 const mockCustomerOrders: CustomerOrderDetail[] = [];
 
 export const mockBackend: backendInterface = {
+  assignUserRole: async () => true,
   checkCustomerDuplicate: async () => mockDuplicateCheckResult,
   createCategory: async () => BigInt(4),
   createCustomer: async () => BigInt(3),
@@ -155,8 +157,10 @@ export const mockBackend: backendInterface = {
   deleteCategory: async () => true,
   deleteCustomer: async () => true,
   deleteProduct: async () => true,
+  deleteProfile: async () => true,
   enableProfile: async () => true,
   getAllProfilesForAdmin: async () => [mockProfile],
+  getAllUsersForAdmin: async () => [mockUserProfile],
   getCategories: async () => mockCategories,
   getCustomer: async () => mockCustomers[0],
   getCustomerOrders: async () => mockCustomerOrders,
@@ -178,6 +182,8 @@ export const mockBackend: backendInterface = {
   getSalesByCustomer: async () => mockSales,
   getSuperAdminStats: async () => mockSuperAdminStats,
   getUserProfile: async () => mockUserProfile,
+  getUsersByProfile: async () => [mockUserProfile],
+  claimSuperAdmin: async () => true,
   initSuperAdmin: async () => true,
   joinProfile: async () => true,
   markPurchaseOrderReceived: async () => true,
@@ -187,7 +193,11 @@ export const mockBackend: backendInterface = {
   updateCustomer: async () => true,
   updateProduct: async () => true,
   updateProfile: async () => true,
+  updateProfileKey: async () => true,
   updateSale: async () => true,
   updateUserProfile: async () => true,
+  createBodyCompositionEntry: async () => null,
+  getBodyCompositionHistory: async () => [],
+  deleteBodyCompositionEntry: async () => true,
   clearAllData: async () => {},
 };

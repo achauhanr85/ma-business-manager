@@ -12,17 +12,21 @@ mixin (
   var nextMovementId : Nat = 1;
   var nextBatchId : Nat = 1;
 
+  /// #admin sees all warehouses; #staff sees only their assigned warehouse.
   public shared query ({ caller }) func getInventoryLevels() : async [InventoryTypes.InventoryLevel] {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
     InventoryLib.getInventoryLevels(batchStore, userStore, caller)
   };
 
+  /// #admin sees all warehouses; #staff sees only their assigned warehouse.
   public shared query ({ caller }) func getInventoryBatches(product_id : Common.ProductId) : async [InventoryTypes.InventoryBatchPublic] {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
     InventoryLib.getInventoryBatches(batchStore, userStore, caller, product_id)
   };
 
-  /// Sub-Admin: move stock from one warehouse to another
+  /// Move stock between warehouses.
+  /// #admin: any source/destination within the profile.
+  /// #staff: can only move from "Main" to their own assigned warehouse.
   public shared ({ caller }) func moveInventory(input : InventoryTypes.InventoryMovementInput) : async ?Common.MovementId {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
     let result = InventoryLib.moveInventory(batchStore, movementStore, userStore, caller, nextMovementId, nextBatchId, input);

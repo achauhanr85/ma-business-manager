@@ -26,8 +26,10 @@ import {
   useGetCategories,
   useGetProducts,
   useGetPurchaseOrders,
+  useGetUserProfile,
   useMarkPurchaseOrderReceived,
 } from "@/hooks/useBackend";
+import { downloadCsvTemplate, exportToCsv, parseCsvFile } from "@/lib/csvUtils";
 import type { Category, PurchaseOrder, PurchaseOrderItemInput } from "@/types";
 import { POStatus } from "@/types";
 import { useActor } from "@caffeineai/core-infrastructure";
@@ -35,12 +37,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronDown,
   ChevronUp,
+  Download,
   Package,
   Plus,
   ShoppingCart,
   Trash2,
+  Upload,
 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { createActor } from "../backend";
 
@@ -186,7 +190,6 @@ function PORow({ po, index, onMarkReceived, isReceiving }: PORowProps) {
       className="border border-border rounded-xl overflow-hidden bg-card"
       data-ocid={`purchase_orders.item.${index}`}
     >
-      {/* Header row — clickable */}
       <button
         type="button"
         className="w-full flex items-start sm:items-center gap-3 p-4 hover:bg-muted/30 transition-colors text-left"
@@ -212,7 +215,6 @@ function PORow({ po, index, onMarkReceived, isReceiving }: PORowProps) {
         </div>
       </button>
 
-      {/* Expanded details */}
       {expanded && (
         <div className="border-t border-border bg-muted/20 px-4 pb-4 pt-3 space-y-3">
           <POItemsExpander poId={po.id} getProductName={getProductName} />
@@ -255,12 +257,10 @@ function QuickCreateDialog({
 
   const [activeTab, setActiveTab] = useState<"product" | "category">("product");
 
-  // Category form
   const [catName, setCatName] = useState("");
   const [catDesc, setCatDesc] = useState("");
   const [catErrors, setCatErrors] = useState<Record<string, string>>({});
 
-  // Product form
   const [prodForm, setProdForm] = useState({
     sku: "",
     name: "",
@@ -301,7 +301,6 @@ function QuickCreateDialog({
     if (!catName.trim()) errs.name = "Category name is required";
     setCatErrors(errs);
     if (Object.keys(errs).length > 0) return;
-
     try {
       await createCategory.mutateAsync({
         name: catName.trim(),
@@ -311,7 +310,6 @@ function QuickCreateDialog({
       toast.success(`Category "${catName}" created`);
       setCatName("");
       setCatDesc("");
-      // Switch to product tab so they can select the new category
       setActiveTab("product");
     } catch {
       toast.error("Failed to create category");
@@ -327,7 +325,6 @@ function QuickCreateDialog({
       errs.mrp = "MRP is required";
     setProdErrors(errs);
     if (Object.keys(errs).length > 0) return;
-
     try {
       const newId = await createProduct.mutateAsync({
         sku: prodForm.sku.trim(),
@@ -338,12 +335,10 @@ function QuickCreateDialog({
         mrp: Number(prodForm.mrp),
         hsn_code: prodForm.hsn_code.trim(),
       });
-
       if (newId == null) {
         toast.error("SKU already exists. Use a different SKU.");
         return;
       }
-
       toast.success(`Product "${prodForm.name}" created`);
       onProductCreated(newId.toString());
       handleOpenChange(false);
@@ -384,7 +379,6 @@ function QuickCreateDialog({
             </TabsTrigger>
           </TabsList>
 
-          {/* Product tab */}
           <TabsContent value="product" className="space-y-4 pt-3">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
@@ -549,7 +543,6 @@ function QuickCreateDialog({
             </DialogFooter>
           </TabsContent>
 
-          {/* Category tab */}
           <TabsContent value="category" className="space-y-4 pt-3">
             <div className="space-y-1.5">
               <Label htmlFor="qc-cat-name" className="text-xs">
@@ -606,6 +599,265 @@ function QuickCreateDialog({
   );
 }
 
+// ── Bulk Upload: Purchase Orders ──────────────────────────────────────────────
+
+interface POUploadRow {
+  product_sku: string;
+  quantity: string;
+  unit_cost: string;
+  error?: string;
+}
+
+interface BulkPOUploadDialogProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+function BulkPOUploadDialog({ open, onClose }: BulkPOUploadDialogProps) {
+  const { data: products = [] } = useGetProducts();
+  const { data: userProfile } = useGetUserProfile();
+  const createPO = useCreatePurchaseOrder();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [rows, setRows] = useState<POUploadRow[]>([]);
+  const [importing, setImporting] = useState(false);
+  const [summary, setSummary] = useState<{
+    imported: number;
+    errors: number;
+  } | null>(null);
+
+  function reset() {
+    setRows([]);
+    setSummary(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function handleClose() {
+    reset();
+    onClose();
+  }
+
+  function validate(row: Record<string, string>): POUploadRow {
+    const product_sku = row.product_sku?.trim() ?? "";
+    const quantity = row.quantity?.trim() ?? "";
+    const unit_cost = row.unit_cost?.trim() ?? "";
+    const errs: string[] = [];
+    if (!product_sku) errs.push("SKU required");
+    else if (
+      !products.find((p) => p.sku.toLowerCase() === product_sku.toLowerCase())
+    ) {
+      errs.push(`SKU "${product_sku}" not found`);
+    }
+    const qty = Number.parseInt(quantity, 10);
+    if (Number.isNaN(qty) || qty <= 0) errs.push("Quantity must be > 0");
+    const cost = Number.parseFloat(unit_cost);
+    if (Number.isNaN(cost) || cost <= 0) errs.push("Unit cost must be > 0");
+    return {
+      product_sku,
+      quantity,
+      unit_cost,
+      error: errs.length > 0 ? errs.join("; ") : undefined,
+    };
+  }
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const parsed = await parseCsvFile(file);
+      setRows(parsed.map(validate));
+      setSummary(null);
+    } catch {
+      toast.error("Failed to parse CSV file");
+    }
+  }
+
+  async function handleImport() {
+    const valid = rows.filter((r) => !r.error);
+    if (valid.length === 0) return;
+    setImporting(true);
+    // Group all rows into one PO
+    const items: PurchaseOrderItemInput[] = [];
+    for (const row of valid) {
+      const prod = products.find(
+        (p) => p.sku.toLowerCase() === row.product_sku.toLowerCase(),
+      );
+      if (!prod) continue;
+      items.push({
+        product_id: prod.id,
+        quantity: BigInt(Math.round(Number.parseInt(row.quantity, 10))),
+        unit_cost: Number.parseFloat(row.unit_cost),
+      });
+    }
+    let imported = 0;
+    let errors = 0;
+    try {
+      await createPO.mutateAsync({
+        vendor: "Bulk Import",
+        items,
+        warehouse_name: userProfile?.warehouse_name ?? "Main",
+      });
+      imported = items.length;
+    } catch {
+      errors = valid.length;
+    }
+    setSummary({ imported, errors });
+    setImporting(false);
+    if (imported > 0)
+      toast.success(`Purchase order created with ${imported} items`);
+  }
+
+  const validCount = rows.filter((r) => !r.error).length;
+  const errorCount = rows.filter((r) => !!r.error).length;
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
+      <DialogContent
+        className="max-w-xl max-h-[80vh] flex flex-col"
+        data-ocid="purchase_orders.bulk_upload.dialog"
+      >
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Upload className="w-4 h-4 text-primary" />
+            Bulk Upload Orders
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 flex-1 overflow-y-auto">
+          <p className="text-xs text-muted-foreground">
+            All rows will be combined into a single purchase order. Product SKU
+            must match an existing product.
+          </p>
+          <div className="flex items-center gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                downloadCsvTemplate("orders_template.csv", [
+                  "product_sku",
+                  "quantity",
+                  "unit_cost",
+                ])
+              }
+              data-ocid="purchase_orders.bulk_upload.download_template_button"
+            >
+              <Download className="w-3.5 h-3.5 mr-1.5" />
+              Download Template
+            </Button>
+            <div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv"
+                className="hidden"
+                onChange={handleFileChange}
+                data-ocid="purchase_orders.bulk_upload.file_input"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Upload className="w-3.5 h-3.5 mr-1.5" />
+                Choose CSV
+              </Button>
+            </div>
+          </div>
+
+          {rows.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="text-foreground font-medium">
+                  {rows.length} rows
+                </span>
+                {errorCount > 0 && (
+                  <span className="text-destructive">
+                    {errorCount} with errors
+                  </span>
+                )}
+                {validCount > 0 && (
+                  <span className="text-primary">{validCount} valid</span>
+                )}
+              </div>
+              <div className="border border-border rounded-lg overflow-hidden max-h-60 overflow-y-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-muted/40 border-b border-border">
+                      {["SKU", "Qty", "Unit Cost (₹)", "Status"].map((h) => (
+                        <th
+                          key={h}
+                          className="px-3 py-2 text-left font-medium text-muted-foreground"
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr
+                        key={`${row.product_sku}-${row.quantity}-${row.unit_cost}`}
+                        className={`border-b border-border last:border-0 ${row.error ? "bg-destructive/5" : ""}`}
+                      >
+                        <td className="px-3 py-2 font-mono">
+                          {row.product_sku || "—"}
+                        </td>
+                        <td className="px-3 py-2">{row.quantity || "—"}</td>
+                        <td className="px-3 py-2">{row.unit_cost || "—"}</td>
+                        <td className="px-3 py-2">
+                          {row.error ? (
+                            <span className="text-destructive text-[10px]">
+                              {row.error}
+                            </span>
+                          ) : (
+                            <span className="text-primary">✓</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {summary && (
+            <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm space-y-1">
+              <p className="font-medium">Import complete</p>
+              <p className="text-muted-foreground">
+                {summary.imported > 0
+                  ? `Order created with ${summary.imported} items`
+                  : "Import failed"}
+                {summary.errors > 0 && ` — ${summary.errors} rows failed`}
+              </p>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2 pt-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleClose}
+            data-ocid="purchase_orders.bulk_upload.cancel_button"
+          >
+            Close
+          </Button>
+          <Button
+            type="button"
+            onClick={handleImport}
+            disabled={validCount === 0 || importing || !!summary}
+            data-ocid="purchase_orders.bulk_upload.import_button"
+          >
+            {importing ? "Importing…" : `Create Order (${validCount} items)`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Create PO Dialog ────────────────────────────────────────────────────────
 
 interface CreatePODialogProps {
@@ -617,12 +869,12 @@ function CreatePODialog({ open, onOpenChange }: CreatePODialogProps) {
   const { data: products } = useGetProducts();
   const { data: categories } = useGetCategories();
   const createPO = useCreatePurchaseOrder();
+  const { data: userProfile } = useGetUserProfile();
 
   const [vendor, setVendor] = useState("");
   const [items, setItems] = useState<DraftItem[]>([newDraftItem()]);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Quick-create dialog state — track which item uid triggered it
   const [quickCreateOpen, setQuickCreateOpen] = useState(false);
   const [quickCreateTargetUid, setQuickCreateTargetUid] = useState<
     string | null
@@ -634,13 +886,9 @@ function CreatePODialog({ open, onOpenChange }: CreatePODialogProps) {
     setErrors({});
   };
 
-  const addItem = () => {
-    setItems((prev) => [...prev, newDraftItem()]);
-  };
-
-  const removeItem = (uid: string) => {
+  const addItem = () => setItems((prev) => [...prev, newDraftItem()]);
+  const removeItem = (uid: string) =>
     setItems((prev) => prev.filter((item) => item.uid !== uid));
-  };
 
   const updateItem = (uid: string, field: keyof DraftItem, value: string) => {
     setItems((prev) =>
@@ -682,18 +930,16 @@ function CreatePODialog({ open, onOpenChange }: CreatePODialogProps) {
 
   const handleSubmit = async () => {
     if (!validate()) return;
-
     const poItems: PurchaseOrderItemInput[] = items.map((item) => ({
       product_id: BigInt(item.product_id),
       quantity: BigInt(Math.round(Number(item.quantity))),
       unit_cost: Number(item.unit_cost),
     }));
-
     try {
       await createPO.mutateAsync({
         vendor: vendor.trim(),
         items: poItems,
-        warehouse_name: "Main Warehouse",
+        warehouse_name: userProfile?.warehouse_name ?? "Main",
       });
       toast.success("Purchase order created successfully!");
       resetForm();
@@ -723,7 +969,6 @@ function CreatePODialog({ open, onOpenChange }: CreatePODialogProps) {
           </DialogHeader>
 
           <div className="space-y-5 py-2">
-            {/* Vendor */}
             <div className="space-y-1.5">
               <Label htmlFor="po-vendor">Vendor *</Label>
               <Input
@@ -747,7 +992,6 @@ function CreatePODialog({ open, onOpenChange }: CreatePODialogProps) {
               )}
             </div>
 
-            {/* Items */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label>Items *</Label>
@@ -791,7 +1035,6 @@ function CreatePODialog({ open, onOpenChange }: CreatePODialogProps) {
                       Item {idx + 1}
                     </p>
 
-                    {/* Product select */}
                     <div className="space-y-1">
                       <Label
                         htmlFor={`po-product-${item.uid}`}
@@ -863,7 +1106,6 @@ function CreatePODialog({ open, onOpenChange }: CreatePODialogProps) {
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
-                      {/* Quantity */}
                       <div className="space-y-1">
                         <Label
                           htmlFor={`po-qty-${item.uid}`}
@@ -898,7 +1140,6 @@ function CreatePODialog({ open, onOpenChange }: CreatePODialogProps) {
                         )}
                       </div>
 
-                      {/* Unit cost */}
                       <div className="space-y-1">
                         <Label
                           htmlFor={`po-cost-${item.uid}`}
@@ -960,7 +1201,6 @@ function CreatePODialog({ open, onOpenChange }: CreatePODialogProps) {
         </DialogContent>
       </Dialog>
 
-      {/* Quick Create Product/Category */}
       <QuickCreateDialog
         open={quickCreateOpen}
         onOpenChange={setQuickCreateOpen}
@@ -979,6 +1219,7 @@ export function PurchaseOrdersPage({
   const { data: orders, isLoading } = useGetPurchaseOrders();
   const markReceived = useMarkPurchaseOrderReceived();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const sortedOrders = [...(orders ?? [])].sort((a, b) =>
     Number(b.timestamp - a.timestamp),
@@ -997,10 +1238,21 @@ export function PurchaseOrdersPage({
     (o) => o.status === POStatus.Pending,
   ).length;
 
+  function handleExport() {
+    const data = sortedOrders.map((o) => ({
+      id: o.id.toString(),
+      vendor: o.vendor,
+      status: o.status === POStatus.Received ? "Received" : "Pending",
+      created_date: formatDate(o.timestamp),
+    }));
+    exportToCsv("purchase_orders.csv", data);
+    toast.success("Orders exported");
+  }
+
   return (
     <div className="space-y-5" data-ocid="purchase_orders.page">
       {/* Page header */}
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-xl font-display font-bold text-foreground">
             Purchase Orders
@@ -1011,16 +1263,39 @@ export function PurchaseOrdersPage({
               : "All orders up to date"}
           </p>
         </div>
-        <Button
-          type="button"
-          onClick={() => setDialogOpen(true)}
-          className="gap-2 flex-shrink-0"
-          data-ocid="purchase_orders.create_button"
-        >
-          <Plus className="w-4 h-4" />
-          <span className="hidden sm:inline">New Order</span>
-          <span className="sm:hidden">New</span>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleExport}
+            disabled={sortedOrders.length === 0}
+            data-ocid="purchase_orders.export_button"
+          >
+            <Download className="w-3.5 h-3.5 mr-1.5" />
+            Export
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setBulkOpen(true)}
+            data-ocid="purchase_orders.upload_button"
+          >
+            <Upload className="w-3.5 h-3.5 mr-1.5" />
+            Upload
+          </Button>
+          <Button
+            type="button"
+            onClick={() => setDialogOpen(true)}
+            className="gap-2 flex-shrink-0"
+            data-ocid="purchase_orders.create_button"
+          >
+            <Plus className="w-4 h-4" />
+            <span className="hidden sm:inline">New Order</span>
+            <span className="sm:hidden">New</span>
+          </Button>
+        </div>
       </div>
 
       {/* Summary cards */}
@@ -1092,6 +1367,7 @@ export function PurchaseOrdersPage({
       )}
 
       <CreatePODialog open={dialogOpen} onOpenChange={setDialogOpen} />
+      <BulkPOUploadDialog open={bulkOpen} onClose={() => setBulkOpen(false)} />
     </div>
   );
 }

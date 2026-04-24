@@ -1,5 +1,6 @@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Toaster } from "@/components/ui/sonner";
+import { useImpersonation } from "@/contexts/ImpersonationContext";
 import { useProfile } from "@/contexts/ProfileContext";
 import { hexToOklch } from "@/lib/color";
 import { useEffect, useState } from "react";
@@ -21,6 +22,8 @@ export function Layout({
 }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { profile, isLoadingProfile } = useProfile();
+  const { isImpersonating, profileName, stopImpersonation } =
+    useImpersonation();
 
   // Inject --primary CSS variable from profile theme_color
   useEffect(() => {
@@ -56,6 +59,30 @@ export function Layout({
 
       {/* Main content shifts right on desktop */}
       <div className="flex-1 flex flex-col min-w-0 lg:ml-64">
+        {/* Impersonation banner — shown above the header */}
+        {isImpersonating && (
+          <div
+            className="flex items-center justify-between gap-3 px-4 py-2 bg-amber-500/10 border-b border-amber-500/30"
+            data-ocid="impersonation.banner"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-sm">👁️</span>
+              <p className="text-xs sm:text-sm font-medium text-amber-700 dark:text-amber-400 truncate">
+                Viewing as Sub-Admin of{" "}
+                <span className="font-bold">{profileName}</span>
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={stopImpersonation}
+              className="flex-shrink-0 text-xs font-semibold px-3 py-1 rounded-md bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-700 dark:text-amber-400 transition-colors"
+              data-ocid="impersonation.exit_button"
+            >
+              Exit
+            </button>
+          </div>
+        )}
+
         <Header
           onMenuToggle={() => setSidebarOpen(true)}
           pageTitle={pageTitle}
