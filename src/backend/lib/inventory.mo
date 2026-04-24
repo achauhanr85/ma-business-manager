@@ -101,6 +101,7 @@ module {
   };
 
   public func addBatch(store : BatchStore, caller : Common.UserId, profile_key : Common.ProfileKey, warehouse_name : Common.WarehouseName, nextId : Nat, product_id : Common.ProductId, quantity : Nat, unit_cost : Float, date_received : Common.Timestamp) : Common.BatchId {
+    // DRY-RUN: who-columns auto-populated from caller principal and date_received timestamp
     let batch : InventoryTypes.InventoryBatch = {
       id = nextId;
       product_id;
@@ -110,6 +111,11 @@ module {
       profile_key;
       warehouse_name;
       owner = caller;
+      // Who-columns: created_by = caller (person receiving the PO), creation_date = date_received
+      created_by = caller;
+      last_updated_by = caller;
+      creation_date = date_received;
+      last_update_date = date_received;
     };
     store.add(nextId, batch);
     nextId
@@ -131,7 +137,8 @@ module {
       case null null; // insufficient stock
       case (?avgCost) {
         // Add new batch in destination warehouse
-        let _ = addBatch(store, caller, profileKey, input.to_warehouse, nextBatchId, input.product_id, input.quantity, avgCost, Time.now());
+        let mvNow = Time.now();
+        let _ = addBatch(store, caller, profileKey, input.to_warehouse, nextBatchId, input.product_id, input.quantity, avgCost, mvNow);
         let movement : InventoryTypes.InventoryMovement = {
           id = nextMovementId;
           profile_key = profileKey;
@@ -139,8 +146,13 @@ module {
           from_warehouse = input.from_warehouse;
           to_warehouse = input.to_warehouse;
           quantity = input.quantity;
-          moved_at = Time.now();
+          moved_at = mvNow;
           moved_by = caller;
+          // Who-columns
+          created_by = caller;
+          last_updated_by = caller;
+          creation_date = mvNow;
+          last_update_date = mvNow;
         };
         movementStore.add(nextMovementId, movement);
         ?nextMovementId

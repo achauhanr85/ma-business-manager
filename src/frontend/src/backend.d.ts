@@ -15,14 +15,24 @@ export interface UserProfileInput {
 export interface SaleItem {
     unit_cost_snapshot: number;
     product_id: ProductId;
+    last_update_date: Timestamp;
     product_name_snapshot: string;
+    created_by: UserId;
     volume_points_snapshot: number;
+    last_updated_by: UserId;
     quantity: bigint;
     actual_sale_price: number;
     sale_id: SaleId;
     mrp_snapshot: number;
+    creation_date: Timestamp;
 }
 export type Timestamp = bigint;
+export type CategoryId = bigint;
+export interface CartItem {
+    product_id: ProductId;
+    quantity: bigint;
+    actual_sale_price: number;
+}
 export interface CategoryInput {
     name: string;
     description: string;
@@ -33,6 +43,12 @@ export interface SuperAdminStats {
     total_users: bigint;
     total_profiles: bigint;
     profiles: Array<ProfileStats>;
+}
+export interface ProfileStatus {
+    is_enabled: boolean;
+    end_date?: Timestamp;
+    start_date?: Timestamp;
+    is_within_window: boolean;
 }
 export interface InventoryMovementInput {
     from_warehouse: WarehouseName;
@@ -45,10 +61,13 @@ export interface CustomerPublic {
     total_sales: bigint;
     name: string;
     lifetime_revenue: number;
+    discount_value?: number;
     last_purchase_at: Timestamp;
     created_at: Timestamp;
     email: string;
+    discount_applicable?: DiscountType;
     address: string;
+    notes: Array<string>;
     phone: string;
     profile_key: ProfileKey;
 }
@@ -56,7 +75,10 @@ export type BatchId = bigint;
 export type MovementId = bigint;
 export interface CustomerInput {
     name: string;
+    note?: string;
+    discount_value?: number;
     email: string;
+    discount_applicable?: DiscountType;
     address: string;
     phone: string;
 }
@@ -64,11 +86,19 @@ export interface InventoryMovement {
     id: MovementId;
     from_warehouse: WarehouseName;
     product_id: ProductId;
+    last_update_date: Timestamp;
+    created_by: UserId;
+    last_updated_by: UserId;
     quantity: bigint;
     to_warehouse: WarehouseName;
     profile_key: ProfileKey;
+    creation_date: Timestamp;
     moved_at: Timestamp;
     moved_by: UserId;
+}
+export interface CustomerOrderDetail {
+    sale: Sale;
+    items: Array<SaleItem>;
 }
 export interface PurchaseOrderItemInput {
     product_id: ProductId;
@@ -92,16 +122,23 @@ export interface PurchaseOrder {
     id: PurchaseOrderId;
     status: POStatus;
     owner: UserId;
+    last_update_date: Timestamp;
+    created_by: UserId;
     vendor: string;
+    last_updated_by: UserId;
     timestamp: Timestamp;
     warehouse_name: WarehouseName;
     profile_key: ProfileKey;
+    creation_date: Timestamp;
 }
 export interface ProfileStats {
     user_count: bigint;
     storage_estimate_bytes: bigint;
+    is_enabled: boolean;
     business_name: string;
+    end_date?: Timestamp;
     is_archived: boolean;
+    start_date?: Timestamp;
     last_activity: Timestamp;
     owner_principal: UserId;
     profile_key: ProfileKey;
@@ -109,9 +146,13 @@ export interface ProfileStats {
 export interface Category {
     id: CategoryId;
     owner: UserId;
+    last_update_date: Timestamp;
     name: string;
     description: string;
+    created_by: UserId;
+    last_updated_by: UserId;
     profile_key: ProfileKey;
+    creation_date: Timestamp;
 }
 export type WarehouseName = string;
 export interface ProductInput {
@@ -135,9 +176,20 @@ export interface PurchaseOrderInput {
 }
 export interface PurchaseOrderItem {
     product_id: ProductId;
+    last_update_date: Timestamp;
     unit_cost: number;
+    created_by: UserId;
+    last_updated_by: UserId;
     quantity: bigint;
     po_id: PurchaseOrderId;
+    creation_date: Timestamp;
+}
+export interface UpdateSaleInput {
+    payment_mode?: PaymentMode;
+    payment_status?: PaymentStatus;
+    amount_paid?: number;
+    items: Array<CartItem>;
+    sale_id: SaleId;
 }
 export interface MonthlySalesTrend {
     month_label: string;
@@ -146,14 +198,25 @@ export interface MonthlySalesTrend {
 }
 export interface Sale {
     id: SaleId;
+    payment_mode?: PaymentMode;
     owner: UserId;
+    last_update_date: Timestamp;
+    discount_type?: DiscountType;
+    created_by: UserId;
+    payment_status?: PaymentStatus;
     customer_id: CustomerId;
+    discount_applied?: number;
     sold_by: UserId;
+    amount_paid?: number;
+    last_updated_by: UserId;
     timestamp: Timestamp;
     total_revenue: number;
+    balance_due?: number;
     customer_name: string;
     total_volume_points: number;
     profile_key: ProfileKey;
+    original_subtotal?: number;
+    creation_date: Timestamp;
     total_profit: number;
 }
 export interface DashboardStats {
@@ -173,17 +236,14 @@ export interface UserProfilePublic {
 export type UserId = Principal;
 export type CustomerId = bigint;
 export interface SaleInput {
+    payment_mode?: PaymentMode;
     cart_items: Array<CartItem>;
+    payment_status?: PaymentStatus;
     customer_id: CustomerId;
+    amount_paid?: number;
 }
 export type SaleId = bigint;
 export type ProductId = bigint;
-export type CategoryId = bigint;
-export interface CartItem {
-    product_id: ProductId;
-    quantity: bigint;
-    actual_sale_price: number;
-}
 export interface ProfileInput {
     business_name: string;
     email: string;
@@ -196,11 +256,14 @@ export interface ProfileInput {
 }
 export interface ProfilePublic {
     owner: UserId;
+    is_enabled: boolean;
     business_name: string;
+    end_date?: Timestamp;
     created_at: Timestamp;
     email: string;
     is_archived: boolean;
     business_address: string;
+    start_date?: Timestamp;
     logo_url: string;
     phone_number: string;
     theme_color: string;
@@ -212,16 +275,36 @@ export interface Product {
     mrp: number;
     sku: string;
     owner: UserId;
+    last_update_date: Timestamp;
     name: string;
     earn_base: number;
+    created_by: UserId;
+    last_updated_by: UserId;
     volume_points: number;
     hsn_code: string;
     profile_key: ProfileKey;
     category_id: CategoryId;
+    creation_date: Timestamp;
+}
+export enum DiscountType {
+    Fixed = "Fixed",
+    Percentage = "Percentage"
 }
 export enum POStatus {
     Received = "Received",
     Pending = "Pending"
+}
+export enum PaymentMode {
+    Card = "Card",
+    Cash = "Cash",
+    BankTransfer = "BankTransfer",
+    Other = "Other",
+    Check = "Check"
+}
+export enum PaymentStatus {
+    Paid = "Paid",
+    Unpaid = "Unpaid",
+    Partial_ = "Partial"
 }
 export enum UserRole {
     admin = "admin",
@@ -230,17 +313,25 @@ export enum UserRole {
 }
 export interface backendInterface {
     checkCustomerDuplicate(name: string): Promise<DuplicateCheckResult>;
+    /**
+     * / Wipe ALL stored data — clears every Map store and resets the super admin principal.
+     * / Use this in preview/development to start with a completely fresh state.
+     */
+    clearAllData(): Promise<void>;
     createCategory(input: CategoryInput): Promise<CategoryId>;
     createCustomer(input: CustomerInput): Promise<CustomerId>;
     createProduct(input: ProductInput): Promise<ProductId | null>;
     createProfile(input: ProfileInput): Promise<boolean>;
-    createPurchaseOrder(input: PurchaseOrderInput): Promise<PurchaseOrderId>;
+    createPurchaseOrder(input: PurchaseOrderInput): Promise<PurchaseOrderId | null>;
     createSale(input: SaleInput): Promise<SaleId | null>;
     deleteCategory(id: CategoryId): Promise<boolean>;
     deleteCustomer(id: CustomerId): Promise<boolean>;
     deleteProduct(id: ProductId): Promise<boolean>;
+    enableProfile(profile_key: ProfileKey, enabled: boolean): Promise<boolean>;
+    getAllProfilesForAdmin(): Promise<Array<ProfilePublic>>;
     getCategories(): Promise<Array<Category>>;
     getCustomer(id: CustomerId): Promise<CustomerPublic | null>;
+    getCustomerOrders(customer_id: CustomerId): Promise<Array<CustomerOrderDetail>>;
     getCustomers(): Promise<Array<CustomerPublic>>;
     getDashboardStats(): Promise<DashboardStats>;
     getInventoryBatches(product_id: ProductId): Promise<Array<InventoryBatchPublic>>;
@@ -250,6 +341,7 @@ export interface backendInterface {
     getProducts(): Promise<Array<Product>>;
     getProfile(): Promise<ProfilePublic | null>;
     getProfileByKey(profile_key: ProfileKey): Promise<ProfilePublic | null>;
+    getProfileStatus(profile_key: ProfileKey): Promise<ProfileStatus | null>;
     getPurchaseOrderItems(po_id: PurchaseOrderId): Promise<Array<PurchaseOrderItem>>;
     getPurchaseOrders(): Promise<Array<PurchaseOrder>>;
     getSale(sale_id: SaleId): Promise<Sale | null>;
@@ -265,12 +357,11 @@ export interface backendInterface {
     joinProfile(profile_key: ProfileKey, display_name: string, warehouse_name: WarehouseName): Promise<boolean>;
     markPurchaseOrderReceived(po_id: PurchaseOrderId): Promise<boolean>;
     moveInventory(input: InventoryMovementInput): Promise<MovementId | null>;
+    setProfileWindow(profile_key: ProfileKey, start_date: Timestamp | null, end_date: Timestamp | null): Promise<boolean>;
     updateCategory(id: CategoryId, input: CategoryInput): Promise<boolean>;
     updateCustomer(id: CustomerId, input: CustomerInput): Promise<boolean>;
-    /**
-     * / One-time bootstrap: first caller becomes super admin (if not already set)
-     */
     updateProduct(id: ProductId, input: ProductInput): Promise<boolean>;
     updateProfile(input: ProfileInput): Promise<boolean>;
+    updateSale(input: UpdateSaleInput): Promise<boolean>;
     updateUserProfile(input: UserProfileInput): Promise<boolean>;
 }

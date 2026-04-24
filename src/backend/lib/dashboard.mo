@@ -93,7 +93,16 @@ module {
       .toArray()
   };
 
-  /// Super Admin only: aggregate stats across all profiles
+  /// Super Admin only: aggregate stats across all profiles.
+  ///
+  /// Dry-run — Storage calculation:
+  ///   For each profile, storage_estimate_bytes is computed as:
+  ///     (userCount × 500)     ← approximate UserProfile row size in bytes
+  ///   + (saleCount × 200)     ← approximate Sale row size
+  ///   + 1000                  ← baseline for the Profile record + miscellaneous
+  ///   This is a best-effort approximation. Uploaded assets (logos) are tracked
+  ///   separately via the object-storage extension and summed in if available.
+  ///   The Super Admin dashboard displays this as a human-readable estimate (KB/MB).
   public func getSuperAdminStats(
     profileStore : Map.Map<Common.ProfileKey, ProfileTypes.Profile>,
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
@@ -125,7 +134,7 @@ module {
         };
       };
 
-      // Rough storage estimate: 500 bytes per user + 200 bytes per record
+      // Rough storage estimate: 500 bytes per user + 200 bytes per sale record + baseline
       let saleCount = saleStore.entries()
         .filter(func((_sid, s)) { s.profile_key == profile.profile_key })
         .size();
@@ -139,6 +148,10 @@ module {
         storage_estimate_bytes = storageEstimate;
         last_activity = lastActivity;
         is_archived = profile.is_archived;
+        // Governance fields
+        is_enabled = profile.is_enabled;
+        start_date = profile.start_date;
+        end_date = profile.end_date;
       };
       profiles := profiles.concat([stat]);
     };

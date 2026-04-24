@@ -22,7 +22,7 @@ mixin (
     DashboardLib.getMonthlySalesTrend(saleStore, userStore, caller)
   };
 
-  /// Super Admin only
+  /// Super Admin only — aggregate stats + governance details across all profiles
   public shared query ({ caller }) func getSuperAdminStats() : async DashboardTypes.SuperAdminStats {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
     DashboardLib.getSuperAdminStats(profileStore, userStore, saleStore, caller)

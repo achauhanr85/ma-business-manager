@@ -28,6 +28,9 @@ module {
       total_sales = c.total_sales;
       last_purchase_at = c.last_purchase_at;
       lifetime_revenue = c.lifetime_revenue;
+      discount_applicable = c.discount_applicable;
+      discount_value = c.discount_value;
+      notes = c.notes;
     }
   };
 
@@ -83,8 +86,18 @@ module {
     }
   };
 
-  public func createCustomer(store : CustomerStore, userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId, nextId : Nat, input : CustomerTypes.CustomerInput) : Common.CustomerId {
+  // DRY-RUN: Who-column auto-population
+  //   createCustomer: created_by = caller, creation_date = now, last_updated_by = caller, last_update_date = now
+  //   updateCustomer: created_by preserved, creation_date preserved, last_updated_by = caller, last_update_date = now
+  public func createCustomer(
+    store : CustomerStore,
+    userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
+    caller : Common.UserId,
+    nextId : Nat,
+    input : CustomerTypes.CustomerInput,
+  ) : Common.CustomerId {
     let profileKey = callerProfileKey(userStore, caller);
+    let now = Time.now();
     let customer : CustomerTypes.Customer = {
       id = nextId;
       profile_key = profileKey;
@@ -92,32 +105,56 @@ module {
       phone = input.phone;
       email = input.email;
       address = input.address;
-      created_at = Time.now();
+      created_at = now;
       total_sales = 0;
       last_purchase_at = 0;
       lifetime_revenue = 0.0;
+      discount_applicable = input.discount_applicable;
+      discount_value = input.discount_value;
+      notes = switch (input.note) {
+        case (?n) [n];
+        case null [];
+      };
+      // Who-columns: auto-populated from caller principal and current time
+      created_by = caller;
+      last_updated_by = caller;
+      creation_date = now;
+      last_update_date = now;
     };
     store.add(nextId, customer);
     nextId
   };
 
-  public func updateCustomer(store : CustomerStore, userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId, id : Common.CustomerId, input : CustomerTypes.CustomerInput) : Bool {
+  public func updateCustomer(
+    store : CustomerStore,
+    userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
+    caller : Common.UserId,
+    id : Common.CustomerId,
+    input : CustomerTypes.CustomerInput,
+  ) : Bool {
     let profileKey = callerProfileKey(userStore, caller);
     switch (store.get(id)) {
       case null false;
       case (?existing) {
         if (existing.profile_key != profileKey) return false;
+        // Append note if provided — notes array grows over time (append-only)
+        let updatedNotes = switch (input.note) {
+          case (?n) existing.notes.concat([n]);
+          case null existing.notes;
+        };
+        let now = Time.now();
         store.add(id, {
-          id = existing.id;
-          profile_key = existing.profile_key;
+          existing with
           name = input.name;
           phone = input.phone;
           email = input.email;
           address = input.address;
-          created_at = existing.created_at;
-          total_sales = existing.total_sales;
-          last_purchase_at = existing.last_purchase_at;
-          lifetime_revenue = existing.lifetime_revenue;
+          discount_applicable = input.discount_applicable;
+          discount_value = input.discount_value;
+          notes = updatedNotes;
+          // Who-columns: last_updated_by and last_update_date updated; created_by and creation_date preserved
+          last_updated_by = caller;
+          last_update_date = now;
         });
         true
       };
@@ -136,22 +173,33 @@ module {
     }
   };
 
-  /// Called after a sale completes — bumps total_sales, last_purchase_at, lifetime_revenue
+  /// Called after a sale completes — bumps total_sales by saleCountDelta, updates lifetime_revenue by revenueDelta.
+  /// Use saleCountDelta=1 for new sales, saleCountDelta=0 for updates (only revenue changes).
   public func recordSale(store : CustomerStore, id : Common.CustomerId, revenue : Float, timestamp : Common.Timestamp) {
     switch (store.get(id)) {
       case null {};
       case (?existing) {
         store.add(id, {
-          id = existing.id;
-          profile_key = existing.profile_key;
-          name = existing.name;
-          phone = existing.phone;
-          email = existing.email;
-          address = existing.address;
-          created_at = existing.created_at;
+          existing with
           total_sales = existing.total_sales + 1;
           last_purchase_at = timestamp;
           lifetime_revenue = existing.lifetime_revenue + revenue;
+          last_update_date = timestamp;
+        });
+      };
+    }
+  };
+
+  /// Called after an order is edited — adjusts lifetime_revenue by revenueDelta (can be negative)
+  /// without incrementing total_sales count.
+  public func adjustRevenue(store : CustomerStore, id : Common.CustomerId, revenueDelta : Float, timestamp : Common.Timestamp) {
+    switch (store.get(id)) {
+      case null {};
+      case (?existing) {
+        store.add(id, {
+          existing with
+          lifetime_revenue = existing.lifetime_revenue + revenueDelta;
+          last_update_date = timestamp;
         });
       };
     }

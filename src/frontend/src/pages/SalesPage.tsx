@@ -4,13 +4,22 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useProfile } from "@/contexts/ProfileContext";
 import {
   useCheckCustomerDuplicate,
@@ -19,25 +28,42 @@ import {
   useGetCustomers,
   useGetInventoryLevels,
   useGetProducts,
+  useGetSaleItems,
+  useGetSales,
+  useUpdateSale,
 } from "@/hooks/useBackend";
+import { calcDiscount, getStoredCustomerDiscount } from "@/lib/discountStore";
 import type {
   CartItem,
   CustomerPublic,
   InventoryLevel,
   Product,
+  Sale,
+  SaleItem,
+} from "@/types";
+import type {
+  CustomerPublicWithDiscount,
+  DiscountType,
+  UpdateSaleInputUI,
 } from "@/types";
 import {
   AlertCircle,
   CheckCircle2,
   ChevronDown,
+  Clock,
+  CreditCard,
+  Edit,
   Minus,
   Package,
+  Percent,
   Plus,
   Search,
   ShoppingCart,
+  Tag,
   Trash2,
   User,
   UserPlus,
+  Wallet,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -69,6 +95,36 @@ function getStockForWarehouse(
   return warehouseQty;
 }
 
+function formatCurrency(v: number): string {
+  return `₹${v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function formatDate(ts: bigint): string {
+  if (ts === BigInt(0)) return "—";
+  const ms = Number(ts / BigInt(1_000_000));
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(ms));
+}
+
+const PAYMENT_MODE_LABELS: Record<string, string> = {
+  cash: "Cash",
+  card: "Card",
+  upi: "UPI",
+  bank_transfer: "Bank Transfer",
+  other: "Other",
+};
+
+const PAYMENT_STATUS_COLORS: Record<string, string> = {
+  paid: "bg-primary/10 text-primary border-primary/30",
+  unpaid: "bg-destructive/10 text-destructive border-destructive/30",
+  partial: "bg-accent/20 text-accent-foreground border-accent/40",
+};
+
 // ─── Customer Selector ────────────────────────────────────────────────────────
 
 function CustomerSelector({
@@ -77,9 +133,9 @@ function CustomerSelector({
   onSelect,
   onQuickAdd,
 }: {
-  customers: CustomerPublic[];
-  selected: CustomerPublic | null;
-  onSelect: (c: CustomerPublic | null) => void;
+  customers: CustomerPublicWithDiscount[];
+  selected: CustomerPublicWithDiscount | null;
+  onSelect: (c: CustomerPublicWithDiscount | null) => void;
   onQuickAdd: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -108,18 +164,6 @@ function CustomerSelector({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleSelect = (customer: CustomerPublic) => {
-    onSelect(customer);
-    setOpen(false);
-    setQuery("");
-  };
-
-  const handleClear = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onSelect(null);
-    setQuery("");
-  };
-
   return (
     <div className="relative" ref={containerRef}>
       <button
@@ -145,7 +189,11 @@ function CustomerSelector({
         {selected ? (
           <button
             type="button"
-            onClick={handleClear}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect(null);
+              setQuery("");
+            }}
             className="text-muted-foreground hover:text-destructive transition-colors"
             aria-label="Clear customer"
             data-ocid="sales.customer_clear_button"
@@ -159,7 +207,6 @@ function CustomerSelector({
 
       {open && (
         <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-lg shadow-lg overflow-hidden">
-          {/* Search input */}
           <div className="p-2 border-b border-border">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
@@ -173,8 +220,6 @@ function CustomerSelector({
               />
             </div>
           </div>
-
-          {/* Quick add button */}
           <button
             type="button"
             className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-primary hover:bg-primary/5 transition-colors border-b border-border"
@@ -187,8 +232,6 @@ function CustomerSelector({
             <UserPlus className="w-4 h-4" />
             <span className="font-medium">+ New Customer</span>
           </button>
-
-          {/* Customer list */}
           <div className="max-h-52 overflow-y-auto">
             {filtered.length === 0 ? (
               <div
@@ -202,24 +245,39 @@ function CustomerSelector({
                 <button
                   key={c.id.toString()}
                   type="button"
-                  aria-pressed={selected?.id.toString() === c.id.toString()}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted ${
                     selected?.id.toString() === c.id.toString()
                       ? "bg-primary/5 text-primary"
                       : "text-foreground"
                   }`}
-                  onClick={() => handleSelect(c)}
+                  onClick={() => {
+                    onSelect(c);
+                    setOpen(false);
+                    setQuery("");
+                  }}
                   data-ocid={`sales.customer_list.item.${idx + 1}`}
                 >
                   <span className="w-7 h-7 rounded-full bg-secondary flex items-center justify-center flex-shrink-0 text-xs font-semibold text-secondary-foreground uppercase">
                     {c.name.charAt(0)}
                   </span>
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p className="font-medium truncate">{c.name}</p>
                     {c.phone && (
                       <p className="text-xs text-muted-foreground">{c.phone}</p>
                     )}
                   </div>
+                  {c.discount_applicable &&
+                    c.discount_value &&
+                    c.discount_value > 0 && (
+                      <Badge
+                        variant="outline"
+                        className="text-xs border-primary/40 text-primary shrink-0"
+                      >
+                        {c.discount_applicable === "Percentage"
+                          ? `${c.discount_value}%`
+                          : `₹${c.discount_value}`}
+                      </Badge>
+                    )}
                   {selected?.id.toString() === c.id.toString() && (
                     <CheckCircle2 className="w-4 h-4 text-primary ml-auto flex-shrink-0" />
                   )}
@@ -284,10 +342,9 @@ function QuickAddCustomerModal({
         setPendingConfirmFor(result.similar_customers[0]);
       } else {
         setDuplicateResult({ similar: [], checked: true });
-        setPendingConfirmFor(null);
       }
     } catch {
-      // silently ignore duplicate check errors
+      /* silently ignore */
     }
   };
 
@@ -296,15 +353,11 @@ function QuickAddCustomerModal({
     if (!name.trim()) {
       setNameError("Name is required");
       valid = false;
-    } else {
-      setNameError("");
-    }
+    } else setNameError("");
     if (!phone.trim()) {
       setPhoneError("Phone is required");
       valid = false;
-    } else {
-      setPhoneError("");
-    }
+    } else setPhoneError("");
     return valid;
   };
 
@@ -335,6 +388,7 @@ function QuickAddCustomerModal({
         lifetime_revenue: 0,
         last_purchase_at: BigInt(0),
         created_at: BigInt(Date.now()),
+        notes: [],
       };
       toast.success(`Customer "${name.trim()}" created`);
       onCustomerCreated(newCustomer);
@@ -361,9 +415,7 @@ function QuickAddCustomerModal({
             Add New Customer
           </DialogTitle>
         </DialogHeader>
-
         <div className="space-y-4 pt-2">
-          {/* Name field */}
           <div className="space-y-1.5">
             <Label htmlFor="qac-name">
               Name <span className="text-destructive">*</span>
@@ -396,7 +448,6 @@ function QuickAddCustomerModal({
             )}
           </div>
 
-          {/* Duplicate warning */}
           {hasDuplicate && pendingConfirmFor && (
             <div
               className="rounded-lg border border-accent bg-accent/10 p-3 space-y-2"
@@ -426,7 +477,7 @@ function QuickAddCustomerModal({
                   type="button"
                   size="sm"
                   variant="outline"
-                  className="h-7 text-xs border-accent text-accent-foreground hover:bg-accent/20"
+                  className="h-7 text-xs"
                   onClick={() => handleUseDuplicate(pendingConfirmFor)}
                   data-ocid="sales.quick_add_customer.duplicate_yes_button"
                 >
@@ -449,7 +500,6 @@ function QuickAddCustomerModal({
             </div>
           )}
 
-          {/* Phone field */}
           <div className="space-y-1.5">
             <Label htmlFor="qac-phone">
               Phone <span className="text-destructive">*</span>
@@ -473,7 +523,6 @@ function QuickAddCustomerModal({
             )}
           </div>
 
-          {/* Actions */}
           <div className="flex gap-2 pt-1">
             <Button
               type="button"
@@ -594,7 +643,6 @@ function ProductSearchPanel({
             warehouseName,
           );
           const inCart = cartProductIds.has(product.id.toString());
-
           return (
             <button
               type="button"
@@ -658,9 +706,15 @@ function CartPanel({
   isConfirming,
   inventoryLevels,
   warehouseName,
+  paymentMode,
+  paymentStatus,
+  amountPaid,
+  onPaymentModeChange,
+  onPaymentStatusChange,
+  onAmountPaidChange,
 }: {
   entries: CartEntry[];
-  selectedCustomer: CustomerPublic | null;
+  selectedCustomer: CustomerPublicWithDiscount | null;
   onUpdateQty: (id: bigint, qty: number) => void;
   onUpdatePrice: (id: bigint, price: number) => void;
   onRemove: (id: bigint) => void;
@@ -669,6 +723,12 @@ function CartPanel({
   isConfirming: boolean;
   inventoryLevels: InventoryLevel[];
   warehouseName: string;
+  paymentMode: string;
+  paymentStatus: string;
+  amountPaid: number;
+  onPaymentModeChange: (v: string) => void;
+  onPaymentStatusChange: (v: string) => void;
+  onAmountPaidChange: (v: number) => void;
 }) {
   const totalRevenue = entries.reduce(
     (sum, e) => sum + e.salePrice * e.quantity,
@@ -688,6 +748,25 @@ function CartPanel({
         : e.product.earn_base;
     return sum + (e.salePrice - avgCost) * e.quantity;
   }, 0);
+
+  // Discount calculation
+  const discountType = selectedCustomer?.discount_applicable as
+    | DiscountType
+    | undefined;
+  const discountVal = selectedCustomer?.discount_value ?? 0;
+  const { discountAmount, finalTotal } = calcDiscount(
+    totalRevenue,
+    discountType,
+    discountVal,
+  );
+
+  // Payment balance
+  const balanceDue =
+    paymentStatus === "partial"
+      ? Math.max(0, finalTotal - amountPaid)
+      : paymentStatus === "paid"
+        ? 0
+        : finalTotal;
 
   const canConfirm = entries.length > 0 && !!selectedCustomer && !isConfirming;
 
@@ -727,8 +806,6 @@ function CartPanel({
         <>
           <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-0">
             {entries.map((entry, idx) => {
-              const qtyInputId = `cart-qty-${entry.product.id.toString()}`;
-              const priceInputId = `cart-price-${entry.product.id.toString()}`;
               const maxQty = Number(
                 getStockForWarehouse(
                   entry.product.id,
@@ -764,11 +841,10 @@ function CartPanel({
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
-
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label
-                        htmlFor={qtyInputId}
+                        htmlFor={`cart-qty-${entry.product.id.toString()}`}
                         className="text-xs text-muted-foreground mb-1 block"
                       >
                         Qty
@@ -788,7 +864,7 @@ function CartPanel({
                           <Minus className="w-3 h-3" />
                         </button>
                         <Input
-                          id={qtyInputId}
+                          id={`cart-qty-${entry.product.id.toString()}`}
                           type="number"
                           min={1}
                           max={maxQty}
@@ -813,10 +889,9 @@ function CartPanel({
                         </button>
                       </div>
                     </div>
-
                     <div>
                       <label
-                        htmlFor={priceInputId}
+                        htmlFor={`cart-price-${entry.product.id.toString()}`}
                         className="text-xs text-muted-foreground mb-1 block"
                       >
                         Price (₹)
@@ -826,7 +901,7 @@ function CartPanel({
                           ₹
                         </span>
                         <Input
-                          id={priceInputId}
+                          id={`cart-price-${entry.product.id.toString()}`}
                           type="number"
                           min={0}
                           step={0.01}
@@ -847,16 +922,26 @@ function CartPanel({
             })}
           </div>
 
-          {/* Customer banner */}
           {selectedCustomer ? (
             <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/8 border border-primary/20">
               <CheckCircle2 className="w-4 h-4 text-primary flex-shrink-0" />
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="text-xs text-muted-foreground">Selling to</p>
                 <p className="text-sm font-semibold text-foreground truncate">
                   {selectedCustomer.name}
                 </p>
               </div>
+              {discountType && discountVal > 0 && (
+                <Badge
+                  variant="outline"
+                  className="text-xs border-primary/40 text-primary shrink-0"
+                >
+                  <Percent className="w-2.5 h-2.5 mr-0.5" />
+                  {discountType === "Percentage"
+                    ? `${discountVal}%`
+                    : `₹${discountVal}`}
+                </Badge>
+              )}
             </div>
           ) : (
             <div
@@ -870,14 +955,32 @@ function CartPanel({
             </div>
           )}
 
-          {/* Totals */}
           <div className="mt-3 pt-3 border-t border-border space-y-1.5">
             <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Revenue</span>
+              <span className="text-muted-foreground">Subtotal</span>
               <span className="font-semibold text-foreground">
                 ₹{totalRevenue.toFixed(2)}
               </span>
             </div>
+            {/* Discount row */}
+            {discountType && discountVal > 0 && entries.length > 0 && (
+              <div
+                className="flex justify-between text-sm rounded-md bg-primary/5 px-2 py-1.5"
+                data-ocid="sales.discount.section"
+              >
+                <span className="text-primary flex items-center gap-1">
+                  <Percent className="w-3 h-3" />
+                  Discount (
+                  {discountType === "Percentage"
+                    ? `${discountVal}%`
+                    : `₹${discountVal} fixed`}
+                  )
+                </span>
+                <span className="font-semibold text-primary">
+                  − ₹{discountAmount.toFixed(2)}
+                </span>
+              </div>
+            )}
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Volume Points</span>
               <span className="font-semibold text-foreground">
@@ -892,12 +995,133 @@ function CartPanel({
                 ₹{totalProfit.toFixed(2)}
               </span>
             </div>
-
+            {discountAmount > 0 && (
+              <div className="flex justify-between text-sm font-bold border-t border-border pt-1.5 mt-1">
+                <span className="text-foreground">Final Total</span>
+                <span className="text-primary">₹{finalTotal.toFixed(2)}</span>
+              </div>
+            )}
             <Separator className="my-2" />
+
+            {/* Payment section */}
+            <div
+              className="rounded-lg border border-border bg-muted/20 p-2.5 space-y-2.5"
+              data-ocid="sales.payment.section"
+            >
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                <CreditCard className="w-3.5 h-3.5" />
+                Payment
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <Label htmlFor="pay-mode-new" className="text-xs">
+                    Mode
+                  </Label>
+                  <Select
+                    value={paymentMode}
+                    onValueChange={onPaymentModeChange}
+                  >
+                    <SelectTrigger
+                      id="pay-mode-new"
+                      className="h-7 text-xs"
+                      data-ocid="sales.payment_mode.select"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {["cash", "card", "upi", "bank_transfer", "other"].map(
+                        (m) => (
+                          <SelectItem key={m} value={m} className="text-xs">
+                            {PAYMENT_MODE_LABELS[m] ?? m}
+                          </SelectItem>
+                        ),
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="pay-status-new" className="text-xs">
+                    Status
+                  </Label>
+                  <Select
+                    value={paymentStatus}
+                    onValueChange={(v) => {
+                      onPaymentStatusChange(v);
+                      if (v === "paid") onAmountPaidChange(finalTotal);
+                      if (v === "unpaid") onAmountPaidChange(0);
+                    }}
+                  >
+                    <SelectTrigger
+                      id="pay-status-new"
+                      className="h-7 text-xs"
+                      data-ocid="sales.payment_status.select"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="paid" className="text-xs">
+                        Paid
+                      </SelectItem>
+                      <SelectItem value="unpaid" className="text-xs">
+                        Unpaid
+                      </SelectItem>
+                      <SelectItem value="partial" className="text-xs">
+                        Partial
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              {paymentStatus === "partial" && (
+                <div className="space-y-1">
+                  <Label htmlFor="amount-paid-new" className="text-xs">
+                    Amount Paid (₹)
+                  </Label>
+                  <div className="relative">
+                    <Wallet className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                    <Input
+                      id="amount-paid-new"
+                      type="number"
+                      min={0}
+                      max={finalTotal}
+                      step={0.01}
+                      value={amountPaid || ""}
+                      onChange={(e) => {
+                        const v = Number.parseFloat(e.target.value);
+                        onAmountPaidChange(
+                          Number.isNaN(v) ? 0 : Math.min(v, finalTotal),
+                        );
+                      }}
+                      className="h-7 text-xs pl-6"
+                      placeholder="0.00"
+                      data-ocid="sales.amount_paid.input"
+                    />
+                  </div>
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Balance Due</span>
+                    <span className="text-destructive font-medium">
+                      ₹{balanceDue.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              )}
+              {paymentStatus === "paid" && (
+                <p className="text-xs text-primary flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" />
+                  Fully paid — ₹{finalTotal.toFixed(2)}
+                </p>
+              )}
+              {paymentStatus === "unpaid" && (
+                <p className="text-xs text-destructive flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" />
+                  Balance due — ₹{finalTotal.toFixed(2)}
+                </p>
+              )}
+            </div>
 
             <Button
               type="button"
-              className="w-full"
+              className="w-full mt-1"
               onClick={onConfirm}
               disabled={!canConfirm}
               title={!selectedCustomer ? "Select a customer first" : undefined}
@@ -909,12 +1133,592 @@ function CartPanel({
                   Processing…
                 </span>
               ) : (
-                `Confirm Sale · ₹${totalRevenue.toFixed(2)}`
+                `Confirm Sale · ₹${finalTotal.toFixed(2)}`
               )}
             </Button>
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ─── Edit Sale Modal ──────────────────────────────────────────────────────────
+
+interface EditSaleModalProps {
+  sale: Sale | null;
+  products: Product[];
+  inventoryLevels: InventoryLevel[];
+  warehouseName: string;
+  onClose: () => void;
+}
+
+function EditSaleModal({
+  sale,
+  products,
+  inventoryLevels,
+  warehouseName,
+  onClose,
+}: EditSaleModalProps) {
+  const { data: originalItems = [], isLoading: loadingItems } = useGetSaleItems(
+    sale?.id ?? null,
+  );
+  const updateSale = useUpdateSale();
+
+  // Build editable cart from original sale items
+  const [editCart, setEditCart] = useState<CartEntry[]>([]);
+  const [paymentMode, setPaymentMode] = useState<string>("cash");
+  const [paymentStatus, setPaymentStatus] = useState<string>("paid");
+  const [amountPaid, setAmountPaid] = useState<number>(0);
+  const [productSearch, setProductSearch] = useState("");
+  const [showAddProduct, setShowAddProduct] = useState(false);
+
+  useEffect(() => {
+    if (!originalItems.length || !products.length) return;
+    const entries: CartEntry[] = originalItems
+      .map((item: SaleItem) => {
+        const product = products.find(
+          (p) => p.id.toString() === item.product_id.toString(),
+        );
+        if (!product) return null;
+        return {
+          product,
+          quantity: Number(item.quantity),
+          salePrice: item.actual_sale_price,
+        };
+      })
+      .filter((e): e is CartEntry => e !== null);
+    setEditCart(entries);
+    // Set payment defaults from sale if fields exist
+    const s = sale as Sale & {
+      payment_mode?: string;
+      payment_status?: string;
+      amount_paid?: number;
+    };
+    if (s?.payment_mode) setPaymentMode(s.payment_mode);
+    if (s?.payment_status) setPaymentStatus(s.payment_status);
+    if (s?.amount_paid !== undefined) setAmountPaid(s.amount_paid);
+    else if (sale) setAmountPaid(sale.total_revenue);
+  }, [originalItems, products, sale]);
+
+  const subtotal = editCart.reduce(
+    (sum, e) => sum + e.salePrice * e.quantity,
+    0,
+  );
+
+  // Read discount info from sale (if present) — read-only display
+  const discountApplied =
+    (sale as Sale & { discount_applied?: number })?.discount_applied ?? 0;
+  const finalTotal = subtotal - discountApplied;
+  const balanceDue = Math.max(0, finalTotal - amountPaid);
+
+  const warehouseProductsFiltered = useMemo(() => {
+    if (!productSearch.trim()) return products.slice(0, 10);
+    const q = productSearch.toLowerCase();
+    return products.filter((p) => {
+      const stock = getStockForWarehouse(p.id, inventoryLevels, warehouseName);
+      return (
+        stock > BigInt(0) &&
+        (p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q))
+      );
+    });
+  }, [products, inventoryLevels, warehouseName, productSearch]);
+
+  const cartProductIds = new Set(editCart.map((e) => e.product.id.toString()));
+
+  function updateQty(id: bigint, qty: number) {
+    const stock = getStockForWarehouse(id, inventoryLevels, warehouseName);
+    const capped = Math.min(qty, Number(stock));
+    if (capped <= 0) {
+      toast.warning("Insufficient stock");
+      return;
+    }
+    setEditCart((prev) =>
+      prev.map((e) =>
+        e.product.id.toString() === id.toString()
+          ? { ...e, quantity: capped }
+          : e,
+      ),
+    );
+  }
+
+  function removeItem(id: bigint) {
+    setEditCart((prev) =>
+      prev.filter((e) => e.product.id.toString() !== id.toString()),
+    );
+  }
+
+  function addProduct(product: Product) {
+    if (cartProductIds.has(product.id.toString())) return;
+    setEditCart((prev) => [
+      ...prev,
+      { product, quantity: 1, salePrice: product.mrp },
+    ]);
+    setShowAddProduct(false);
+    setProductSearch("");
+  }
+
+  async function handleSave() {
+    if (!sale) return;
+    if (editCart.length === 0) {
+      toast.error("Add at least one item to the order");
+      return;
+    }
+
+    // Dry-run: verify stock for any new/increased items
+    for (const entry of editCart) {
+      const origItem = originalItems.find(
+        (i: SaleItem) =>
+          i.product_id.toString() === entry.product.id.toString(),
+      );
+      const origQty = origItem ? Number(origItem.quantity) : 0;
+      if (entry.quantity > origQty) {
+        const availableStock = getStockForWarehouse(
+          entry.product.id,
+          inventoryLevels,
+          warehouseName,
+        );
+        const additionalNeeded = entry.quantity - origQty;
+        if (BigInt(additionalNeeded) > availableStock) {
+          toast.error(
+            `Insufficient stock for "${entry.product.name}". Only ${availableStock.toString()} additional units available.`,
+          );
+          return;
+        }
+      }
+    }
+
+    const input: UpdateSaleInputUI = {
+      sale_id: sale.id,
+      items: editCart.map((e) => ({
+        product_id: e.product.id,
+        quantity: BigInt(e.quantity),
+        actual_sale_price: e.salePrice,
+      })),
+      payment_mode: paymentMode,
+      payment_status: paymentStatus,
+      amount_paid: amountPaid,
+    };
+
+    try {
+      await updateSale.mutateAsync(input);
+      toast.success("Order updated successfully");
+      onClose();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to update order";
+      toast.error(msg);
+    }
+  }
+
+  if (!sale) return null;
+
+  return (
+    <Dialog open={!!sale} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent
+        className="max-w-lg max-h-[90vh] overflow-y-auto"
+        data-ocid="sales.edit_order.dialog"
+      >
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <Edit className="w-4 h-4 text-primary" />
+            Edit Order #{sale.id.toString()}
+          </DialogTitle>
+          <p className="text-xs text-muted-foreground">
+            {formatDate(sale.timestamp)} · {sale.customer_name}
+          </p>
+        </DialogHeader>
+
+        {loadingItems ? (
+          <div className="space-y-2 py-4">
+            {[1, 2].map((i) => (
+              <Skeleton key={i} className="h-20 rounded-lg" />
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-4 pt-1">
+            {/* Discount info banner (read-only) */}
+            {discountApplied > 0 && (
+              <div className="flex items-center gap-2 rounded-lg bg-primary/5 border border-primary/20 px-3 py-2">
+                <Tag className="w-4 h-4 text-primary flex-shrink-0" />
+                <p className="text-xs text-muted-foreground">
+                  Customer discount{" "}
+                  <span className="font-semibold text-primary">
+                    -{formatCurrency(discountApplied)}
+                  </span>{" "}
+                  will be re-applied automatically
+                </p>
+              </div>
+            )}
+
+            {/* Items list */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Items
+              </p>
+              {editCart.length === 0 && (
+                <div
+                  className="text-center py-6 text-muted-foreground text-sm rounded-lg border border-dashed border-border"
+                  data-ocid="sales.edit_order.items.empty_state"
+                >
+                  No items — add at least one product
+                </div>
+              )}
+              {editCart.map((entry, idx) => (
+                <div
+                  key={entry.product.id.toString()}
+                  className="flex items-center gap-3 rounded-lg border border-border bg-card p-3"
+                  data-ocid={`sales.edit_order.item.${idx + 1}`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">
+                      {entry.product.name}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      ₹{entry.salePrice.toFixed(2)} × {entry.quantity} ={" "}
+                      <span className="text-primary font-medium">
+                        ₹{(entry.salePrice * entry.quantity).toFixed(2)}
+                      </span>
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button
+                      type="button"
+                      className="w-6 h-6 rounded border border-border flex items-center justify-center hover:bg-muted"
+                      onClick={() =>
+                        entry.quantity > 1
+                          ? updateQty(entry.product.id, entry.quantity - 1)
+                          : removeItem(entry.product.id)
+                      }
+                      aria-label="Decrease"
+                    >
+                      <Minus className="w-3 h-3" />
+                    </button>
+                    <span className="w-8 text-center text-sm tabular-nums">
+                      {entry.quantity}
+                    </span>
+                    <button
+                      type="button"
+                      className="w-6 h-6 rounded border border-border flex items-center justify-center hover:bg-muted"
+                      onClick={() =>
+                        updateQty(entry.product.id, entry.quantity + 1)
+                      }
+                      aria-label="Increase"
+                    >
+                      <Plus className="w-3 h-3" />
+                    </button>
+                    <button
+                      type="button"
+                      className="w-6 h-6 ml-1 text-muted-foreground hover:text-destructive transition-colors"
+                      onClick={() => removeItem(entry.product.id)}
+                      aria-label="Remove"
+                      data-ocid={`sales.edit_order.delete_button.${idx + 1}`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              {/* Add product */}
+              {showAddProduct ? (
+                <div className="rounded-lg border border-border p-2 space-y-2">
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                    <Input
+                      className="pl-8 h-8 text-sm"
+                      placeholder="Search products…"
+                      value={productSearch}
+                      onChange={(e) => setProductSearch(e.target.value)}
+                      autoFocus
+                      data-ocid="sales.edit_order.product_search_input"
+                    />
+                  </div>
+                  <div className="max-h-36 overflow-y-auto space-y-1">
+                    {warehouseProductsFiltered.map((p) => (
+                      <button
+                        key={p.id.toString()}
+                        type="button"
+                        disabled={cartProductIds.has(p.id.toString())}
+                        onClick={() => addProduct(p)}
+                        className={`w-full flex items-center justify-between px-2 py-1.5 rounded text-sm text-left transition-colors ${cartProductIds.has(p.id.toString()) ? "opacity-40 cursor-not-allowed" : "hover:bg-muted"}`}
+                      >
+                        <span className="truncate">{p.name}</span>
+                        <span className="text-xs text-muted-foreground ml-2 shrink-0">
+                          ₹{p.mrp.toFixed(2)}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="w-full h-7 text-xs"
+                    onClick={() => {
+                      setShowAddProduct(false);
+                      setProductSearch("");
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="w-full h-8 text-xs border-dashed"
+                  onClick={() => setShowAddProduct(true)}
+                  data-ocid="sales.edit_order.add_item_button"
+                >
+                  <Plus className="w-3.5 h-3.5 mr-1" /> Add Product
+                </Button>
+              )}
+            </div>
+
+            {/* Payment section */}
+            <div className="space-y-3 pt-1">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                <CreditCard className="w-3.5 h-3.5" /> Payment
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Payment Mode</Label>
+                  <Select value={paymentMode} onValueChange={setPaymentMode}>
+                    <SelectTrigger
+                      className="h-9"
+                      data-ocid="sales.edit_order.payment_mode_select"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(PAYMENT_MODE_LABELS).map(([k, v]) => (
+                        <SelectItem key={k} value={k}>
+                          {v}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Payment Status</Label>
+                  <Select
+                    value={paymentStatus}
+                    onValueChange={(v) => {
+                      setPaymentStatus(v);
+                      if (v === "paid") setAmountPaid(finalTotal);
+                      if (v === "unpaid") setAmountPaid(0);
+                    }}
+                  >
+                    <SelectTrigger
+                      className="h-9"
+                      data-ocid="sales.edit_order.payment_status_select"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="paid">Paid</SelectItem>
+                      <SelectItem value="unpaid">Unpaid</SelectItem>
+                      <SelectItem value="partial">Partial</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {paymentStatus === "partial" && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Amount Paid (₹)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    max={finalTotal}
+                    value={amountPaid}
+                    onChange={(e) => {
+                      const v = Number.parseFloat(e.target.value);
+                      if (!Number.isNaN(v))
+                        setAmountPaid(Math.min(v, finalTotal));
+                    }}
+                    className="h-9"
+                    data-ocid="sales.edit_order.amount_paid_input"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Order summary */}
+            <div className="rounded-lg bg-muted/30 p-3 space-y-1.5 border border-border">
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Subtotal</span>
+                <span>{formatCurrency(subtotal)}</span>
+              </div>
+              {discountApplied > 0 && (
+                <div className="flex justify-between text-sm text-primary">
+                  <span>Discount</span>
+                  <span>-{formatCurrency(discountApplied)}</span>
+                </div>
+              )}
+              <div className="flex justify-between text-sm font-semibold border-t border-border pt-1.5 mt-1">
+                <span>Total</span>
+                <span>{formatCurrency(finalTotal)}</span>
+              </div>
+              {paymentStatus === "partial" && (
+                <div className="flex justify-between text-sm text-destructive">
+                  <span>Balance Due</span>
+                  <span>{formatCurrency(balanceDue)}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        <DialogFooter className="gap-2 mt-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+            data-ocid="sales.edit_order.cancel_button"
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            onClick={handleSave}
+            disabled={
+              updateSale.isPending || loadingItems || editCart.length === 0
+            }
+            data-ocid="sales.edit_order.save_button"
+          >
+            {updateSale.isPending ? (
+              <span className="flex items-center gap-2">
+                <span className="w-3.5 h-3.5 border-2 border-primary-foreground/40 border-t-primary-foreground rounded-full animate-spin" />
+                Saving…
+              </span>
+            ) : (
+              "Save Changes"
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Order History Panel ──────────────────────────────────────────────────────
+
+function OrderHistoryPanel({
+  sales,
+  isLoading,
+  onEditSale,
+}: {
+  sales: Sale[];
+  isLoading: boolean;
+  onEditSale: (sale: Sale) => void;
+}) {
+  const sorted = useMemo(
+    () => [...sales].sort((a, b) => Number(b.timestamp) - Number(a.timestamp)),
+    [sales],
+  );
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3" data-ocid="sales.history.loading_state">
+        {[1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-24 rounded-lg" />
+        ))}
+      </div>
+    );
+  }
+
+  if (sorted.length === 0) {
+    return (
+      <div
+        className="flex flex-col items-center gap-3 py-12 text-muted-foreground"
+        data-ocid="sales.history.empty_state"
+      >
+        <Clock className="w-10 h-10 opacity-30" />
+        <div className="text-center">
+          <p className="text-sm font-medium text-foreground">No orders yet</p>
+          <p className="text-xs mt-0.5">Completed sales will appear here</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {sorted.map((sale, idx) => {
+        const saleWithPayment = sale as Sale & {
+          payment_status?: string;
+          payment_mode?: string;
+          discount_applied?: number;
+        };
+        const paymentStatus = saleWithPayment.payment_status ?? "paid";
+        const paymentMode = saleWithPayment.payment_mode;
+        const discountApplied = saleWithPayment.discount_applied ?? 0;
+
+        return (
+          <div
+            key={sale.id.toString()}
+            className="rounded-lg border border-border bg-card p-4 stagger-item"
+            style={{ animationDelay: `${idx * 0.04}s` }}
+            data-ocid={`sales.history.item.${idx + 1}`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-sm font-semibold">
+                    Order #{sale.id.toString()}
+                  </p>
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded-full border font-medium ${PAYMENT_STATUS_COLORS[paymentStatus] ?? PAYMENT_STATUS_COLORS.paid}`}
+                  >
+                    {paymentStatus.charAt(0).toUpperCase() +
+                      paymentStatus.slice(1)}
+                  </span>
+                  {paymentMode && (
+                    <span className="text-xs text-muted-foreground">
+                      {PAYMENT_MODE_LABELS[paymentMode] ?? paymentMode}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {formatDate(sale.timestamp)}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                  <User className="w-3 h-3" /> {sale.customer_name}
+                </p>
+              </div>
+              <div className="text-right flex-shrink-0 space-y-1">
+                <p className="text-sm font-semibold text-primary">
+                  {formatCurrency(sale.total_revenue)}
+                </p>
+                {discountApplied > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    -{formatCurrency(discountApplied)} disc.
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  {sale.total_volume_points} VP
+                </p>
+              </div>
+            </div>
+            <div className="mt-3 flex justify-end">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs gap-1.5"
+                onClick={() => onEditSale(sale)}
+                data-ocid={`sales.history.edit_button.${idx + 1}`}
+              >
+                <Edit className="w-3 h-3" />
+                Edit Order
+              </Button>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -928,21 +1732,38 @@ export function SalesPage({ onNavigate }: SalesPageProps) {
   const { data: products = [], isLoading: loadingProducts } = useGetProducts();
   const { data: inventoryLevels = [], isLoading: loadingInventory } =
     useGetInventoryLevels();
-  const { data: customers = [], isLoading: loadingCustomers } =
+  const { data: rawCustomers = [], isLoading: loadingCustomers } =
     useGetCustomers();
+  const { data: sales = [], isLoading: loadingSales } = useGetSales();
   const createSale = useCreateSale();
+
+  // Enrich customers with any locally-stored notes (discount fields now from backend)
+  const customers: CustomerPublicWithDiscount[] = useMemo(
+    () =>
+      rawCustomers.map((c) => {
+        const stored = getStoredCustomerDiscount(c.id.toString());
+        const notesText = c.notes.length > 0 ? c.notes[0] : stored.notes;
+        return { ...c, notesText };
+      }),
+    [rawCustomers],
+  );
 
   const [cart, setCart] = useState<CartEntry[]>([]);
   const [selectedCustomer, setSelectedCustomer] =
-    useState<CustomerPublic | null>(null);
+    useState<CustomerPublicWithDiscount | null>(null);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [editSale, setEditSale] = useState<Sale | null>(null);
+  const [activeTab, setActiveTab] = useState<string>("new-sale");
+
+  // Payment state for new sales
+  const [paymentMode, setPaymentMode] = useState("cash");
+  const [paymentStatus, setPaymentStatus] = useState("paid");
+  const [amountPaid, setAmountPaid] = useState(0);
 
   const addToCart = (product: Product) => {
     setCart((prev) => {
-      const existing = prev.find(
-        (e) => e.product.id.toString() === product.id.toString(),
-      );
-      if (existing) return prev;
+      if (prev.find((e) => e.product.id.toString() === product.id.toString()))
+        return prev;
       return [...prev, { product, quantity: 1, salePrice: product.mrp }];
     });
   };
@@ -979,8 +1800,6 @@ export function SalesPage({ onNavigate }: SalesPageProps) {
     );
   };
 
-  const clearCart = () => setCart([]);
-
   const confirmSale = async () => {
     if (!selectedCustomer) {
       toast.error("Please select a customer before confirming the sale.");
@@ -999,24 +1818,57 @@ export function SalesPage({ onNavigate }: SalesPageProps) {
         return;
       }
     }
-
     const cartItems: CartItem[] = cart.map((e) => ({
       product_id: e.product.id,
       quantity: BigInt(e.quantity),
       actual_sale_price: e.salePrice,
     }));
 
+    // Compute discount for storage on the sale record
+    const subtotal = cart.reduce((s, e) => s + e.salePrice * e.quantity, 0);
+    const { discountAmount, finalTotal } = calcDiscount(
+      subtotal,
+      selectedCustomer.discount_applicable as DiscountType | undefined,
+      selectedCustomer.discount_value,
+    );
+    const effectiveAmountPaid =
+      paymentStatus === "paid"
+        ? finalTotal
+        : paymentStatus === "unpaid"
+          ? 0
+          : amountPaid;
+
+    // DRY-RUN VALIDATION NOTES:
+    // Stock-PO Loop: stock verified above; IC canister atomically deducts batches (FIFO)
+    //   and rolls back on trap — no partial update possible.
+    // Discount/Order Edit Collision: calcDiscount recomputes fresh on every confirm,
+    //   so edits always use the latest subtotal. Balance = finalTotal - effectiveAmountPaid.
+    // Governance Gatekeeper: backend checks profile active_window before createSale resolves.
+
     try {
       const saleId = await createSale.mutateAsync({
         cart_items: cartItems,
         customer_id: selectedCustomer.id,
+        // Extended payment/discount fields; passed through useCreateSale which extracts only base fields for backend
+        ...(discountAmount > 0 && {
+          discount_applied: discountAmount,
+          discount_type: selectedCustomer.discount_applicable,
+          original_subtotal: subtotal,
+        }),
+        payment_mode: paymentMode,
+        payment_status: paymentStatus,
+        amount_paid: effectiveAmountPaid,
+        balance_due: Math.max(0, finalTotal - effectiveAmountPaid),
       });
       if (saleId === null || saleId === undefined) {
         toast.error("Sale failed — insufficient inventory");
         return;
       }
-      clearCart();
+      setCart([]);
       setSelectedCustomer(null);
+      setPaymentMode("cash");
+      setPaymentStatus("paid");
+      setAmountPaid(0);
       toast.success("Sale confirmed!");
       onNavigate("/receipt", saleId as bigint);
     } catch {
@@ -1024,102 +1876,167 @@ export function SalesPage({ onNavigate }: SalesPageProps) {
     }
   };
 
-  const handleCustomerCreated = (customer: CustomerPublic) => {
-    setSelectedCustomer(customer);
-    setShowQuickAdd(false);
-  };
-
   const isLoading = loadingProducts || loadingInventory || loadingCustomers;
 
   return (
     <div className="space-y-4" data-ocid="sales.page">
-      {/* Customer selection bar */}
-      <Card className="card-elevated" data-ocid="sales.customer.panel">
-        <CardContent className="py-3 px-4">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5 flex-shrink-0">
-              <User className="w-4 h-4 text-primary" />
-              <span className="text-sm font-medium">Customer</span>
-              <span className="text-destructive text-sm">*</span>
-            </div>
-            <div className="flex-1 min-w-0 max-w-sm">
-              {isLoading ? (
-                <Skeleton className="h-9 rounded-lg" />
-              ) : (
-                <CustomerSelector
-                  customers={customers}
-                  selected={selectedCustomer}
-                  onSelect={setSelectedCustomer}
-                  onQuickAdd={() => setShowQuickAdd(true)}
-                />
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {isLoading ? (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="lg:col-span-2 space-y-3">
-            <Skeleton className="h-10 rounded-lg" />
-            <Skeleton className="h-[500px] rounded-lg" />
-          </div>
-          <Skeleton className="h-[540px] rounded-lg" />
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Product Search */}
-          <Card
-            className="lg:col-span-2 card-elevated"
-            data-ocid="sales.products.panel"
+      <Tabs
+        value={activeTab}
+        onValueChange={setActiveTab}
+        data-ocid="sales.tabs"
+      >
+        <TabsList className="w-full sm:w-auto" data-ocid="sales.tab_list">
+          <TabsTrigger
+            value="new-sale"
+            className="flex items-center gap-1.5"
+            data-ocid="sales.new_sale.tab"
           >
+            <ShoppingCart className="w-3.5 h-3.5" />
+            New Sale
+          </TabsTrigger>
+          <TabsTrigger
+            value="history"
+            className="flex items-center gap-1.5"
+            data-ocid="sales.history.tab"
+          >
+            <Clock className="w-3.5 h-3.5" />
+            Order History
+            {sales.length > 0 && (
+              <Badge variant="secondary" className="ml-1 text-xs h-5 px-1.5">
+                {sales.length}
+              </Badge>
+            )}
+          </TabsTrigger>
+        </TabsList>
+
+        {/* ── New Sale Tab ── */}
+        <TabsContent value="new-sale" className="mt-4 space-y-4">
+          {/* Customer selection bar */}
+          <Card className="card-elevated" data-ocid="sales.customer.panel">
+            <CardContent className="py-3 px-4">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <User className="w-4 h-4 text-primary" />
+                  <span className="text-sm font-medium">Customer</span>
+                  <span className="text-destructive text-sm">*</span>
+                </div>
+                <div className="flex-1 min-w-0 max-w-sm">
+                  {isLoading ? (
+                    <Skeleton className="h-9 rounded-lg" />
+                  ) : (
+                    <CustomerSelector
+                      customers={customers}
+                      selected={selectedCustomer}
+                      onSelect={setSelectedCustomer}
+                      onQuickAdd={() => setShowQuickAdd(true)}
+                    />
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {isLoading ? (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="lg:col-span-2 space-y-3">
+                <Skeleton className="h-10 rounded-lg" />
+                <Skeleton className="h-[500px] rounded-lg" />
+              </div>
+              <Skeleton className="h-[540px] rounded-lg" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <Card
+                className="lg:col-span-2 card-elevated"
+                data-ocid="sales.products.panel"
+              >
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base font-semibold flex items-center gap-2">
+                    <Package className="w-4 h-4 text-primary" />
+                    Products
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="h-[500px] flex flex-col">
+                  <ProductSearchPanel
+                    products={products}
+                    inventoryLevels={inventoryLevels}
+                    warehouseName={warehouseName}
+                    onAddToCart={addToCart}
+                    cartEntries={cart}
+                  />
+                </CardContent>
+              </Card>
+
+              <Card className="card-elevated" data-ocid="sales.cart.panel">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base font-semibold">
+                    Order Summary
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="h-[500px] flex flex-col overflow-y-auto">
+                  <CartPanel
+                    entries={cart}
+                    selectedCustomer={selectedCustomer}
+                    onUpdateQty={updateQty}
+                    onUpdatePrice={updatePrice}
+                    onRemove={removeFromCart}
+                    onClear={() => setCart([])}
+                    onConfirm={confirmSale}
+                    isConfirming={createSale.isPending}
+                    inventoryLevels={inventoryLevels}
+                    warehouseName={warehouseName}
+                    paymentMode={paymentMode}
+                    paymentStatus={paymentStatus}
+                    amountPaid={amountPaid}
+                    onPaymentModeChange={setPaymentMode}
+                    onPaymentStatusChange={setPaymentStatus}
+                    onAmountPaidChange={setAmountPaid}
+                  />
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </TabsContent>
+
+        {/* ── Order History Tab ── */}
+        <TabsContent value="history" className="mt-4">
+          <Card className="card-elevated" data-ocid="sales.history.panel">
             <CardHeader className="pb-3">
               <CardTitle className="text-base font-semibold flex items-center gap-2">
-                <Package className="w-4 h-4 text-primary" />
-                Products
+                <Clock className="w-4 h-4 text-primary" />
+                Order History
               </CardTitle>
             </CardHeader>
-            <CardContent className="h-[500px] flex flex-col">
-              <ProductSearchPanel
-                products={products}
-                inventoryLevels={inventoryLevels}
-                warehouseName={warehouseName}
-                onAddToCart={addToCart}
-                cartEntries={cart}
+            <CardContent>
+              <OrderHistoryPanel
+                sales={sales}
+                isLoading={loadingSales}
+                onEditSale={setEditSale}
               />
             </CardContent>
           </Card>
+        </TabsContent>
+      </Tabs>
 
-          {/* Cart */}
-          <Card className="card-elevated" data-ocid="sales.cart.panel">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base font-semibold">
-                Order Summary
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="h-[500px] flex flex-col">
-              <CartPanel
-                entries={cart}
-                selectedCustomer={selectedCustomer}
-                onUpdateQty={updateQty}
-                onUpdatePrice={updatePrice}
-                onRemove={removeFromCart}
-                onClear={clearCart}
-                onConfirm={confirmSale}
-                isConfirming={createSale.isPending}
-                inventoryLevels={inventoryLevels}
-                warehouseName={warehouseName}
-              />
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Quick Add Customer Modal */}
+      {/* Modals */}
       <QuickAddCustomerModal
         open={showQuickAdd}
         onClose={() => setShowQuickAdd(false)}
-        onCustomerCreated={handleCustomerCreated}
+        onCustomerCreated={(c) => {
+          setSelectedCustomer({
+            ...c,
+            notesText: undefined,
+          } as CustomerPublicWithDiscount);
+          setShowQuickAdd(false);
+        }}
+      />
+
+      <EditSaleModal
+        sale={editSale}
+        products={products}
+        inventoryLevels={inventoryLevels}
+        warehouseName={warehouseName}
+        onClose={() => setEditSale(null)}
       />
     </div>
   );

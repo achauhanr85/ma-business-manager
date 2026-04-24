@@ -10,7 +10,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useProfile } from "@/contexts/ProfileContext";
 import {
   useCreateProfile,
@@ -18,7 +17,15 @@ import {
   useInitSuperAdmin,
   useJoinProfile,
 } from "@/hooks/useBackend";
-import { CheckCircle2, Info, Leaf, LogIn, Plus, Sprout } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  Info,
+  Leaf,
+  LogIn,
+  Plus,
+  Sprout,
+} from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -32,6 +39,7 @@ interface CreateForm {
   phone_number: string;
   business_address: string;
   fssai_number: string;
+  email: string;
 }
 
 interface JoinForm {
@@ -40,7 +48,19 @@ interface JoinForm {
   warehouse_name: string;
 }
 
-// ─── Profile Key Hint ─────────────────────────────────────────────────────────
+type TabMode = "create" | "join";
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function FieldError({ message }: { message?: string }) {
+  if (!message) return null;
+  return (
+    <div className="flex items-center gap-1.5 mt-1">
+      <AlertCircle className="w-3.5 h-3.5 text-destructive flex-shrink-0" />
+      <p className="text-xs text-destructive">{message}</p>
+    </div>
+  );
+}
 
 function ProfileKeyHint({
   profileKey,
@@ -68,7 +88,7 @@ function ProfileKeyHint({
       </Badge>
     ) : (
       <Badge
-        className="mt-1 text-xs gap-1 bg-blue-50 text-blue-700 border-blue-200"
+        className="mt-1 text-xs gap-1 bg-primary/10 text-primary border-primary/20"
         variant="outline"
         data-ocid="onboarding.key_available_badge"
       >
@@ -99,13 +119,41 @@ function ProfileKeyHint({
   );
 }
 
+// ─── Field component ──────────────────────────────────────────────────────────
+
+function FormField({
+  id,
+  label,
+  required,
+  children,
+  error,
+  hint,
+}: {
+  id: string;
+  label: string;
+  required?: boolean;
+  children: React.ReactNode;
+  error?: string;
+  hint?: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id} className="text-sm font-medium">
+        {label}
+        {required && <span className="text-destructive ml-0.5">*</span>}
+      </Label>
+      {children}
+      {error ? <FieldError message={error} /> : null}
+      {hint && !error ? (
+        <p className="text-xs text-muted-foreground">{hint}</p>
+      ) : null}
+    </div>
+  );
+}
+
 // ─── Create Tab ───────────────────────────────────────────────────────────────
 
-function CreateTab({
-  onSuccess,
-}: {
-  onSuccess: () => Promise<void>;
-}) {
+function CreateTab({ onSuccess }: { onSuccess: () => Promise<void> }) {
   const [form, setForm] = useState<CreateForm>({
     business_name: "",
     profile_key: "",
@@ -114,7 +162,9 @@ function CreateTab({
     phone_number: "",
     business_address: "",
     fssai_number: "",
+    email: "",
   });
+  const [errors, setErrors] = useState<Partial<CreateForm>>({});
   const [keyBlurred, setKeyBlurred] = useState(false);
 
   const initSuperAdmin = useInitSuperAdmin();
@@ -130,30 +180,33 @@ function CreateTab({
     createProfile.isPending ||
     joinProfile.isPending;
 
-  const set = (field: keyof CreateForm, value: string) =>
+  const set = (field: keyof CreateForm, value: string) => {
     setForm((f) => ({ ...f, [field]: value }));
+    if (errors[field]) {
+      setErrors((e) => ({ ...e, [field]: undefined }));
+    }
+  };
+
+  const validate = (): boolean => {
+    const newErrors: Partial<CreateForm> = {};
+    if (!form.business_name.trim())
+      newErrors.business_name = "Business name is required";
+    if (!form.profile_key.trim())
+      newErrors.profile_key = "Profile key is required";
+    if (!form.display_name.trim())
+      newErrors.display_name = "Your name is required";
+    if (!form.warehouse_name.trim())
+      newErrors.warehouse_name = "Warehouse name is required";
+    if (form.fssai_number && form.fssai_number.length !== 14)
+      newErrors.fssai_number = "FSSAI must be exactly 14 digits";
+    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
+      newErrors.email = "Enter a valid email address";
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
   const handleSubmit = async () => {
-    if (!form.business_name.trim()) {
-      toast.error("Business name is required");
-      return;
-    }
-    if (!form.profile_key.trim()) {
-      toast.error("Profile key is required");
-      return;
-    }
-    if (!form.display_name.trim()) {
-      toast.error("Your display name is required");
-      return;
-    }
-    if (!form.warehouse_name.trim()) {
-      toast.error("Warehouse name is required");
-      return;
-    }
-    if (form.fssai_number && form.fssai_number.length !== 14) {
-      toast.error("FSSAI number must be exactly 14 digits");
-      return;
-    }
+    if (!validate()) return;
     if (keyCheck) {
       toast.error("Profile key already taken. Choose a different key.");
       return;
@@ -167,7 +220,7 @@ function CreateTab({
         phone_number: form.phone_number,
         business_address: form.business_address,
         fssai_number: form.fssai_number,
-        email: "",
+        email: form.email,
         logo_url: "",
         theme_color: "#16a34a",
       });
@@ -192,55 +245,73 @@ function CreateTab({
 
   return (
     <div className="space-y-4" data-ocid="onboarding.create_panel">
-      {/* User identity */}
-      <div className="rounded-lg bg-secondary/20 border border-border p-4 space-y-3">
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+      {/* Your Identity */}
+      <div className="rounded-xl bg-muted/30 border border-border p-4 space-y-4">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
           Your Identity
         </p>
-        <div className="space-y-2">
-          <Label htmlFor="create_display_name">Display Name *</Label>
+        <FormField
+          id="create_display_name"
+          label="Your Name"
+          required
+          error={errors.display_name}
+        >
           <Input
             id="create_display_name"
             placeholder="e.g. Mohan Arora"
             value={form.display_name}
             onChange={(e) => set("display_name", e.target.value)}
+            className={errors.display_name ? "border-destructive" : ""}
             data-ocid="onboarding.create_display_name.input"
           />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="create_warehouse_name">Warehouse / Location *</Label>
+        </FormField>
+        <FormField
+          id="create_warehouse_name"
+          label="Warehouse / Location"
+          required
+          error={errors.warehouse_name}
+          hint="The primary warehouse you manage"
+        >
           <Input
             id="create_warehouse_name"
             placeholder="e.g. Main Warehouse"
             value={form.warehouse_name}
             onChange={(e) => set("warehouse_name", e.target.value)}
+            className={errors.warehouse_name ? "border-destructive" : ""}
             data-ocid="onboarding.create_warehouse_name.input"
           />
-        </div>
+        </FormField>
       </div>
 
-      {/* Business info */}
-      <div className="rounded-lg bg-secondary/20 border border-border p-4 space-y-3">
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+      {/* Business Info */}
+      <div className="rounded-xl bg-muted/30 border border-border p-4 space-y-4">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
           Business Info
         </p>
-        <div className="space-y-2">
-          <Label htmlFor="create_business_name">Business Name *</Label>
+
+        <FormField
+          id="create_business_name"
+          label="Business Name"
+          required
+          error={errors.business_name}
+        >
           <Input
             id="create_business_name"
             placeholder="e.g. MA Herbal Distributors"
             value={form.business_name}
             onChange={(e) => set("business_name", e.target.value)}
+            className={errors.business_name ? "border-destructive" : ""}
             data-ocid="onboarding.create_business_name.input"
           />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="create_profile_key">
-            Unique Profile Key *{" "}
-            <span className="text-xs text-muted-foreground font-normal">
-              (your team uses this to join)
-            </span>
-          </Label>
+        </FormField>
+
+        <FormField
+          id="create_profile_key"
+          label="Unique Profile Key"
+          required
+          error={errors.profile_key}
+          hint="Team members use this key to join your profile"
+        >
           <Input
             id="create_profile_key"
             placeholder="e.g. ma-herb-2024"
@@ -252,31 +323,54 @@ function CreateTab({
               )
             }
             onBlur={() => setKeyBlurred(true)}
+            className={errors.profile_key ? "border-destructive" : ""}
             data-ocid="onboarding.create_profile_key.input"
           />
-          {keyBlurred && !checkingKey && (
-            <ProfileKeyHint profileKey={form.profile_key} mode="create" />
-          )}
           {keyBlurred && checkingKey && (
             <Skeleton
               className="h-5 w-40 mt-1"
               data-ocid="onboarding.key_checking_state"
             />
           )}
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-2">
-            <Label htmlFor="create_phone">Phone</Label>
-            <Input
-              id="create_phone"
-              placeholder="+91 98765 43210"
-              value={form.phone_number}
-              onChange={(e) => set("phone_number", e.target.value)}
-              data-ocid="onboarding.create_phone.input"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="create_fssai">FSSAI (14 digits)</Label>
+          {keyBlurred && !checkingKey && (
+            <ProfileKeyHint profileKey={form.profile_key} mode="create" />
+          )}
+        </FormField>
+
+        <FormField
+          id="create_phone"
+          label="Phone Number"
+          error={errors.phone_number}
+        >
+          <Input
+            id="create_phone"
+            type="tel"
+            placeholder="+91 98765 43210"
+            value={form.phone_number}
+            onChange={(e) => set("phone_number", e.target.value)}
+            className={errors.phone_number ? "border-destructive" : ""}
+            data-ocid="onboarding.create_phone.input"
+          />
+        </FormField>
+
+        <FormField id="create_email" label="Email Address" error={errors.email}>
+          <Input
+            id="create_email"
+            type="email"
+            placeholder="contact@maherb.in"
+            value={form.email}
+            onChange={(e) => set("email", e.target.value)}
+            className={errors.email ? "border-destructive" : ""}
+            data-ocid="onboarding.create_email.input"
+          />
+        </FormField>
+
+        <FormField
+          id="create_fssai"
+          label="FSSAI License Number (14 digits)"
+          error={errors.fssai_number}
+        >
+          <div className="relative">
             <Input
               id="create_fssai"
               placeholder="12345678901234"
@@ -285,20 +379,29 @@ function CreateTab({
               onChange={(e) =>
                 set("fssai_number", e.target.value.replace(/\D/g, ""))
               }
+              className={`font-mono tracking-widest pr-12 ${errors.fssai_number ? "border-destructive" : ""}`}
               data-ocid="onboarding.create_fssai.input"
             />
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">
+              {form.fssai_number.length}/14
+            </span>
           </div>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="create_address">Business Address</Label>
+        </FormField>
+
+        <FormField
+          id="create_address"
+          label="Business Address"
+          error={errors.business_address}
+        >
           <Input
             id="create_address"
             placeholder="Street, City, State"
             value={form.business_address}
             onChange={(e) => set("business_address", e.target.value)}
+            className={errors.business_address ? "border-destructive" : ""}
             data-ocid="onboarding.create_address.input"
           />
-        </div>
+        </FormField>
       </div>
 
       <Button
@@ -311,7 +414,7 @@ function CreateTab({
         {isLoading ? (
           <span className="flex items-center gap-2">
             <span className="w-4 h-4 border-2 border-primary-foreground/40 border-t-primary-foreground rounded-full animate-spin" />
-            Setting up your business...
+            Setting up your business…
           </span>
         ) : (
           <span className="flex items-center gap-2">
@@ -332,6 +435,7 @@ function JoinTab({ onSuccess }: { onSuccess: () => Promise<void> }) {
     display_name: "",
     warehouse_name: "",
   });
+  const [errors, setErrors] = useState<Partial<JoinForm>>({});
   const [keyBlurred, setKeyBlurred] = useState(false);
 
   const joinProfile = useJoinProfile();
@@ -341,22 +445,25 @@ function JoinTab({ onSuccess }: { onSuccess: () => Promise<void> }) {
 
   const isLoading = joinProfile.isPending;
 
-  const set = (field: keyof JoinForm, value: string) =>
+  const set = (field: keyof JoinForm, value: string) => {
     setForm((f) => ({ ...f, [field]: value }));
+    if (errors[field]) setErrors((e) => ({ ...e, [field]: undefined }));
+  };
+
+  const validate = (): boolean => {
+    const newErrors: Partial<JoinForm> = {};
+    if (!form.profile_key.trim())
+      newErrors.profile_key = "Profile key is required";
+    if (!form.display_name.trim())
+      newErrors.display_name = "Your name is required";
+    if (!form.warehouse_name.trim())
+      newErrors.warehouse_name = "Warehouse name is required";
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
   const handleSubmit = async () => {
-    if (!form.profile_key.trim()) {
-      toast.error("Profile key is required");
-      return;
-    }
-    if (!form.display_name.trim()) {
-      toast.error("Your display name is required");
-      return;
-    }
-    if (!form.warehouse_name.trim()) {
-      toast.error("Warehouse name is required");
-      return;
-    }
+    if (!validate()) return;
     if (!foundProfile) {
       toast.error("No business found with that profile key. Please verify it.");
       return;
@@ -383,44 +490,25 @@ function JoinTab({ onSuccess }: { onSuccess: () => Promise<void> }) {
 
   return (
     <div className="space-y-4" data-ocid="onboarding.join_panel">
-      <div className="rounded-lg bg-secondary/20 border border-border p-4 space-y-3">
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-          Your Identity
+      {/* Profile key */}
+      <div className="rounded-xl bg-muted/30 border border-border p-4 space-y-4">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          Business Profile Key
         </p>
-        <div className="space-y-2">
-          <Label htmlFor="join_display_name">Display Name *</Label>
-          <Input
-            id="join_display_name"
-            placeholder="e.g. Raj Kumar"
-            value={form.display_name}
-            onChange={(e) => set("display_name", e.target.value)}
-            data-ocid="onboarding.join_display_name.input"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="join_warehouse_name">Warehouse / Location *</Label>
-          <Input
-            id="join_warehouse_name"
-            placeholder="e.g. Delhi Sub-Warehouse"
-            value={form.warehouse_name}
-            onChange={(e) => set("warehouse_name", e.target.value)}
-            data-ocid="onboarding.join_warehouse_name.input"
-          />
-        </div>
-      </div>
-
-      <div className="rounded-lg bg-secondary/20 border border-border p-4 space-y-3">
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-          Business Profile
-        </p>
-        <div className="space-y-2">
-          <Label htmlFor="join_profile_key">Profile Key *</Label>
+        <FormField
+          id="join_profile_key"
+          label="Profile Key"
+          required
+          error={errors.profile_key}
+          hint="Ask your Admin for the business profile key"
+        >
           <Input
             id="join_profile_key"
             placeholder="e.g. ma-herb-2024"
             value={form.profile_key}
             onChange={(e) => set("profile_key", e.target.value.toLowerCase())}
             onBlur={() => setKeyBlurred(true)}
+            className={errors.profile_key ? "border-destructive" : ""}
             data-ocid="onboarding.join_profile_key.input"
           />
           {keyBlurred && checkingKey && (
@@ -432,7 +520,45 @@ function JoinTab({ onSuccess }: { onSuccess: () => Promise<void> }) {
           {keyBlurred && !checkingKey && (
             <ProfileKeyHint profileKey={form.profile_key} mode="join" />
           )}
-        </div>
+        </FormField>
+      </div>
+
+      {/* Identity */}
+      <div className="rounded-xl bg-muted/30 border border-border p-4 space-y-4">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          Your Identity
+        </p>
+        <FormField
+          id="join_display_name"
+          label="Your Name"
+          required
+          error={errors.display_name}
+        >
+          <Input
+            id="join_display_name"
+            placeholder="e.g. Raj Kumar"
+            value={form.display_name}
+            onChange={(e) => set("display_name", e.target.value)}
+            className={errors.display_name ? "border-destructive" : ""}
+            data-ocid="onboarding.join_display_name.input"
+          />
+        </FormField>
+        <FormField
+          id="join_warehouse_name"
+          label="Warehouse / Location"
+          required
+          error={errors.warehouse_name}
+          hint="The warehouse you will manage"
+        >
+          <Input
+            id="join_warehouse_name"
+            placeholder="e.g. Delhi Sub-Warehouse"
+            value={form.warehouse_name}
+            onChange={(e) => set("warehouse_name", e.target.value)}
+            className={errors.warehouse_name ? "border-destructive" : ""}
+            data-ocid="onboarding.join_warehouse_name.input"
+          />
+        </FormField>
       </div>
 
       <Button
@@ -451,7 +577,7 @@ function JoinTab({ onSuccess }: { onSuccess: () => Promise<void> }) {
         {isLoading ? (
           <span className="flex items-center gap-2">
             <span className="w-4 h-4 border-2 border-primary-foreground/40 border-t-primary-foreground rounded-full animate-spin" />
-            Joining...
+            Joining…
           </span>
         ) : (
           <span className="flex items-center gap-2">
@@ -464,19 +590,69 @@ function JoinTab({ onSuccess }: { onSuccess: () => Promise<void> }) {
   );
 }
 
+// ─── Tab Switcher ─────────────────────────────────────────────────────────────
+
+function TabSwitcher({
+  mode,
+  onSwitch,
+}: {
+  mode: TabMode;
+  onSwitch: (m: TabMode) => void;
+}) {
+  return (
+    <div
+      className="flex rounded-xl border border-border bg-muted/40 p-1 gap-1"
+      role="tablist"
+      data-ocid="onboarding.tabs"
+    >
+      <button
+        type="button"
+        role="tab"
+        aria-selected={mode === "create"}
+        onClick={() => onSwitch("create")}
+        className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+          mode === "create"
+            ? "bg-card text-foreground shadow-sm"
+            : "text-muted-foreground hover:text-foreground"
+        }`}
+        data-ocid="onboarding.create_tab"
+      >
+        <Plus className="w-3.5 h-3.5 flex-shrink-0" />
+        Create Profile
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={mode === "join"}
+        onClick={() => onSwitch("join")}
+        className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+          mode === "join"
+            ? "bg-card text-foreground shadow-sm"
+            : "text-muted-foreground hover:text-foreground"
+        }`}
+        data-ocid="onboarding.join_tab"
+      >
+        <LogIn className="w-3.5 h-3.5 flex-shrink-0" />
+        Join Existing
+      </button>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function OnboardingPage() {
   const { refetchProfile } = useProfile();
+  const [mode, setMode] = useState<TabMode>("create");
 
   return (
     <div
       className="min-h-screen bg-background flex flex-col"
       data-ocid="onboarding.page"
     >
-      {/* Decorative background */}
+      {/* Decorative background — fixed, behind everything */}
       <div
-        className="fixed inset-0 pointer-events-none"
+        className="fixed inset-0 pointer-events-none z-0"
         aria-hidden="true"
         style={{
           background:
@@ -485,87 +661,58 @@ export function OnboardingPage() {
       />
 
       {/* Top bar */}
-      <header className="relative z-10 flex items-center justify-between px-4 py-3 border-b border-border bg-card/80 backdrop-blur-sm">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shadow-sm">
-            <Leaf className="w-4 h-4 text-primary-foreground" />
-          </div>
-          <span className="font-display font-semibold text-foreground text-sm">
-            MA Herb Business Manager
-          </span>
+      <header className="relative z-10 flex items-center gap-2.5 px-4 py-3 border-b border-border bg-card/80 backdrop-blur-sm flex-shrink-0">
+        <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shadow-sm flex-shrink-0">
+          <Leaf className="w-4 h-4 text-primary-foreground" />
         </div>
+        <span className="font-display font-semibold text-foreground text-sm">
+          MA Herb Business Manager
+        </span>
       </header>
 
-      {/* Main content */}
-      <main className="relative z-10 flex-1 flex items-start justify-center px-4 py-10">
-        <div className="w-full max-w-lg">
-          {/* Welcome heading */}
-          <div
-            className="text-center mb-8 stagger-item"
-            style={{ animationDelay: "0ms" }}
-          >
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary shadow-lg mb-4">
-              <Leaf className="w-8 h-8 text-primary-foreground" />
+      {/* Scrollable content area */}
+      <main className="relative z-10 flex-1 overflow-y-auto">
+        <div className="w-full max-w-[480px] mx-auto px-4 py-8 space-y-6">
+          {/* Hero heading */}
+          <div className="text-center space-y-3">
+            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary shadow-lg">
+              <Leaf className="w-7 h-7 text-primary-foreground" />
             </div>
-            <h1 className="text-2xl font-display font-bold text-foreground">
-              Welcome to MA Herb
-            </h1>
-            <p className="text-muted-foreground text-sm mt-1.5 max-w-xs mx-auto">
-              Set up your workspace to start managing your herbal business with
-              ease.
-            </p>
+            <div>
+              <h1 className="text-2xl font-display font-bold text-foreground">
+                Welcome to MA Herb
+              </h1>
+              <p className="text-muted-foreground text-sm mt-1 max-w-xs mx-auto">
+                Set up your workspace to start managing your herbal business.
+              </p>
+            </div>
           </div>
 
           {/* Onboarding card */}
-          <Card
-            className="shadow-lg border-border stagger-item"
-            style={{ animationDelay: "80ms" }}
-            data-ocid="onboarding.card"
-          >
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg">Get Started</CardTitle>
-              <CardDescription>
-                Create a new business profile or join your team with a profile
-                key.
+          <Card className="shadow-lg border-border" data-ocid="onboarding.card">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-lg font-display">
+                Get Started
+              </CardTitle>
+              <CardDescription className="text-sm">
+                Create a new business profile or join an existing team.
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <Tabs defaultValue="create" data-ocid="onboarding.tabs">
-                <TabsList className="grid grid-cols-2 w-full mb-5">
-                  <TabsTrigger
-                    value="create"
-                    className="gap-1.5"
-                    data-ocid="onboarding.create_tab"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Create New Profile
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="join"
-                    className="gap-1.5"
-                    data-ocid="onboarding.join_tab"
-                  >
-                    <LogIn className="w-3.5 h-3.5" />
-                    Join Existing
-                  </TabsTrigger>
-                </TabsList>
+            <CardContent className="space-y-5">
+              {/* Tab switcher */}
+              <TabSwitcher mode={mode} onSwitch={setMode} />
 
-                <TabsContent value="create">
-                  <CreateTab onSuccess={refetchProfile} />
-                </TabsContent>
-
-                <TabsContent value="join">
-                  <JoinTab onSuccess={refetchProfile} />
-                </TabsContent>
-              </Tabs>
+              {/* Tab content — only one shown at a time */}
+              {mode === "create" ? (
+                <CreateTab onSuccess={refetchProfile} />
+              ) : (
+                <JoinTab onSuccess={refetchProfile} />
+              )}
             </CardContent>
           </Card>
 
-          {/* Role info */}
-          <div
-            className="mt-4 rounded-lg border border-border bg-muted/40 px-4 py-3 flex gap-3 stagger-item"
-            style={{ animationDelay: "160ms" }}
-          >
+          {/* Role info hint */}
+          <div className="rounded-lg border border-border bg-muted/40 px-4 py-3 flex gap-3">
             <Info className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
             <p className="text-xs text-muted-foreground leading-relaxed">
               <strong className="text-foreground">First user</strong> to create
@@ -578,7 +725,7 @@ export function OnboardingPage() {
           </div>
 
           {/* Footer */}
-          <p className="text-center text-xs text-muted-foreground mt-6">
+          <p className="text-center text-xs text-muted-foreground pb-4">
             © {new Date().getFullYear()}. Built with love using{" "}
             <a
               href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(typeof window !== "undefined" ? window.location.hostname : "")}`}

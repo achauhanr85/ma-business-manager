@@ -1,19 +1,28 @@
 import Common "common";
 
 module {
+  // ── Category ──────────────────────────────────────────────────────────────────
   public type Category = {
     id : Common.CategoryId;
     name : Text;
     description : Text;
     profile_key : Common.ProfileKey;
     owner : Common.UserId;
+
+    // Who-columns
+    created_by : Common.UserId;
+    last_updated_by : Common.UserId;
+    creation_date : Common.Timestamp;
+    last_update_date : Common.Timestamp;
   };
 
+  // Input — no who-columns
   public type CategoryInput = {
     name : Text;
     description : Text;
   };
 
+  // ── Product ───────────────────────────────────────────────────────────────────
   public type Product = {
     id : Common.ProductId;
     sku : Text;
@@ -25,8 +34,15 @@ module {
     hsn_code : Text;
     profile_key : Common.ProfileKey;
     owner : Common.UserId;
+
+    // Who-columns
+    created_by : Common.UserId;
+    last_updated_by : Common.UserId;
+    creation_date : Common.Timestamp;
+    last_update_date : Common.Timestamp;
   };
 
+  // Input — no who-columns
   public type ProductInput = {
     sku : Text;
     name : Text;

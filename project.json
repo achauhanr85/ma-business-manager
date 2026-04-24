@@ -1,26 +1,26 @@
 {
-  "overview": "MA Herb Business Manager is a multi-tenant business management platform for herbal product distributors. It supports multiple businesses operating in isolation with profile-keyed data, role-based access (Super Admin, Admin, Sub-Admin), warehouse-scoped inventory management, FIFO costing, customer management, and per-profile branding.",
+  "overview": "MA Herb Business Manager is a multi-tenant, mobile-first business management tool for herbal product distributors. It provides a complete operations suite including sales with discount engine, inventory with FIFO tracking, purchase orders with stock sync, customer management with history, and a Super Admin governance layer for managing multiple business profiles.",
   "features": [
-    "Multi-tenant business profiles with unique profile key isolation",
-    "Three-tier role hierarchy: Super Admin, Admin, Sub-Admin",
-    "Warehouse-based inventory location assignment and movement",
-    "Full customer management with duplicate detection on quick-add",
-    "Customer-linked sales with mandatory customer selection",
-    "Per-profile branding: logo upload and theme color customization",
-    "Super-Admin monitoring dashboard for all profiles and storage",
-    "FIFO inventory costing and deduction",
-    "KPI dashboard with charts and volume points tracking",
-    "Purchase orders and receipt generation with WhatsApp sharing"
+    "Super Admin governance dashboard with profile enable/disable and usage metrics",
+    "Profile activity windows with date-based transaction restriction",
+    "Customer discount engine (percentage or fixed) applied to sales",
+    "Discount and payment tracking stored on orders for auditing",
+    "PO-to-inventory sync: receiving a PO increments stock immediately",
+    "Order editing with automatic FIFO stock adjustments",
+    "Payment mode and status tracking on every sale",
+    "Auditable who-columns on all data types (created by, updated by, timestamps)",
+    "Per-profile branding with logo and theme color",
+    "Multi-tenant data isolation with three-tier roles"
   ],
   "category": "productivity",
   "tags": [
-    "multi-tenant",
-    "business-management",
+    "business",
     "inventory",
     "sales",
+    "multi-tenant",
     "herbal",
     "distribution",
-    "role-based-access"
+    "pos"
   ],
-  "last_updated": "2026-04-24T04:22:34.362Z"
+  "last_updated": "2026-04-24T06:51:38.711Z"
 }

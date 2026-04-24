@@ -19,28 +19,42 @@ export interface CartItem {
 export interface Category {
   'id' : CategoryId,
   'owner' : UserId,
+  'last_update_date' : Timestamp,
   'name' : string,
   'description' : string,
+  'created_by' : UserId,
+  'last_updated_by' : UserId,
   'profile_key' : ProfileKey,
+  'creation_date' : Timestamp,
 }
 export type CategoryId = bigint;
 export interface CategoryInput { 'name' : string, 'description' : string }
 export type CustomerId = bigint;
 export interface CustomerInput {
   'name' : string,
+  'note' : [] | [string],
+  'discount_value' : [] | [number],
   'email' : string,
+  'discount_applicable' : [] | [DiscountType],
   'address' : string,
   'phone' : string,
+}
+export interface CustomerOrderDetail {
+  'sale' : Sale,
+  'items' : Array<SaleItem>,
 }
 export interface CustomerPublic {
   'id' : CustomerId,
   'total_sales' : bigint,
   'name' : string,
   'lifetime_revenue' : number,
+  'discount_value' : [] | [number],
   'last_purchase_at' : Timestamp,
   'created_at' : Timestamp,
   'email' : string,
+  'discount_applicable' : [] | [DiscountType],
   'address' : string,
+  'notes' : Array<string>,
   'phone' : string,
   'profile_key' : ProfileKey,
 }
@@ -50,6 +64,8 @@ export interface DashboardStats {
   'recent_sales' : Array<Sale>,
   'monthly_volume_points' : number,
 }
+export type DiscountType = { 'Fixed' : null } |
+  { 'Percentage' : null };
 export interface DuplicateCheckResult {
   'similar_customers' : Array<CustomerPublic>,
   'has_similar' : boolean,
@@ -72,9 +88,13 @@ export interface InventoryMovement {
   'id' : MovementId,
   'from_warehouse' : WarehouseName,
   'product_id' : ProductId,
+  'last_update_date' : Timestamp,
+  'created_by' : UserId,
+  'last_updated_by' : UserId,
   'quantity' : bigint,
   'to_warehouse' : WarehouseName,
   'profile_key' : ProfileKey,
+  'creation_date' : Timestamp,
   'moved_at' : Timestamp,
   'moved_by' : UserId,
 }
@@ -92,17 +112,29 @@ export interface MonthlySalesTrend {
 export type MovementId = bigint;
 export type POStatus = { 'Received' : null } |
   { 'Pending' : null };
+export type PaymentMode = { 'Card' : null } |
+  { 'Cash' : null } |
+  { 'BankTransfer' : null } |
+  { 'Other' : null } |
+  { 'Check' : null };
+export type PaymentStatus = { 'Paid' : null } |
+  { 'Unpaid' : null } |
+  { 'Partial' : null };
 export interface Product {
   'id' : ProductId,
   'mrp' : number,
   'sku' : string,
   'owner' : UserId,
+  'last_update_date' : Timestamp,
   'name' : string,
   'earn_base' : number,
+  'created_by' : UserId,
+  'last_updated_by' : UserId,
   'volume_points' : number,
   'hsn_code' : string,
   'profile_key' : ProfileKey,
   'category_id' : CategoryId,
+  'creation_date' : Timestamp,
 }
 export type ProductId = bigint;
 export interface ProductInput {
@@ -127,11 +159,14 @@ export interface ProfileInput {
 export type ProfileKey = string;
 export interface ProfilePublic {
   'owner' : UserId,
+  'is_enabled' : boolean,
   'business_name' : string,
+  'end_date' : [] | [Timestamp],
   'created_at' : Timestamp,
   'email' : string,
   'is_archived' : boolean,
   'business_address' : string,
+  'start_date' : [] | [Timestamp],
   'logo_url' : string,
   'phone_number' : string,
   'theme_color' : string,
@@ -141,20 +176,33 @@ export interface ProfilePublic {
 export interface ProfileStats {
   'user_count' : bigint,
   'storage_estimate_bytes' : bigint,
+  'is_enabled' : boolean,
   'business_name' : string,
+  'end_date' : [] | [Timestamp],
   'is_archived' : boolean,
+  'start_date' : [] | [Timestamp],
   'last_activity' : Timestamp,
   'owner_principal' : UserId,
   'profile_key' : ProfileKey,
+}
+export interface ProfileStatus {
+  'is_enabled' : boolean,
+  'end_date' : [] | [Timestamp],
+  'start_date' : [] | [Timestamp],
+  'is_within_window' : boolean,
 }
 export interface PurchaseOrder {
   'id' : PurchaseOrderId,
   'status' : POStatus,
   'owner' : UserId,
+  'last_update_date' : Timestamp,
+  'created_by' : UserId,
   'vendor' : string,
+  'last_updated_by' : UserId,
   'timestamp' : Timestamp,
   'warehouse_name' : WarehouseName,
   'profile_key' : ProfileKey,
+  'creation_date' : Timestamp,
 }
 export type PurchaseOrderId = bigint;
 export interface PurchaseOrderInput {
@@ -164,9 +212,13 @@ export interface PurchaseOrderInput {
 }
 export interface PurchaseOrderItem {
   'product_id' : ProductId,
+  'last_update_date' : Timestamp,
   'unit_cost' : number,
+  'created_by' : UserId,
+  'last_updated_by' : UserId,
   'quantity' : bigint,
   'po_id' : PurchaseOrderId,
+  'creation_date' : Timestamp,
 }
 export interface PurchaseOrderItemInput {
   'product_id' : ProductId,
@@ -175,30 +227,48 @@ export interface PurchaseOrderItemInput {
 }
 export interface Sale {
   'id' : SaleId,
+  'payment_mode' : [] | [PaymentMode],
   'owner' : UserId,
+  'last_update_date' : Timestamp,
+  'discount_type' : [] | [DiscountType],
+  'created_by' : UserId,
+  'payment_status' : [] | [PaymentStatus],
   'customer_id' : CustomerId,
+  'discount_applied' : [] | [number],
   'sold_by' : UserId,
+  'amount_paid' : [] | [number],
+  'last_updated_by' : UserId,
   'timestamp' : Timestamp,
   'total_revenue' : number,
+  'balance_due' : [] | [number],
   'customer_name' : string,
   'total_volume_points' : number,
   'profile_key' : ProfileKey,
+  'original_subtotal' : [] | [number],
+  'creation_date' : Timestamp,
   'total_profit' : number,
 }
 export type SaleId = bigint;
 export interface SaleInput {
+  'payment_mode' : [] | [PaymentMode],
   'cart_items' : Array<CartItem>,
+  'payment_status' : [] | [PaymentStatus],
   'customer_id' : CustomerId,
+  'amount_paid' : [] | [number],
 }
 export interface SaleItem {
   'unit_cost_snapshot' : number,
   'product_id' : ProductId,
+  'last_update_date' : Timestamp,
   'product_name_snapshot' : string,
+  'created_by' : UserId,
   'volume_points_snapshot' : number,
+  'last_updated_by' : UserId,
   'quantity' : bigint,
   'actual_sale_price' : number,
   'sale_id' : SaleId,
   'mrp_snapshot' : number,
+  'creation_date' : Timestamp,
 }
 export interface SuperAdminStats {
   'total_users' : bigint,
@@ -206,6 +276,13 @@ export interface SuperAdminStats {
   'profiles' : Array<ProfileStats>,
 }
 export type Timestamp = bigint;
+export interface UpdateSaleInput {
+  'payment_mode' : [] | [PaymentMode],
+  'payment_status' : [] | [PaymentStatus],
+  'amount_paid' : [] | [number],
+  'items' : Array<CartItem>,
+  'sale_id' : SaleId,
+}
 export type UserId = Principal;
 export interface UserProfileInput {
   'display_name' : string,
@@ -226,17 +303,28 @@ export type UserRole = { 'admin' : null } |
 export type WarehouseName = string;
 export interface _SERVICE {
   'checkCustomerDuplicate' : ActorMethod<[string], DuplicateCheckResult>,
+  /**
+   * / Wipe ALL stored data — clears every Map store and resets the super admin principal.
+   * / Use this in preview/development to start with a completely fresh state.
+   */
+  'clearAllData' : ActorMethod<[], undefined>,
   'createCategory' : ActorMethod<[CategoryInput], CategoryId>,
   'createCustomer' : ActorMethod<[CustomerInput], CustomerId>,
   'createProduct' : ActorMethod<[ProductInput], [] | [ProductId]>,
   'createProfile' : ActorMethod<[ProfileInput], boolean>,
-  'createPurchaseOrder' : ActorMethod<[PurchaseOrderInput], PurchaseOrderId>,
+  'createPurchaseOrder' : ActorMethod<
+    [PurchaseOrderInput],
+    [] | [PurchaseOrderId]
+  >,
   'createSale' : ActorMethod<[SaleInput], [] | [SaleId]>,
   'deleteCategory' : ActorMethod<[CategoryId], boolean>,
   'deleteCustomer' : ActorMethod<[CustomerId], boolean>,
   'deleteProduct' : ActorMethod<[ProductId], boolean>,
+  'enableProfile' : ActorMethod<[ProfileKey, boolean], boolean>,
+  'getAllProfilesForAdmin' : ActorMethod<[], Array<ProfilePublic>>,
   'getCategories' : ActorMethod<[], Array<Category>>,
   'getCustomer' : ActorMethod<[CustomerId], [] | [CustomerPublic]>,
+  'getCustomerOrders' : ActorMethod<[CustomerId], Array<CustomerOrderDetail>>,
   'getCustomers' : ActorMethod<[], Array<CustomerPublic>>,
   'getDashboardStats' : ActorMethod<[], DashboardStats>,
   'getInventoryBatches' : ActorMethod<[ProductId], Array<InventoryBatchPublic>>,
@@ -246,6 +334,7 @@ export interface _SERVICE {
   'getProducts' : ActorMethod<[], Array<Product>>,
   'getProfile' : ActorMethod<[], [] | [ProfilePublic]>,
   'getProfileByKey' : ActorMethod<[ProfileKey], [] | [ProfilePublic]>,
+  'getProfileStatus' : ActorMethod<[ProfileKey], [] | [ProfileStatus]>,
   'getPurchaseOrderItems' : ActorMethod<
     [PurchaseOrderId],
     Array<PurchaseOrderItem>
@@ -264,13 +353,15 @@ export interface _SERVICE {
   'joinProfile' : ActorMethod<[ProfileKey, string, WarehouseName], boolean>,
   'markPurchaseOrderReceived' : ActorMethod<[PurchaseOrderId], boolean>,
   'moveInventory' : ActorMethod<[InventoryMovementInput], [] | [MovementId]>,
+  'setProfileWindow' : ActorMethod<
+    [ProfileKey, [] | [Timestamp], [] | [Timestamp]],
+    boolean
+  >,
   'updateCategory' : ActorMethod<[CategoryId, CategoryInput], boolean>,
   'updateCustomer' : ActorMethod<[CustomerId, CustomerInput], boolean>,
-  /**
-   * / One-time bootstrap: first caller becomes super admin (if not already set)
-   */
   'updateProduct' : ActorMethod<[ProductId, ProductInput], boolean>,
   'updateProfile' : ActorMethod<[ProfileInput], boolean>,
+  'updateSale' : ActorMethod<[UpdateSaleInput], boolean>,
   'updateUserProfile' : ActorMethod<[UserProfileInput], boolean>,
 }
 export declare const idlService: IDL.ServiceClass;

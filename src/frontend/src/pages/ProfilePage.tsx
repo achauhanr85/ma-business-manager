@@ -71,22 +71,22 @@ function validateBusinessForm(values: ProfileInput): BusinessFormErrors {
   if (!values.business_name.trim()) {
     errors.business_name = "Business name is required";
   }
-  if (!values.phone_number.trim()) {
-    errors.phone_number = "Phone number is required";
-  } else if (!/^[+\d\s\-()]{7,15}$/.test(values.phone_number.trim())) {
+  if (
+    values.phone_number.trim() &&
+    !/^[+\d\s\-()]{7,15}$/.test(values.phone_number.trim())
+  ) {
     errors.phone_number = "Enter a valid phone number";
   }
-  if (!values.business_address.trim()) {
-    errors.business_address = "Business address is required";
-  }
-  if (!values.fssai_number.trim()) {
-    errors.fssai_number = "FSSAI number is required";
-  } else if (!/^\d{14}$/.test(values.fssai_number.trim())) {
+  if (
+    values.fssai_number.trim() &&
+    !/^\d{14}$/.test(values.fssai_number.trim())
+  ) {
     errors.fssai_number = "FSSAI number must be exactly 14 digits";
   }
-  if (!values.email.trim()) {
-    errors.email = "Email is required";
-  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email.trim())) {
+  if (
+    values.email.trim() &&
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email.trim())
+  ) {
     errors.email = "Enter a valid email address";
   }
   if (values.theme_color && !isValidHex(values.theme_color)) {
@@ -354,10 +354,22 @@ function ThemeColorPicker({ value, onChange, error }: ThemeColorPickerProps) {
     setHexInput(value);
   }, [value]);
 
+  const applyPreview = (color: string) => {
+    if (isValidHex(color)) {
+      try {
+        const oklch = hexToOklch(color);
+        document.documentElement.style.setProperty("--primary", oklch);
+      } catch {
+        // ignore
+      }
+    }
+  };
+
   const handleColorPicker = (e: React.ChangeEvent<HTMLInputElement>) => {
     const color = e.target.value;
     setHexInput(color);
     onChange(color);
+    applyPreview(color);
   };
 
   const handleHexInput = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -365,6 +377,7 @@ function ThemeColorPicker({ value, onChange, error }: ThemeColorPickerProps) {
     setHexInput(raw);
     if (/^#[0-9A-Fa-f]{6}$/.test(raw)) {
       onChange(raw);
+      applyPreview(raw);
     }
   };
 
@@ -740,21 +753,46 @@ export function ProfilePage({ onNavigate: _onNavigate }: ProfilePageProps) {
     }
 
     try {
-      await updateProfile.mutateAsync(form);
+      const saveInput: ProfileInput = {
+        business_name: form.business_name.trim(),
+        phone_number: form.phone_number.trim(),
+        business_address: form.business_address.trim(),
+        fssai_number: form.fssai_number.trim(),
+        email: form.email.trim(),
+        logo_url: form.logo_url.trim(),
+        theme_color: form.theme_color,
+        // profile_key is read-only — always send the existing key from the profile
+        profile_key: form.profile_key,
+      };
+
+      const success = await updateProfile.mutateAsync(saveInput);
+
+      if (!success) {
+        toast.error(
+          "Profile update was rejected by the server. Please try again.",
+        );
+        return;
+      }
+
       setSaved(true);
-      // Apply theme color live
-      if (form.theme_color && isValidHex(form.theme_color)) {
-        const oklch = hexToOklch(form.theme_color);
+
+      // Refetch both React Query cache AND ProfileContext so theme updates app-wide
+      await refetchProfile();
+
+      // Apply theme color immediately after successful save
+      if (saveInput.theme_color && isValidHex(saveInput.theme_color)) {
+        const oklch = hexToOklch(saveInput.theme_color);
         document.documentElement.style.setProperty("--primary", oklch);
       }
-      await refetchProfile();
+
       toast.success("Profile saved!", {
         description: "Your business information has been updated.",
         icon: <CheckCircle2 className="w-4 h-4 text-primary" />,
       });
-    } catch {
+    } catch (err) {
+      console.error("Profile save error:", err);
       toast.error("Failed to save profile", {
-        description: "Please try again.",
+        description: "Please check your connection and try again.",
       });
     }
   };

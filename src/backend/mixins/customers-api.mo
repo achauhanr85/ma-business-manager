@@ -1,11 +1,15 @@
 import Runtime "mo:core/Runtime";
 import Common "../types/common";
 import CustomerTypes "../types/customers";
+import SalesTypes "../types/sales";
 import CustomersLib "../lib/customers";
+import SalesLib "../lib/sales";
 import ProfileLib "../lib/profile";
 
 mixin (
   customerStore : CustomersLib.CustomerStore,
+  saleStore : SalesLib.SaleStore,
+  saleItemStore : SalesLib.SaleItemStore,
   userStore : ProfileLib.UserStore,
 ) {
   var nextCustomerId : Nat = 1;
@@ -45,5 +49,12 @@ mixin (
   public shared ({ caller }) func deleteCustomer(id : Common.CustomerId) : async Bool {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
     CustomersLib.deleteCustomer(customerStore, userStore, caller, id)
+  };
+
+  /// Returns full order history for a customer — chronological list of sales + items.
+  /// Used by the customer profile History tab.
+  public shared query ({ caller }) func getCustomerOrders(customer_id : Common.CustomerId) : async [SalesTypes.CustomerOrderDetail] {
+    if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
+    SalesLib.getCustomerOrders(saleStore, saleItemStore, userStore, caller, customer_id)
   };
 };

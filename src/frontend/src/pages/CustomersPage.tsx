@@ -20,35 +20,60 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { useProfile } from "@/contexts/ProfileContext";
 import {
   useCheckCustomerDuplicate,
   useCreateCustomer,
   useDeleteCustomer,
+  useGetCustomerOrders,
   useGetCustomers,
-  useGetSalesByCustomer,
   useUpdateCustomer,
 } from "@/hooks/useBackend";
-import type { CustomerInput, CustomerPublic, Sale } from "@/types";
+import {
+  clearStoredCustomerDiscount,
+  getStoredCustomerDiscount,
+} from "@/lib/discountStore";
+import type { CustomerPublic } from "@/types";
+import type {
+  CustomerInputExtended,
+  CustomerOrderFlat,
+  CustomerPublicWithDiscount,
+  DiscountType,
+} from "@/types";
 import { ROLES } from "@/types";
 import {
   AlertTriangle,
   ChevronDown,
   ChevronUp,
   ChevronsUpDown,
+  Clock,
+  CreditCard,
   Mail,
   MapPin,
+  MessageSquare,
+  Package,
   Pencil,
+  Percent,
   Phone,
   Plus,
   Search,
   ShoppingBag,
+  Tag,
   Trash2,
   TrendingUp,
   User,
@@ -92,19 +117,48 @@ function formatDateFull(ts: bigint): string {
   }).format(new Date(ms));
 }
 
+function DiscountBadge({
+  discount_applicable,
+  discount_value,
+}: {
+  discount_applicable?: DiscountType;
+  discount_value?: number;
+}) {
+  if (
+    !discount_applicable ||
+    discount_value === undefined ||
+    discount_value === 0
+  )
+    return null;
+  return (
+    <Badge
+      variant="outline"
+      className="text-xs border-primary/40 text-primary flex items-center gap-0.5"
+    >
+      <Tag className="w-3 h-3" />
+      {discount_applicable === "Percentage"
+        ? `${discount_value}%`
+        : `₹${discount_value}`}
+    </Badge>
+  );
+}
+
 // ─── Customer Form / Create Dialog ───────────────────────────────────────────
 
 interface CustomerDialogProps {
   open: boolean;
-  editing: CustomerPublic | null;
+  editing: CustomerPublicWithDiscount | null;
   onClose: () => void;
 }
 
-const EMPTY_FORM: CustomerInput = {
+const EMPTY_FORM: CustomerInputExtended = {
   name: "",
   phone: "",
   email: "",
   address: "",
+  discount_applicable: undefined,
+  discount_value: undefined,
+  notes: "",
 };
 
 type DuplicateState =
@@ -118,32 +172,39 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
   const updateCustomer = useUpdateCustomer();
   const checkDuplicate = useCheckCustomerDuplicate();
 
-  const [form, setForm] = useState<CustomerInput>(EMPTY_FORM);
+  const [form, setForm] = useState<CustomerInputExtended>(EMPTY_FORM);
   const [errors, setErrors] = useState<
-    Partial<Record<keyof CustomerInput, string>>
+    Partial<Record<keyof CustomerInputExtended, string>>
   >({});
   const [dupState, setDupState] = useState<DuplicateState>({ step: "idle" });
   const nameCheckedRef = useRef<string>("");
 
   useEffect(() => {
     if (open) {
-      setForm(
-        editing
-          ? {
-              name: editing.name,
-              phone: editing.phone,
-              email: editing.email,
-              address: editing.address,
-            }
-          : EMPTY_FORM,
-      );
+      if (editing) {
+        const ext = editing as CustomerPublicWithDiscount;
+        setForm({
+          name: ext.name,
+          phone: ext.phone,
+          email: ext.email,
+          address: ext.address,
+          discount_applicable: ext.discount_applicable,
+          discount_value: ext.discount_value,
+          notes: ext.notesText ?? "",
+        });
+      } else {
+        setForm(EMPTY_FORM);
+      }
       setErrors({});
       setDupState({ step: "idle" });
       nameCheckedRef.current = "";
     }
   }, [editing, open]);
 
-  function setField<K extends keyof CustomerInput>(key: K, value: string) {
+  function setField<K extends keyof CustomerInputExtended>(
+    key: K,
+    value: CustomerInputExtended[K],
+  ) {
     setForm((prev) => ({ ...prev, [key]: value }));
     if (errors[key]) setErrors((prev) => ({ ...prev, [key]: undefined }));
     if (key === "name" && dupState.step !== "idle") {
@@ -174,9 +235,15 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
   }
 
   function validate(): boolean {
-    const errs: Partial<Record<keyof CustomerInput, string>> = {};
+    const errs: Partial<Record<keyof CustomerInputExtended, string>> = {};
     if (!form.name.trim()) errs.name = "Name is required";
     if (!form.phone.trim()) errs.phone = "Phone is required";
+    if (
+      form.discount_applicable &&
+      (form.discount_value === undefined || form.discount_value < 0)
+    ) {
+      errs.discount_value = "Enter a valid discount value";
+    }
     setErrors(errs);
     return Object.keys(errs).length === 0;
   }
@@ -184,18 +251,32 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!validate()) return;
-    const input: CustomerInput = {
+    // Include discount fields in the input — backend CustomerInput now accepts them.
+    // Map frontend DiscountType string values to the backend DiscountType enum values.
+    // DRY-RUN: Discount/Order Edit Collision — discount stored on customer record;
+    // when a sale is created the discount is fetched and applied to the subtotal.
+    const customerInput = {
       name: form.name.trim(),
       phone: form.phone.trim(),
       email: form.email.trim(),
       address: form.address.trim(),
+      ...(form.discount_applicable !== undefined && {
+        discount_applicable: form.discount_applicable,
+      }),
+      ...(form.discount_value !== undefined && {
+        discount_value: form.discount_value,
+      }),
+      ...(form.notes && { note: form.notes }),
     };
     try {
       if (editing) {
-        await updateCustomer.mutateAsync({ id: editing.id, input });
+        await updateCustomer.mutateAsync({
+          id: editing.id,
+          input: customerInput,
+        });
         toast.success("Customer updated successfully");
       } else {
-        await createCustomer.mutateAsync(input);
+        await createCustomer.mutateAsync(customerInput);
         toast.success("Customer added successfully");
       }
       onClose();
@@ -208,6 +289,7 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
 
   const loading = createCustomer.isPending || updateCustomer.isPending;
   const showForm = dupState.step !== "found";
+  const showDiscountValue = !!form.discount_applicable;
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -333,6 +415,99 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
                 />
               </div>
 
+              {/* Discount section */}
+              <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Percent className="w-3.5 h-3.5" /> Default Discount
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="cust-discount-type" className="text-xs">
+                      Discount Type
+                    </Label>
+                    <Select
+                      value={form.discount_applicable ?? "none"}
+                      onValueChange={(v) =>
+                        setField(
+                          "discount_applicable",
+                          v === "none" ? undefined : (v as DiscountType),
+                        )
+                      }
+                    >
+                      <SelectTrigger
+                        id="cust-discount-type"
+                        className="h-8 text-xs"
+                        data-ocid="customer.discount_type.select"
+                      >
+                        <SelectValue placeholder="None" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        <SelectItem value="Percentage">
+                          Percentage (%)
+                        </SelectItem>
+                        <SelectItem value="Fixed">Fixed Amount (₹)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {showDiscountValue && (
+                    <div className="space-y-1.5">
+                      <Label htmlFor="cust-discount-value" className="text-xs">
+                        {form.discount_applicable === "Percentage"
+                          ? "Percentage (%)"
+                          : "Amount (₹)"}
+                      </Label>
+                      <Input
+                        id="cust-discount-value"
+                        type="number"
+                        min={0}
+                        max={
+                          form.discount_applicable === "Percentage"
+                            ? 100
+                            : undefined
+                        }
+                        step={0.01}
+                        className="h-8 text-xs"
+                        value={form.discount_value ?? ""}
+                        onChange={(e) => {
+                          const v = Number.parseFloat(e.target.value);
+                          setField(
+                            "discount_value",
+                            Number.isNaN(v) ? undefined : v,
+                          );
+                        }}
+                        placeholder={
+                          form.discount_applicable === "Percentage"
+                            ? "10"
+                            : "50"
+                        }
+                        data-ocid="customer.discount_value.input"
+                      />
+                      {errors.discount_value && (
+                        <p className="text-xs text-destructive">
+                          {errors.discount_value}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Notes */}
+              <div className="space-y-1.5">
+                <Label htmlFor="cust-notes">Notes</Label>
+                <Textarea
+                  id="cust-notes"
+                  data-ocid="customer.notes.textarea"
+                  value={form.notes ?? ""}
+                  onChange={(e) => setField("notes", e.target.value)}
+                  placeholder="Interaction notes, preferences, etc."
+                  rows={2}
+                  className="text-sm resize-none"
+                />
+              </div>
+
               <DialogFooter className="gap-2">
                 <Button
                   type="button"
@@ -358,68 +533,179 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
   );
 }
 
-// ─── Sales History ────────────────────────────────────────────────────────────
+// ─── Customer Order History (rich) ───────────────────────────────────────────
 
-function SalesHistory({ customerId }: { customerId: bigint }) {
-  const { data: sales = [], isLoading } = useGetSalesByCustomer(customerId);
+const PAYMENT_STATUS_COLORS: Record<string, string> = {
+  paid: "bg-primary/10 text-primary border-primary/30",
+  unpaid: "bg-destructive/10 text-destructive border-destructive/30",
+  partial: "bg-accent/20 text-accent-foreground border-accent/40",
+};
+
+const PAYMENT_MODE_LABELS: Record<string, string> = {
+  cash: "Cash",
+  card: "Card",
+  upi: "UPI",
+  bank_transfer: "Bank Transfer",
+  other: "Other",
+};
+
+function CustomerOrderHistory({ customer }: { customer: CustomerPublic }) {
+  const { data: orders = [], isLoading } = useGetCustomerOrders(customer.id);
+
+  const lifetimeRevenue = orders.reduce((sum, o) => sum + o.total_revenue, 0);
+  const lastPurchase =
+    orders.length > 0
+      ? orders.reduce(
+          (latest, o) =>
+            Number(o.timestamp) > Number(latest) ? o.timestamp : latest,
+          BigInt(0),
+        )
+      : null;
 
   if (isLoading) {
     return (
-      <div className="space-y-2" data-ocid="customer.sales.loading_state">
+      <div className="space-y-3 py-2" data-ocid="customer.orders.loading_state">
+        <div className="grid grid-cols-3 gap-2">
+          {[1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-16 rounded-lg" />
+          ))}
+        </div>
         {[1, 2, 3].map((i) => (
-          <div key={i} className="rounded-lg border border-border p-3">
-            <Skeleton className="h-4 w-32 mb-1.5" />
-            <Skeleton className="h-3 w-24" />
-          </div>
+          <Skeleton key={i} className="h-24 rounded-lg" />
         ))}
       </div>
     );
   }
 
-  if (sales.length === 0) {
+  if (orders.length === 0) {
     return (
       <div
-        className="flex flex-col items-center gap-2 py-8 text-muted-foreground"
-        data-ocid="customer.sales.empty_state"
+        className="flex flex-col items-center gap-3 py-8 text-muted-foreground"
+        data-ocid="customer.orders.empty_state"
       >
-        <ShoppingBag className="w-8 h-8 opacity-30" />
-        <p className="text-sm font-medium">No purchases yet</p>
-        <p className="text-xs">This customer hasn't made any purchases.</p>
+        <ShoppingBag className="w-10 h-10 opacity-30" />
+        <div className="text-center">
+          <p className="text-sm font-medium text-foreground">
+            No purchase history
+          </p>
+          <p className="text-xs mt-0.5">Orders will appear here once placed</p>
+        </div>
       </div>
     );
   }
 
-  const sorted = [...sales].sort(
-    (a: Sale, b: Sale) => Number(b.timestamp) - Number(a.timestamp),
-  );
-
   return (
-    <div className="space-y-2">
-      {sorted.map((sale: Sale, idx: number) => (
-        <div
-          key={sale.id.toString()}
-          className="rounded-lg border border-border bg-card p-3 stagger-item"
-          style={{ animationDelay: `${idx * 0.06}s` }}
-          data-ocid={`customer.sale.item.${idx + 1}`}
-        >
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <p className="text-sm font-medium">Sale #{sale.id.toString()}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {formatDateFull(sale.timestamp)}
-              </p>
-            </div>
-            <div className="text-right shrink-0">
-              <p className="text-sm font-semibold text-primary">
-                {formatCurrency(sale.total_revenue)}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {sale.total_volume_points} VP
-              </p>
-            </div>
-          </div>
+    <div className="space-y-4">
+      {/* Revenue summary strip */}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="rounded-lg bg-muted/40 p-2.5">
+          <p className="text-xs text-muted-foreground mb-0.5">Total Orders</p>
+          <p className="text-lg font-semibold tabular-nums">{orders.length}</p>
         </div>
-      ))}
+        <div className="rounded-lg bg-primary/5 p-2.5">
+          <p className="text-xs text-muted-foreground mb-0.5">Revenue</p>
+          <p className="text-sm font-semibold text-primary tabular-nums truncate">
+            {formatCurrency(lifetimeRevenue)}
+          </p>
+        </div>
+        <div className="rounded-lg bg-muted/40 p-2.5">
+          <p className="text-xs text-muted-foreground mb-0.5">Last Purchase</p>
+          <p className="text-xs font-medium">
+            {lastPurchase ? formatDate(lastPurchase) : "—"}
+          </p>
+        </div>
+      </div>
+
+      {/* Chronological order list */}
+      <div className="space-y-3">
+        {[...orders]
+          .sort(
+            (a: CustomerOrderFlat, b: CustomerOrderFlat) =>
+              Number(b.timestamp) - Number(a.timestamp),
+          )
+          .map((order: CustomerOrderFlat, idx: number) => {
+            const paymentStatus = order.payment_status ?? "paid";
+            const paymentMode = order.payment_mode;
+            return (
+              <div
+                key={order.sale_id.toString()}
+                className="rounded-lg border border-border bg-card p-3 stagger-item space-y-2"
+                style={{ animationDelay: `${idx * 0.06}s` }}
+                data-ocid={`customer.orders.item.${idx + 1}`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-semibold">
+                        Order #{order.sale_id.toString()}
+                      </p>
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full border font-medium ${PAYMENT_STATUS_COLORS[paymentStatus] ?? PAYMENT_STATUS_COLORS.paid}`}
+                      >
+                        {paymentStatus.charAt(0).toUpperCase() +
+                          paymentStatus.slice(1)}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {formatDateFull(order.timestamp)}
+                    </p>
+                    {paymentMode && (
+                      <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                        <CreditCard className="w-3 h-3" />{" "}
+                        {PAYMENT_MODE_LABELS[paymentMode] ?? paymentMode}
+                      </p>
+                    )}
+                  </div>
+                  <div className="text-right shrink-0 space-y-0.5">
+                    <p className="text-sm font-semibold text-primary">
+                      {formatCurrency(order.total_revenue)}
+                    </p>
+                    {(order.discount_applied ?? 0) > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        -{formatCurrency(order.discount_applied ?? 0)} disc.
+                      </p>
+                    )}
+                    {(order.balance_due ?? 0) > 0 && (
+                      <p className="text-xs text-destructive">
+                        Due: {formatCurrency(order.balance_due ?? 0)}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                {order.items && order.items.length > 0 && (
+                  <div className="border-t border-border pt-2 space-y-1">
+                    {order.items.slice(0, 3).map((item, iIdx) => (
+                      <div
+                        key={iIdx.toString()}
+                        className="flex items-center justify-between gap-2 text-xs"
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <Package className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                          <span className="truncate text-foreground">
+                            {item.product_name}
+                          </span>
+                          <span className="text-muted-foreground flex-shrink-0">
+                            ×{Number(item.quantity)}
+                          </span>
+                        </div>
+                        <span className="text-muted-foreground flex-shrink-0">
+                          {formatCurrency(
+                            item.actual_sale_price * Number(item.quantity),
+                          )}
+                        </span>
+                      </div>
+                    ))}
+                    {order.items.length > 3 && (
+                      <p className="text-xs text-muted-foreground">
+                        +{order.items.length - 3} more items
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+      </div>
     </div>
   );
 }
@@ -427,9 +713,9 @@ function SalesHistory({ customerId }: { customerId: bigint }) {
 // ─── Customer Detail Sheet ────────────────────────────────────────────────────
 
 interface CustomerDetailSheetProps {
-  customer: CustomerPublic | null;
+  customer: CustomerPublicWithDiscount | null;
   onClose: () => void;
-  onEdit: (c: CustomerPublic) => void;
+  onEdit: (c: CustomerPublicWithDiscount) => void;
   canEdit: boolean;
 }
 
@@ -439,6 +725,8 @@ function CustomerDetailSheet({
   onEdit,
   canEdit,
 }: CustomerDetailSheetProps) {
+  const [activeTab, setActiveTab] = useState("info");
+
   return (
     <Sheet open={!!customer} onOpenChange={(o) => !o && onClose()}>
       <SheetContent
@@ -496,32 +784,102 @@ function CustomerDetailSheet({
               </div>
             </div>
 
-            {/* Contact info */}
-            <div className="py-4 space-y-2.5 border-b border-border">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Contact
-              </h3>
-              <div className="flex items-center gap-2.5 text-sm">
-                <Phone className="w-4 h-4 text-muted-foreground shrink-0" />
-                <span>{customer.phone || "—"}</span>
-              </div>
-              <div className="flex items-center gap-2.5 text-sm">
-                <Mail className="w-4 h-4 text-muted-foreground shrink-0" />
-                <span className="break-all">{customer.email || "—"}</span>
-              </div>
-              <div className="flex items-start gap-2.5 text-sm">
-                <MapPin className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
-                <span>{customer.address || "—"}</span>
-              </div>
-            </div>
+            {/* Tabs */}
+            <Tabs
+              value={activeTab}
+              onValueChange={setActiveTab}
+              className="mt-4"
+            >
+              <TabsList className="w-full">
+                <TabsTrigger
+                  value="info"
+                  className="flex-1 text-xs"
+                  data-ocid="customer.detail.info_tab"
+                >
+                  <User className="w-3.5 h-3.5 mr-1.5" /> Info
+                </TabsTrigger>
+                <TabsTrigger
+                  value="history"
+                  className="flex-1 text-xs"
+                  data-ocid="customer.detail.history_tab"
+                >
+                  <Clock className="w-3.5 h-3.5 mr-1.5" /> History
+                </TabsTrigger>
+                <TabsTrigger
+                  value="notes"
+                  className="flex-1 text-xs"
+                  data-ocid="customer.detail.notes_tab"
+                >
+                  <MessageSquare className="w-3.5 h-3.5 mr-1.5" /> Notes
+                </TabsTrigger>
+              </TabsList>
 
-            {/* Sales history */}
-            <div className="py-4 space-y-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Purchase History
-              </h3>
-              <SalesHistory customerId={customer.id} />
-            </div>
+              {/* Info tab */}
+              <TabsContent value="info" className="pt-4 space-y-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Contact
+                </h3>
+                <div className="flex items-center gap-2.5 text-sm">
+                  <Phone className="w-4 h-4 text-muted-foreground shrink-0" />
+                  <span>{customer.phone || "—"}</span>
+                </div>
+                <div className="flex items-center gap-2.5 text-sm">
+                  <Mail className="w-4 h-4 text-muted-foreground shrink-0" />
+                  <span className="break-all">{customer.email || "—"}</span>
+                </div>
+                <div className="flex items-start gap-2.5 text-sm">
+                  <MapPin className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
+                  <span>{customer.address || "—"}</span>
+                </div>
+                {customer.discount_applicable &&
+                  customer.discount_value !== undefined &&
+                  customer.discount_value > 0 && (
+                    <div className="pt-2 border-t border-border">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                        Default Discount
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <div className="rounded-lg bg-primary/5 border border-primary/20 px-3 py-2 flex items-center gap-2">
+                          <Percent className="w-4 h-4 text-primary" />
+                          <span className="text-sm font-semibold text-primary">
+                            {customer.discount_applicable === "Percentage"
+                              ? `${customer.discount_value}% off`
+                              : `₹${customer.discount_value} off`}
+                          </span>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          Applied automatically on sales
+                        </span>
+                      </div>
+                    </div>
+                  )}
+              </TabsContent>
+
+              {/* History tab */}
+              <TabsContent value="history" className="pt-4">
+                <CustomerOrderHistory customer={customer} />
+              </TabsContent>
+
+              {/* Notes tab */}
+              <TabsContent value="notes" className="pt-4 space-y-3">
+                {customer.notesText && (
+                  <div
+                    className="rounded-lg bg-muted/30 border border-border px-3 py-2 text-sm text-foreground whitespace-pre-wrap"
+                    data-ocid="customer.notes.item.1"
+                  >
+                    {customer.notesText}
+                  </div>
+                )}
+                {!customer.notesText && (
+                  <p
+                    className="text-xs text-muted-foreground italic"
+                    data-ocid="customer.notes.empty_state"
+                  >
+                    No notes yet.
+                  </p>
+                )}
+              </TabsContent>
+            </Tabs>
           </>
         )}
       </SheetContent>
@@ -555,13 +913,13 @@ function SortIcon({
 // ─── Customer List ────────────────────────────────────────────────────────────
 
 interface CustomerListProps {
-  customers: CustomerPublic[];
+  customers: CustomerPublicWithDiscount[];
   isLoading: boolean;
   canEdit: boolean;
   canDelete: boolean;
-  onViewDetail: (c: CustomerPublic) => void;
-  onEdit: (c: CustomerPublic) => void;
-  onDelete: (c: CustomerPublic) => void;
+  onViewDetail: (c: CustomerPublicWithDiscount) => void;
+  onEdit: (c: CustomerPublicWithDiscount) => void;
+  onDelete: (c: CustomerPublicWithDiscount) => void;
 }
 
 function CustomerList({
@@ -610,6 +968,7 @@ function CustomerList({
                 {[
                   "Customer",
                   "Contact",
+                  "Discount",
                   "Sales",
                   "Revenue",
                   "Last Purchase",
@@ -674,7 +1033,7 @@ function CustomerList({
     <div className="rounded-lg border border-border overflow-hidden">
       <div className="overflow-x-auto">
         <table
-          className="w-full text-sm min-w-[640px]"
+          className="w-full text-sm min-w-[680px]"
           data-ocid="customers.table"
         >
           <thead>
@@ -691,6 +1050,9 @@ function CustomerList({
               </th>
               <th className={`${thCls} text-left hidden md:table-cell`}>
                 Contact
+              </th>
+              <th className={`${thCls} text-left hidden sm:table-cell`}>
+                Discount
               </th>
               <th className={`${thCls} text-right`}>
                 <button
@@ -768,6 +1130,15 @@ function CustomerList({
                 <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">
                   {customer.phone || "—"}
                 </td>
+                <td className="px-4 py-3 hidden sm:table-cell">
+                  <DiscountBadge
+                    discount_applicable={customer.discount_applicable}
+                    discount_value={customer.discount_value}
+                  />
+                  {!customer.discount_applicable && (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-right tabular-nums">
                   <Badge variant="secondary" className="text-xs">
                     {customer.total_sales.toString()}
@@ -824,16 +1195,26 @@ function CustomerList({
 
 export function CustomersPage({ onNavigate: _onNavigate }: CustomersPageProps) {
   const { userProfile } = useProfile();
-  const { data: customers = [], isLoading } = useGetCustomers();
+  const { data: rawCustomers = [], isLoading } = useGetCustomers();
   const deleteCustomer = useDeleteCustomer();
+
+  // discount_applicable and discount_value come directly from backend CustomerPublic
+  const customers: CustomerPublicWithDiscount[] = rawCustomers.map((c) => {
+    // Merge locally stored notes with backend notes array for backward compatibility
+    const stored = getStoredCustomerDiscount(c.id.toString());
+    const notesText = c.notes.length > 0 ? c.notes[0] : stored.notes;
+    return { ...c, notesText };
+  });
 
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editing, setEditing] = useState<CustomerPublic | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<CustomerPublic | null>(null);
-  const [detailCustomer, setDetailCustomer] = useState<CustomerPublic | null>(
+  const [editing, setEditing] = useState<CustomerPublicWithDiscount | null>(
     null,
   );
+  const [deleteTarget, setDeleteTarget] =
+    useState<CustomerPublicWithDiscount | null>(null);
+  const [detailCustomer, setDetailCustomer] =
+    useState<CustomerPublicWithDiscount | null>(null);
 
   const role = userProfile?.role as string | undefined;
   const isSubAdmin = role === ROLES.SUB_ADMIN;
@@ -851,7 +1232,7 @@ export function CustomersPage({ onNavigate: _onNavigate }: CustomersPageProps) {
     setDialogOpen(true);
   }
 
-  function openEdit(c: CustomerPublic) {
+  function openEdit(c: CustomerPublicWithDiscount) {
     setEditing(c);
     setDetailCustomer(null);
     setDialogOpen(true);
@@ -861,6 +1242,7 @@ export function CustomersPage({ onNavigate: _onNavigate }: CustomersPageProps) {
     if (!deleteTarget) return;
     try {
       await deleteCustomer.mutateAsync(deleteTarget.id);
+      clearStoredCustomerDiscount(deleteTarget.id.toString());
       toast.success(`"${deleteTarget.name}" deleted`);
     } catch {
       toast.error("Failed to delete customer");

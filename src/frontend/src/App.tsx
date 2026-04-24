@@ -1,3 +1,4 @@
+import { UserRole } from "@/backend";
 import { Layout } from "@/components/Layout";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ProfileProvider, useProfile } from "@/contexts/ProfileContext";
@@ -15,6 +16,7 @@ import { PurchaseOrdersPage } from "@/pages/PurchaseOrdersPage";
 import { ReceiptPage } from "@/pages/ReceiptPage";
 import { SalesPage } from "@/pages/SalesPage";
 import { SuperAdminPage } from "@/pages/SuperAdminPage";
+import { SuperAdminSetupPage } from "@/pages/SuperAdminSetupPage";
 import { useState } from "react";
 
 type AppPath =
@@ -97,12 +99,112 @@ function AppContent() {
   );
 }
 
-function AuthenticatedApp() {
-  const { userProfile, isLoadingProfile } = useProfile();
+function SuperAdminApp() {
+  // Super Admin bypasses all onboarding/profile requirements.
+  // They land directly on the Super Admin dashboard.
+  return (
+    <Layout
+      currentPath="/super-admin"
+      pageTitle="Super Admin"
+      onNavigate={() => {}}
+    >
+      <SuperAdminPage onNavigate={() => {}} />
+    </Layout>
+  );
+}
 
-  if (isLoadingProfile) return <AppLoader />;
+function AuthenticatedApp() {
+  const {
+    userProfile,
+    isLoadingProfile,
+    hasFetchedProfile,
+    isProfileDisabled,
+  } = useProfile();
+  // superAdminSetupDone tracks whether the first-run setup page has been
+  // completed this session. It persists until the user refreshes.
+  const [superAdminSetupDone, setSuperAdminSetupDone] = useState(false);
+
+  // ── Step 1: Wait for profile to load ────────────────────────────────────────
+  // Show loader while the actor is initialising OR while the fetch is in-flight.
+  // We also keep the loader until we have at least one confirmed fetch result so
+  // we never accidentally render the setup page due to a transient null state.
+  if (isLoadingProfile || !hasFetchedProfile) return <AppLoader />;
+
+  // ── Step 2: Super Admin shortcut ─────────────────────────────────────────────
+  // If the user already has a Super Admin role, send them directly to the
+  // Super Admin dashboard — skip onboarding and setup entirely.
+  // This check MUST come before any onboarding/setup screen checks.
+  if (userProfile?.role === UserRole.superAdmin) {
+    return <SuperAdminApp />;
+  }
+
+  // ── Step 3: Profile disabled gate ────────────────────────────────────────────
+  if (isProfileDisabled) {
+    return <ProfileDisabledPage />;
+  }
+
+  // ── Step 4: First-run Super Admin setup ──────────────────────────────────────
+  // Only show the setup screen if:
+  // - We have confirmed (hasFetchedProfile = true) that the user truly has no profile
+  // - The setup hasn't been completed in this session
+  // hasFetchedProfile ensures we never show this page due to a loading race.
+  if (!userProfile && !superAdminSetupDone) {
+    return (
+      <SuperAdminSetupPage onComplete={() => setSuperAdminSetupDone(true)} />
+    );
+  }
+
+  // ── Step 5: Business profile onboarding ──────────────────────────────────────
   if (!userProfile) return <OnboardingPage />;
+
+  // ── Step 6: Main application ─────────────────────────────────────────────────
   return <AppContent />;
+}
+
+function ProfileDisabledPage() {
+  return (
+    <div
+      className="min-h-screen bg-background flex flex-col items-center justify-center px-4"
+      data-ocid="profile_disabled.page"
+    >
+      <div className="w-full max-w-sm text-center space-y-6">
+        <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-destructive/10 border border-destructive/20 mb-2">
+          <span className="text-3xl">🔒</span>
+        </div>
+        <div className="space-y-2">
+          <h1 className="text-xl font-display font-bold text-foreground">
+            Account Restricted
+          </h1>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            Your business profile has been disabled or its active window has
+            expired. Please contact your Super Administrator to reactivate your
+            account.
+          </p>
+        </div>
+        <div className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-left space-y-1">
+          <p className="text-xs font-semibold text-foreground">
+            What you can do:
+          </p>
+          <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
+            <li>Contact your Super Admin to re-enable the profile</li>
+            <li>Ask them to extend the active window dates</li>
+            <li>Reach out via the contact details they provided</li>
+          </ul>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          © {new Date().getFullYear()}. Built with love using{" "}
+          <a
+            href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline"
+          >
+            caffeine.ai
+          </a>
+        </p>
+      </div>
+    </div>
+  );
 }
 
 function AppLoader() {

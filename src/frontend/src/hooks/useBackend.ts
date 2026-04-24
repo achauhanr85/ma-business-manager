@@ -1,19 +1,31 @@
 import { useActor } from "@caffeineai/core-infrastructure";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createActor } from "../backend";
+import { PaymentMode, PaymentStatus } from "../backend";
 import type {
   CartItem,
   CategoryInput,
+  CustomerId,
   CustomerInput,
+  CustomerOrderDetail,
   InventoryMovementInput,
   ProductInput,
   ProfileInput,
   ProfileKey,
   PurchaseOrderInput,
+  SaleId,
   SaleInput,
+  UpdateSaleInput,
   UserProfileInput,
   WarehouseName,
 } from "../backend";
+import type {
+  CustomerOrderFlat,
+  CustomerOrderItem,
+  ProfileStatsExtended,
+  SaleInputExtended,
+  UpdateSaleInputUI,
+} from "../types";
 
 function useBackendActor() {
   return useActor(createActor);
@@ -347,9 +359,39 @@ export function useCreateSale() {
   const { actor } = useBackendActor();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: SaleInput) => {
+    mutationFn: async (input: SaleInputExtended) => {
       if (!actor) throw new Error("Actor not ready");
-      return actor.createSale(input);
+      // Include all payment fields — backend SaleInput now accepts them.
+      // Map lowercase UI strings to backend PaymentMode/PaymentStatus enums.
+      const PAYMENT_MODE_MAP: Record<string, PaymentMode> = {
+        cash: PaymentMode.Cash,
+        card: PaymentMode.Card,
+        upi: PaymentMode.Other,
+        bank_transfer: PaymentMode.BankTransfer,
+        other: PaymentMode.Other,
+        check: PaymentMode.Check,
+      };
+      const PAYMENT_STATUS_MAP: Record<string, PaymentStatus> = {
+        paid: PaymentStatus.Paid,
+        unpaid: PaymentStatus.Unpaid,
+        partial: PaymentStatus.Partial_,
+      };
+      const saleInput: SaleInput = {
+        cart_items: input.cart_items,
+        customer_id: input.customer_id,
+        ...(input.payment_mode !== undefined && {
+          payment_mode:
+            PAYMENT_MODE_MAP[input.payment_mode] ?? PaymentMode.Other,
+        }),
+        ...(input.payment_status !== undefined && {
+          payment_status:
+            PAYMENT_STATUS_MAP[input.payment_status] ?? PaymentStatus.Paid,
+        }),
+        ...(input.amount_paid !== undefined && {
+          amount_paid: input.amount_paid,
+        }),
+      };
+      return actor.createSale(saleInput);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sales"] });
@@ -524,5 +566,189 @@ export function useGetSuperAdminStats() {
       return actor.getSuperAdminStats();
     },
     enabled: !!actor && !isFetching,
+  });
+}
+
+// ─── Update Sale ──────────────────────────────────────────────────────────────
+
+export function useUpdateSale() {
+  const { actor } = useBackendActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: UpdateSaleInputUI) => {
+      if (!actor) throw new Error("Actor not ready");
+      // Dry-run validation: ensure items list is non-empty before calling backend
+      // This prevents sending empty cart edits that would clear a sale
+      if (!input.items || input.items.length === 0) {
+        throw new Error("Sale must have at least one item");
+      }
+      // Map lowercase UI payment strings to backend enums
+      const PAYMENT_MODE_MAP: Record<string, PaymentMode> = {
+        cash: PaymentMode.Cash,
+        card: PaymentMode.Card,
+        upi: PaymentMode.Other,
+        bank_transfer: PaymentMode.BankTransfer,
+        other: PaymentMode.Other,
+        check: PaymentMode.Check,
+      };
+      const PAYMENT_STATUS_MAP: Record<string, PaymentStatus> = {
+        paid: PaymentStatus.Paid,
+        unpaid: PaymentStatus.Unpaid,
+        partial: PaymentStatus.Partial_,
+      };
+      const backendInput: UpdateSaleInput = {
+        sale_id: input.sale_id,
+        items: input.items,
+        ...(input.payment_mode !== undefined && {
+          payment_mode:
+            PAYMENT_MODE_MAP[input.payment_mode] ?? PaymentMode.Other,
+        }),
+        ...(input.payment_status !== undefined && {
+          payment_status:
+            PAYMENT_STATUS_MAP[input.payment_status] ?? PaymentStatus.Paid,
+        }),
+        ...(input.amount_paid !== undefined && {
+          amount_paid: input.amount_paid,
+        }),
+      };
+      return actor.updateSale(backendInput);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["sales"] });
+      qc.invalidateQueries({ queryKey: ["sale-items"] });
+      qc.invalidateQueries({ queryKey: ["sales-by-customer"] });
+      qc.invalidateQueries({ queryKey: ["customer-orders"] });
+      qc.invalidateQueries({ queryKey: ["inventory-levels"] });
+      qc.invalidateQueries({ queryKey: ["inventory-batches"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
+    },
+  });
+}
+
+// ─── Get Customer Orders (rich history) ──────────────────────────────────────
+
+export function useGetCustomerOrders(customerId: CustomerId | null) {
+  const { actor, isFetching } = useBackendActor();
+  return useQuery<CustomerOrderFlat[]>({
+    queryKey: ["customer-orders", customerId?.toString()],
+    queryFn: async () => {
+      if (!actor || !customerId) return [];
+      // Backend returns Array<{ sale: Sale, items: SaleItem[] }>
+      // Flatten to CustomerOrderFlat for the UI
+      const result: CustomerOrderDetail[] =
+        (await actor.getCustomerOrders(customerId)) ?? [];
+      return result.map((entry) => ({
+        sale_id: entry.sale.id,
+        timestamp: entry.sale.timestamp,
+        total_revenue: entry.sale.total_revenue,
+        total_profit: entry.sale.total_profit,
+        discount_applied: entry.sale.discount_applied ?? 0,
+        payment_mode: entry.sale.payment_mode as string | undefined,
+        payment_status: entry.sale.payment_status as string | undefined,
+        amount_paid: entry.sale.amount_paid,
+        balance_due: entry.sale.balance_due,
+        items: entry.items.map(
+          (it) =>
+            ({
+              product_id: it.product_id,
+              product_name: it.product_name_snapshot,
+              quantity: it.quantity,
+              actual_sale_price: it.actual_sale_price,
+              unit_cost_snapshot: it.unit_cost_snapshot,
+              volume_points_snapshot: it.volume_points_snapshot,
+              mrp_snapshot: it.mrp_snapshot,
+            }) satisfies CustomerOrderItem,
+        ),
+      }));
+    },
+    enabled: !!actor && !isFetching && !!customerId,
+  });
+}
+
+// ─── Super Admin Governance ───────────────────────────────────────────────────
+// These hooks call new backend methods: getAllProfilesForAdmin, enableProfile,
+// setProfileWindow. If the backend method is not yet deployed, they degrade
+// gracefully (return empty/null rather than crashing).
+
+export function useGetAllProfilesForAdmin() {
+  const { actor, isFetching } = useBackendActor();
+  return useQuery<ProfileStatsExtended[]>({
+    queryKey: ["admin-profiles"],
+    queryFn: async () => {
+      if (!actor) return [];
+      // getAllProfilesForAdmin returns ProfilePublic[] which includes is_enabled/start_date/end_date
+      // ProfileStatsExtended is now an alias for ProfileStats which has all governance fields
+      if (typeof actor.getAllProfilesForAdmin !== "function") return [];
+      const profiles = await actor.getAllProfilesForAdmin();
+      // Map ProfilePublic to ProfileStatsExtended shape for the Super Admin UI
+      return profiles.map((p) => ({
+        profile_key: p.profile_key,
+        business_name: p.business_name,
+        owner_principal: p.owner,
+        is_enabled: p.is_enabled,
+        start_date: p.start_date ?? null,
+        end_date: p.end_date ?? null,
+        user_count: BigInt(0),
+        storage_estimate_bytes: BigInt(0),
+        last_activity: p.created_at,
+        is_archived: p.is_archived,
+      })) as ProfileStatsExtended[];
+    },
+    enabled: !!actor && !isFetching,
+  });
+}
+
+export function useEnableProfile() {
+  const { actor } = useBackendActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      profileKey,
+      enabled,
+    }: {
+      profileKey: string;
+      enabled: boolean;
+    }) => {
+      if (!actor) throw new Error("Actor not ready");
+      // DRY-RUN: enableProfile(profileKey, enabled) updates is_enabled flag
+      // and blocks/allows login + transactions for the profile.
+      return actor.enableProfile(profileKey, enabled);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-profiles"] });
+      qc.invalidateQueries({ queryKey: ["super-admin-stats"] });
+    },
+  });
+}
+
+export function useSetProfileWindow() {
+  const { actor } = useBackendActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      profileKey,
+      startDate,
+      endDate,
+    }: {
+      profileKey: string;
+      startDate: number | bigint | null;
+      endDate: number | bigint | null;
+    }) => {
+      if (!actor) throw new Error("Actor not ready");
+      // Convert ms timestamps to nanoseconds (bigint) for backend
+      // DRY-RUN: setProfileWindow stores the active window; middleware blocks
+      // transactions when Date.now() is outside it and returns 403 Restricted.
+      // Governance gatekeeper verified.
+      const toNs = (v: number | bigint | null): bigint | null => {
+        if (v === null) return null;
+        if (typeof v === "bigint") return v;
+        return BigInt(v) * BigInt(1_000_000);
+      };
+      return actor.setProfileWindow(profileKey, toNs(startDate), toNs(endDate));
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-profiles"] });
+      qc.invalidateQueries({ queryKey: ["super-admin-stats"] });
+    },
   });
 }

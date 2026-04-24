@@ -18,16 +18,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  useCreateCategory,
+  useCreateProduct,
   useCreatePurchaseOrder,
+  useGetCategories,
   useGetProducts,
   useGetPurchaseOrders,
   useMarkPurchaseOrderReceived,
 } from "@/hooks/useBackend";
-import type { PurchaseOrder, PurchaseOrderItemInput } from "@/types";
+import type { Category, PurchaseOrder, PurchaseOrderItemInput } from "@/types";
 import { POStatus } from "@/types";
 import { useActor } from "@caffeineai/core-infrastructure";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronDown,
   ChevronUp,
@@ -230,6 +234,378 @@ function PORow({ po, index, onMarkReceived, isReceiving }: PORowProps) {
   );
 }
 
+// ── Quick Create Product/Category Dialog ─────────────────────────────────────
+
+interface QuickCreateDialogProps {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  categories: Category[];
+  onProductCreated: (productId: string) => void;
+}
+
+function QuickCreateDialog({
+  open,
+  onOpenChange,
+  categories,
+  onProductCreated,
+}: QuickCreateDialogProps) {
+  const qc = useQueryClient();
+  const createCategory = useCreateCategory();
+  const createProduct = useCreateProduct();
+
+  const [activeTab, setActiveTab] = useState<"product" | "category">("product");
+
+  // Category form
+  const [catName, setCatName] = useState("");
+  const [catDesc, setCatDesc] = useState("");
+  const [catErrors, setCatErrors] = useState<Record<string, string>>({});
+
+  // Product form
+  const [prodForm, setProdForm] = useState({
+    sku: "",
+    name: "",
+    category_id: "",
+    volume_points: "",
+    earn_base: "",
+    mrp: "",
+    hsn_code: "",
+  });
+  const [prodErrors, setProdErrors] = useState<Record<string, string>>({});
+
+  const setField = (field: keyof typeof prodForm, value: string) =>
+    setProdForm((f) => ({ ...f, [field]: value }));
+
+  const resetForms = () => {
+    setCatName("");
+    setCatDesc("");
+    setCatErrors({});
+    setProdForm({
+      sku: "",
+      name: "",
+      category_id: "",
+      volume_points: "",
+      earn_base: "",
+      mrp: "",
+      hsn_code: "",
+    });
+    setProdErrors({});
+  };
+
+  const handleOpenChange = (v: boolean) => {
+    if (!v) resetForms();
+    onOpenChange(v);
+  };
+
+  const handleCreateCategory = async () => {
+    const errs: Record<string, string> = {};
+    if (!catName.trim()) errs.name = "Category name is required";
+    setCatErrors(errs);
+    if (Object.keys(errs).length > 0) return;
+
+    try {
+      await createCategory.mutateAsync({
+        name: catName.trim(),
+        description: catDesc.trim(),
+      });
+      await qc.invalidateQueries({ queryKey: ["categories"] });
+      toast.success(`Category "${catName}" created`);
+      setCatName("");
+      setCatDesc("");
+      // Switch to product tab so they can select the new category
+      setActiveTab("product");
+    } catch {
+      toast.error("Failed to create category");
+    }
+  };
+
+  const handleCreateProduct = async () => {
+    const errs: Record<string, string> = {};
+    if (!prodForm.sku.trim()) errs.sku = "SKU is required";
+    if (!prodForm.name.trim()) errs.name = "Product name is required";
+    if (!prodForm.category_id) errs.category_id = "Category is required";
+    if (!prodForm.mrp || Number(prodForm.mrp) <= 0)
+      errs.mrp = "MRP is required";
+    setProdErrors(errs);
+    if (Object.keys(errs).length > 0) return;
+
+    try {
+      const newId = await createProduct.mutateAsync({
+        sku: prodForm.sku.trim(),
+        name: prodForm.name.trim(),
+        category_id: BigInt(prodForm.category_id),
+        volume_points: Number(prodForm.volume_points) || 0,
+        earn_base: Number(prodForm.earn_base) || 0,
+        mrp: Number(prodForm.mrp),
+        hsn_code: prodForm.hsn_code.trim(),
+      });
+
+      if (newId == null) {
+        toast.error("SKU already exists. Use a different SKU.");
+        return;
+      }
+
+      toast.success(`Product "${prodForm.name}" created`);
+      onProductCreated(newId.toString());
+      handleOpenChange(false);
+    } catch {
+      toast.error("Failed to create product");
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent
+        className="max-w-md"
+        data-ocid="purchase_orders.quick_create_dialog"
+      >
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Plus className="w-4 h-4 text-primary" />
+            Quick Create
+          </DialogTitle>
+        </DialogHeader>
+
+        <Tabs
+          value={activeTab}
+          onValueChange={(v) => setActiveTab(v as "product" | "category")}
+        >
+          <TabsList className="grid grid-cols-2 w-full">
+            <TabsTrigger
+              value="product"
+              data-ocid="purchase_orders.quick_create.product_tab"
+            >
+              New Product
+            </TabsTrigger>
+            <TabsTrigger
+              value="category"
+              data-ocid="purchase_orders.quick_create.category_tab"
+            >
+              New Category
+            </TabsTrigger>
+          </TabsList>
+
+          {/* Product tab */}
+          <TabsContent value="product" className="space-y-4 pt-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="qc-sku" className="text-xs">
+                  SKU <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="qc-sku"
+                  placeholder="e.g. HERB-001"
+                  value={prodForm.sku}
+                  onChange={(e) => setField("sku", e.target.value)}
+                  className={prodErrors.sku ? "border-destructive" : ""}
+                  data-ocid="purchase_orders.quick_create.sku.input"
+                />
+                {prodErrors.sku && (
+                  <p className="text-xs text-destructive">{prodErrors.sku}</p>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="qc-name" className="text-xs">
+                  Product Name <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="qc-name"
+                  placeholder="e.g. Tulsi Extract"
+                  value={prodForm.name}
+                  onChange={(e) => setField("name", e.target.value)}
+                  className={prodErrors.name ? "border-destructive" : ""}
+                  data-ocid="purchase_orders.quick_create.name.input"
+                />
+                {prodErrors.name && (
+                  <p className="text-xs text-destructive">{prodErrors.name}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="qc-category" className="text-xs">
+                Category <span className="text-destructive">*</span>
+              </Label>
+              <Select
+                value={prodForm.category_id}
+                onValueChange={(v) => setField("category_id", v)}
+              >
+                <SelectTrigger
+                  id="qc-category"
+                  className={prodErrors.category_id ? "border-destructive" : ""}
+                  data-ocid="purchase_orders.quick_create.category.select"
+                >
+                  <SelectValue placeholder="Select category…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map((c) => (
+                    <SelectItem key={c.id.toString()} value={c.id.toString()}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                  {categories.length === 0 && (
+                    <div className="px-2 py-3 text-xs text-muted-foreground text-center">
+                      No categories yet — create one first
+                    </div>
+                  )}
+                </SelectContent>
+              </Select>
+              {prodErrors.category_id && (
+                <p className="text-xs text-destructive">
+                  {prodErrors.category_id}
+                </p>
+              )}
+              <button
+                type="button"
+                className="text-xs text-primary hover:underline"
+                onClick={() => setActiveTab("category")}
+              >
+                + Create new category
+              </button>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="qc-mrp" className="text-xs">
+                  MRP (₹) <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="qc-mrp"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={prodForm.mrp}
+                  onChange={(e) => setField("mrp", e.target.value)}
+                  className={prodErrors.mrp ? "border-destructive" : ""}
+                  data-ocid="purchase_orders.quick_create.mrp.input"
+                />
+                {prodErrors.mrp && (
+                  <p className="text-xs text-destructive">{prodErrors.mrp}</p>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="qc-vp" className="text-xs">
+                  Volume Pts
+                </Label>
+                <Input
+                  id="qc-vp"
+                  type="number"
+                  min="0"
+                  placeholder="0"
+                  value={prodForm.volume_points}
+                  onChange={(e) => setField("volume_points", e.target.value)}
+                  data-ocid="purchase_orders.quick_create.volume_points.input"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="qc-earn" className="text-xs">
+                  Earn Base
+                </Label>
+                <Input
+                  id="qc-earn"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={prodForm.earn_base}
+                  onChange={(e) => setField("earn_base", e.target.value)}
+                  data-ocid="purchase_orders.quick_create.earn_base.input"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="qc-hsn" className="text-xs">
+                HSN Code
+              </Label>
+              <Input
+                id="qc-hsn"
+                placeholder="e.g. 1211"
+                value={prodForm.hsn_code}
+                onChange={(e) => setField("hsn_code", e.target.value)}
+                data-ocid="purchase_orders.quick_create.hsn.input"
+              />
+            </div>
+
+            <DialogFooter className="gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => handleOpenChange(false)}
+                data-ocid="purchase_orders.quick_create.cancel_button"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleCreateProduct}
+                disabled={createProduct.isPending}
+                data-ocid="purchase_orders.quick_create.save_product_button"
+              >
+                {createProduct.isPending ? "Creating…" : "Create & Select"}
+              </Button>
+            </DialogFooter>
+          </TabsContent>
+
+          {/* Category tab */}
+          <TabsContent value="category" className="space-y-4 pt-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="qc-cat-name" className="text-xs">
+                Category Name <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="qc-cat-name"
+                placeholder="e.g. Herbal Extracts"
+                value={catName}
+                onChange={(e) => setCatName(e.target.value)}
+                className={catErrors.name ? "border-destructive" : ""}
+                data-ocid="purchase_orders.quick_create.cat_name.input"
+              />
+              {catErrors.name && (
+                <p className="text-xs text-destructive">{catErrors.name}</p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="qc-cat-desc" className="text-xs">
+                Description
+              </Label>
+              <Input
+                id="qc-cat-desc"
+                placeholder="Optional description"
+                value={catDesc}
+                onChange={(e) => setCatDesc(e.target.value)}
+                data-ocid="purchase_orders.quick_create.cat_desc.input"
+              />
+            </div>
+
+            <DialogFooter className="gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setActiveTab("product")}
+              >
+                Back to Product
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleCreateCategory}
+                disabled={createCategory.isPending}
+                data-ocid="purchase_orders.quick_create.save_category_button"
+              >
+                {createCategory.isPending ? "Creating…" : "Create Category"}
+              </Button>
+            </DialogFooter>
+          </TabsContent>
+        </Tabs>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Create PO Dialog ────────────────────────────────────────────────────────
 
 interface CreatePODialogProps {
@@ -239,11 +615,18 @@ interface CreatePODialogProps {
 
 function CreatePODialog({ open, onOpenChange }: CreatePODialogProps) {
   const { data: products } = useGetProducts();
+  const { data: categories } = useGetCategories();
   const createPO = useCreatePurchaseOrder();
 
   const [vendor, setVendor] = useState("");
   const [items, setItems] = useState<DraftItem[]>([newDraftItem()]);
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Quick-create dialog state — track which item uid triggered it
+  const [quickCreateOpen, setQuickCreateOpen] = useState(false);
+  const [quickCreateTargetUid, setQuickCreateTargetUid] = useState<
+    string | null
+  >(null);
 
   const resetForm = () => {
     setVendor("");
@@ -265,7 +648,6 @@ function CreatePODialog({ open, onOpenChange }: CreatePODialogProps) {
         item.uid === uid ? { ...item, [field]: value } : item,
       ),
     );
-    // clear individual error
     const errKey = `${uid}-${field}`;
     if (errors[errKey]) {
       setErrors((prev) => {
@@ -273,6 +655,13 @@ function CreatePODialog({ open, onOpenChange }: CreatePODialogProps) {
         next[errKey] = "";
         return next;
       });
+    }
+  };
+
+  const handleProductCreated = (productId: string) => {
+    if (quickCreateTargetUid) {
+      updateItem(quickCreateTargetUid, "product_id", productId);
+      setQuickCreateTargetUid(null);
     }
   };
 
@@ -320,230 +709,265 @@ function CreatePODialog({ open, onOpenChange }: CreatePODialogProps) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent
-        className="max-w-2xl max-h-[90vh] overflow-y-auto"
-        data-ocid="purchase_orders.dialog"
-      >
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <ShoppingCart className="w-5 h-5 text-primary" />
-            Create Purchase Order
-          </DialogTitle>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent
+          className="max-w-2xl max-h-[90vh] overflow-y-auto"
+          data-ocid="purchase_orders.dialog"
+        >
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShoppingCart className="w-5 h-5 text-primary" />
+              Create Purchase Order
+            </DialogTitle>
+          </DialogHeader>
 
-        <div className="space-y-5 py-2">
-          {/* Vendor */}
-          <div className="space-y-1.5">
-            <Label htmlFor="po-vendor">Vendor *</Label>
-            <Input
-              id="po-vendor"
-              placeholder="e.g. Nature's Herbs Supplier"
-              value={vendor}
-              onChange={(e) => {
-                setVendor(e.target.value);
-                if (errors.vendor)
-                  setErrors((prev) => ({ ...prev, vendor: "" }));
-              }}
-              data-ocid="purchase_orders.vendor_input"
-            />
-            {errors.vendor && (
-              <p
-                className="text-xs text-destructive"
-                data-ocid="purchase_orders.vendor_input.field_error"
-              >
-                {errors.vendor}
-              </p>
-            )}
-          </div>
-
-          {/* Items */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <Label>Items *</Label>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={addItem}
-                className="gap-1.5"
-                data-ocid="purchase_orders.add_item_button"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Add Row
-              </Button>
+          <div className="space-y-5 py-2">
+            {/* Vendor */}
+            <div className="space-y-1.5">
+              <Label htmlFor="po-vendor">Vendor *</Label>
+              <Input
+                id="po-vendor"
+                placeholder="e.g. Nature's Herbs Supplier"
+                value={vendor}
+                onChange={(e) => {
+                  setVendor(e.target.value);
+                  if (errors.vendor)
+                    setErrors((prev) => ({ ...prev, vendor: "" }));
+                }}
+                data-ocid="purchase_orders.vendor_input"
+              />
+              {errors.vendor && (
+                <p
+                  className="text-xs text-destructive"
+                  data-ocid="purchase_orders.vendor_input.field_error"
+                >
+                  {errors.vendor}
+                </p>
+              )}
             </div>
 
-            {errors.items && (
-              <p className="text-xs text-destructive">{errors.items}</p>
-            )}
-
+            {/* Items */}
             <div className="space-y-3">
-              {items.map((item, idx) => (
-                <div
-                  key={item.uid}
-                  className="relative border border-border rounded-lg p-3 bg-muted/30 space-y-3"
-                  data-ocid={`purchase_orders.po_item.${idx + 1}`}
+              <div className="flex items-center justify-between">
+                <Label>Items *</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addItem}
+                  className="gap-1.5"
+                  data-ocid="purchase_orders.add_item_button"
                 >
-                  {items.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => removeItem(item.uid)}
-                      className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                      aria-label="Remove item"
-                      data-ocid={`purchase_orders.remove_item_button.${idx + 1}`}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
+                  <Plus className="w-3.5 h-3.5" />
+                  Add Row
+                </Button>
+              </div>
 
-                  <p className="text-xs font-medium text-muted-foreground">
-                    Item {idx + 1}
-                  </p>
+              {errors.items && (
+                <p className="text-xs text-destructive">{errors.items}</p>
+              )}
 
-                  {/* Product select */}
-                  <div className="space-y-1">
-                    <Label
-                      htmlFor={`po-product-${item.uid}`}
-                      className="text-xs"
-                    >
-                      Product
-                    </Label>
-                    <Select
-                      value={item.product_id}
-                      onValueChange={(v) =>
-                        updateItem(item.uid, "product_id", v)
-                      }
-                    >
-                      <SelectTrigger
-                        id={`po-product-${item.uid}`}
-                        data-ocid={`purchase_orders.product_select.${idx + 1}`}
-                        className={
-                          errors[`${item.uid}-product_id`]
-                            ? "border-destructive"
-                            : ""
-                        }
+              <div className="space-y-3">
+                {items.map((item, idx) => (
+                  <div
+                    key={item.uid}
+                    className="relative border border-border rounded-lg p-3 bg-muted/30 space-y-3"
+                    data-ocid={`purchase_orders.po_item.${idx + 1}`}
+                  >
+                    {items.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeItem(item.uid)}
+                        className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                        aria-label="Remove item"
+                        data-ocid={`purchase_orders.remove_item_button.${idx + 1}`}
                       >
-                        <SelectValue placeholder="Select product…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(products ?? []).map((p) => (
-                          <SelectItem
-                            key={p.id.toString()}
-                            value={p.id.toString()}
-                          >
-                            <span className="font-medium">{p.name}</span>
-                            <span className="text-muted-foreground ml-1.5 text-xs">
-                              {p.sku}
-                            </span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {errors[`${item.uid}-product_id`] && (
-                      <p
-                        className="text-xs text-destructive"
-                        data-ocid={`purchase_orders.product_select.${idx + 1}.field_error`}
-                      >
-                        {errors[`${item.uid}-product_id`]}
-                      </p>
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     )}
-                  </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    {/* Quantity */}
-                    <div className="space-y-1">
-                      <Label htmlFor={`po-qty-${item.uid}`} className="text-xs">
-                        Quantity
-                      </Label>
-                      <Input
-                        id={`po-qty-${item.uid}`}
-                        type="number"
-                        min="1"
-                        step="1"
-                        placeholder="0"
-                        value={item.quantity}
-                        onChange={(e) =>
-                          updateItem(item.uid, "quantity", e.target.value)
-                        }
-                        data-ocid={`purchase_orders.quantity_input.${idx + 1}`}
-                        className={
-                          errors[`${item.uid}-quantity`]
-                            ? "border-destructive"
-                            : ""
-                        }
-                      />
-                      {errors[`${item.uid}-quantity`] && (
-                        <p
-                          className="text-xs text-destructive"
-                          data-ocid={`purchase_orders.quantity_input.${idx + 1}.field_error`}
-                        >
-                          {errors[`${item.uid}-quantity`]}
-                        </p>
-                      )}
-                    </div>
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Item {idx + 1}
+                    </p>
 
-                    {/* Unit cost */}
+                    {/* Product select */}
                     <div className="space-y-1">
                       <Label
-                        htmlFor={`po-cost-${item.uid}`}
+                        htmlFor={`po-product-${item.uid}`}
                         className="text-xs"
                       >
-                        Unit Cost (₹)
+                        Product
                       </Label>
-                      <Input
-                        id={`po-cost-${item.uid}`}
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        placeholder="0.00"
-                        value={item.unit_cost}
-                        onChange={(e) =>
-                          updateItem(item.uid, "unit_cost", e.target.value)
-                        }
-                        data-ocid={`purchase_orders.unit_cost_input.${idx + 1}`}
-                        className={
-                          errors[`${item.uid}-unit_cost`]
-                            ? "border-destructive"
-                            : ""
-                        }
-                      />
-                      {errors[`${item.uid}-unit_cost`] && (
+                      <div className="flex gap-2">
+                        <Select
+                          value={item.product_id}
+                          onValueChange={(v) =>
+                            updateItem(item.uid, "product_id", v)
+                          }
+                        >
+                          <SelectTrigger
+                            id={`po-product-${item.uid}`}
+                            data-ocid={`purchase_orders.product_select.${idx + 1}`}
+                            className={
+                              errors[`${item.uid}-product_id`]
+                                ? "border-destructive"
+                                : ""
+                            }
+                          >
+                            <SelectValue placeholder="Select product…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(products ?? []).map((p) => (
+                              <SelectItem
+                                key={p.id.toString()}
+                                value={p.id.toString()}
+                              >
+                                <span className="font-medium">{p.name}</span>
+                                <span className="text-muted-foreground ml-1.5 text-xs">
+                                  {p.sku}
+                                </span>
+                              </SelectItem>
+                            ))}
+                            {(products ?? []).length === 0 && (
+                              <div className="px-2 py-2 text-xs text-muted-foreground text-center">
+                                No products yet
+                              </div>
+                            )}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="px-2 flex-shrink-0"
+                          aria-label="Add new product"
+                          title="Create new product"
+                          onClick={() => {
+                            setQuickCreateTargetUid(item.uid);
+                            setQuickCreateOpen(true);
+                          }}
+                          data-ocid={`purchase_orders.add_product_button.${idx + 1}`}
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                      {errors[`${item.uid}-product_id`] && (
                         <p
                           className="text-xs text-destructive"
-                          data-ocid={`purchase_orders.unit_cost_input.${idx + 1}.field_error`}
+                          data-ocid={`purchase_orders.product_select.${idx + 1}.field_error`}
                         >
-                          {errors[`${item.uid}-unit_cost`]}
+                          {errors[`${item.uid}-product_id`]}
                         </p>
                       )}
                     </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      {/* Quantity */}
+                      <div className="space-y-1">
+                        <Label
+                          htmlFor={`po-qty-${item.uid}`}
+                          className="text-xs"
+                        >
+                          Quantity
+                        </Label>
+                        <Input
+                          id={`po-qty-${item.uid}`}
+                          type="number"
+                          min="1"
+                          step="1"
+                          placeholder="0"
+                          value={item.quantity}
+                          onChange={(e) =>
+                            updateItem(item.uid, "quantity", e.target.value)
+                          }
+                          data-ocid={`purchase_orders.quantity_input.${idx + 1}`}
+                          className={
+                            errors[`${item.uid}-quantity`]
+                              ? "border-destructive"
+                              : ""
+                          }
+                        />
+                        {errors[`${item.uid}-quantity`] && (
+                          <p
+                            className="text-xs text-destructive"
+                            data-ocid={`purchase_orders.quantity_input.${idx + 1}.field_error`}
+                          >
+                            {errors[`${item.uid}-quantity`]}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Unit cost */}
+                      <div className="space-y-1">
+                        <Label
+                          htmlFor={`po-cost-${item.uid}`}
+                          className="text-xs"
+                        >
+                          Unit Cost (₹)
+                        </Label>
+                        <Input
+                          id={`po-cost-${item.uid}`}
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={item.unit_cost}
+                          onChange={(e) =>
+                            updateItem(item.uid, "unit_cost", e.target.value)
+                          }
+                          data-ocid={`purchase_orders.unit_cost_input.${idx + 1}`}
+                          className={
+                            errors[`${item.uid}-unit_cost`]
+                              ? "border-destructive"
+                              : ""
+                          }
+                        />
+                        {errors[`${item.uid}-unit_cost`] && (
+                          <p
+                            className="text-xs text-destructive"
+                            data-ocid={`purchase_orders.unit_cost_input.${idx + 1}.field_error`}
+                          >
+                            {errors[`${item.uid}-unit_cost`]}
+                          </p>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
-        </div>
 
-        <DialogFooter className="gap-2 pt-2">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => handleOpenChange(false)}
-            data-ocid="purchase_orders.cancel_button"
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            onClick={handleSubmit}
-            disabled={createPO.isPending}
-            data-ocid="purchase_orders.submit_button"
-          >
-            {createPO.isPending ? "Creating…" : "Confirm Order"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          <DialogFooter className="gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => handleOpenChange(false)}
+              data-ocid="purchase_orders.cancel_button"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleSubmit}
+              disabled={createPO.isPending}
+              data-ocid="purchase_orders.submit_button"
+            >
+              {createPO.isPending ? "Creating…" : "Confirm Order"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick Create Product/Category */}
+      <QuickCreateDialog
+        open={quickCreateOpen}
+        onOpenChange={setQuickCreateOpen}
+        categories={categories ?? []}
+        onProductCreated={handleProductCreated}
+      />
+    </>
   );
 }
 

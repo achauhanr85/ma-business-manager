@@ -1,10 +1,14 @@
-// Version: 3.0.0
+// Version: 1.0.0
 type BatchId__34059046 = Nat;
 type CategoryId__14729845 = Nat;
 type Category__403107212 =
   {
+    created_by : UserId__158757552;
+    creation_date : Timestamp__301639476;
     description : Text;
     id : CategoryId__14729845;
+    last_update_date : Timestamp__301639476;
+    last_updated_by : UserId__158757552;
     name : Text;
     owner : UserId__158757552;
     profile_key : ProfileKey__816367989
@@ -14,23 +18,35 @@ type Customer__225412617 =
   {
     address : Text;
     created_at : Timestamp__301639476;
+    created_by : UserId__158757552;
+    creation_date : Timestamp__301639476;
+    discount_applicable : ?DiscountType__708504574;
+    discount_value : ?Float;
     email : Text;
     id : CustomerId__1015005394;
     last_purchase_at : Timestamp__301639476;
+    last_update_date : Timestamp__301639476;
+    last_updated_by : UserId__158757552;
     lifetime_revenue : Float;
     name : Text;
+    notes : [Text];
     phone : Text;
     profile_key : ProfileKey__816367989;
     total_sales : Nat
   };
 type Data__791452850<K, V> =
   {var count : Nat__490723111; kvs : [var ?(K, V)]};
+type DiscountType__708504574 = {#Fixed; #Percentage};
 type Internal__8484328<K, V> =
   {children : [var ?Node__46230540<K, V>]; data : Data__791452850<K, V>};
 type InventoryBatch__1022194201 =
   {
+    created_by : UserId__158757552;
+    creation_date : Timestamp__301639476;
     date_received : Timestamp__301639476;
     id : BatchId__34059046;
+    last_update_date : Timestamp__301639476;
+    last_updated_by : UserId__158757552;
     owner : UserId__158757552;
     product_id : ProductId__160010635;
     profile_key : ProfileKey__816367989;
@@ -40,8 +56,12 @@ type InventoryBatch__1022194201 =
   };
 type InventoryMovement__919462560 =
   {
+    created_by : UserId__158757552;
+    creation_date : Timestamp__301639476;
     from_warehouse : WarehouseName__270980106;
     id : MovementId__248287148;
+    last_update_date : Timestamp__301639476;
+    last_updated_by : UserId__158757552;
     moved_at : Timestamp__301639476;
     moved_by : UserId__158757552;
     product_id : ProductId__160010635;
@@ -50,110 +70,25 @@ type InventoryMovement__919462560 =
     to_warehouse : WarehouseName__270980106
   };
 type Leaf__809889148<K, V> = {data : Data__791452850<K, V>};
-type List__415060402<T> = List__790383201<T>;
-type List__790383201<T> =
-  {
-    var blockIndex : Nat__490723111;
-    var blocks : [var [var ?T]];
-    var elementIndex : Nat__490723111
-  };
-type Map__158565046<K, V> = Map__297112838<K, V>;
-type Map__297112838<K, V> =
-  {var root : Node__46230540<K, V>; var size : Nat__490723111};
-type Map__605269027<K, V> = Map__158565046<K, V>;
 type MovementId__248287148 = Nat;
 type Nat__490723111 = Nat__920180692;
 type Nat__920180692 = Nat;
 type Node__46230540<K, V> =
   {#internal : Internal__8484328<K, V>; #leaf : Leaf__809889148<K, V>};
-type OldBatchId__43896954 = Nat;
-type OldCategoryId__129021267 = Nat;
-type OldCategory__901310687 =
-  {
-    description : Text;
-    id : OldCategoryId__129021267;
-    name : Text;
-    owner : OldUserId__580276348
-  };
-type OldInventoryBatch__613662252 =
-  {
-    date_received : OldTimestamp__27916213;
-    id : OldBatchId__43896954;
-    owner : OldUserId__580276348;
-    product_id : OldProductId__233768222;
-    var quantity_remaining : Nat;
-    unit_cost : Float
-  };
-type OldPOStatus__586290449 = {#Pending; #Received};
-type OldProductId__233768222 = Nat;
-type OldProduct__278484740 =
-  {
-    category_id : OldCategoryId__129021267;
-    earn_base : Float;
-    hsn_code : Text;
-    id : OldProductId__233768222;
-    mrp : Float;
-    name : Text;
-    owner : OldUserId__580276348;
-    sku : Text;
-    volume_points : Float
-  };
-type OldProfile__14094539 =
-  {
-    business_address : Text;
-    business_name : Text;
-    email : Text;
-    fssai_number : Text;
-    owner : OldUserId__580276348;
-    phone_number : Text
-  };
-type OldPurchaseOrderId__46382071 = Nat;
-type OldPurchaseOrderItem__843366489 =
-  {
-    po_id : OldPurchaseOrderId__46382071;
-    product_id : OldProductId__233768222;
-    quantity : Nat;
-    unit_cost : Float
-  };
-type OldPurchaseOrder__547702421 =
-  {
-    id : OldPurchaseOrderId__46382071;
-    owner : OldUserId__580276348;
-    status : OldPOStatus__586290449;
-    timestamp : OldTimestamp__27916213;
-    vendor : Text
-  };
-type OldSaleId__91081417 = Nat;
-type OldSaleItem__751652278 =
-  {
-    actual_sale_price : Float;
-    mrp_snapshot : Float;
-    product_id : OldProductId__233768222;
-    product_name_snapshot : Text;
-    quantity : Nat;
-    sale_id : OldSaleId__91081417;
-    unit_cost_snapshot : Float;
-    volume_points_snapshot : Float
-  };
-type OldSale__972883563 =
-  {
-    id : OldSaleId__91081417;
-    owner : OldUserId__580276348;
-    timestamp : OldTimestamp__27916213;
-    total_profit : Float;
-    total_revenue : Float;
-    total_volume_points : Float
-  };
-type OldTimestamp__27916213 = Int;
-type OldUserId__580276348 = Principal;
 type POStatus__1053906800 = {#Pending; #Received};
+type PaymentMode__779188169 = {#BankTransfer; #Card; #Cash; #Check; #Other};
+type PaymentStatus__1050999476 = {#Paid; #Partial; #Unpaid};
 type ProductId__160010635 = Nat;
 type Product__389207432 =
   {
     category_id : CategoryId__14729845;
+    created_by : UserId__158757552;
+    creation_date : Timestamp__301639476;
     earn_base : Float;
     hsn_code : Text;
     id : ProductId__160010635;
+    last_update_date : Timestamp__301639476;
+    last_updated_by : UserId__158757552;
     mrp : Float;
     name : Text;
     owner : UserId__158757552;
@@ -167,18 +102,29 @@ type Profile__901378260 =
     business_address : Text;
     business_name : Text;
     created_at : Timestamp__301639476;
+    created_by : UserId__158757552;
+    creation_date : Timestamp__301639476;
     email : Text;
+    end_date : ?Timestamp__301639476;
     fssai_number : Text;
     is_archived : Bool;
+    is_enabled : Bool;
+    last_update_date : Timestamp__301639476;
+    last_updated_by : UserId__158757552;
     logo_url : Text;
     owner : UserId__158757552;
     phone_number : Text;
     profile_key : ProfileKey__816367989;
+    start_date : ?Timestamp__301639476;
     theme_color : Text
   };
 type PurchaseOrderId__946010564 = Nat;
 type PurchaseOrderItem__1029531786 =
   {
+    created_by : UserId__158757552;
+    creation_date : Timestamp__301639476;
+    last_update_date : Timestamp__301639476;
+    last_updated_by : UserId__158757552;
     po_id : PurchaseOrderId__946010564;
     product_id : ProductId__160010635;
     quantity : Nat;
@@ -186,7 +132,11 @@ type PurchaseOrderItem__1029531786 =
   };
 type PurchaseOrder__593248081 =
   {
+    created_by : UserId__158757552;
+    creation_date : Timestamp__301639476;
     id : PurchaseOrderId__946010564;
+    last_update_date : Timestamp__301639476;
+    last_updated_by : UserId__158757552;
     owner : UserId__158757552;
     profile_key : ProfileKey__816367989;
     status : POStatus__1053906800;
@@ -198,6 +148,10 @@ type SaleId__807252808 = Nat;
 type SaleItem__404363257 =
   {
     actual_sale_price : Float;
+    created_by : UserId__158757552;
+    creation_date : Timestamp__301639476;
+    last_update_date : Timestamp__301639476;
+    last_updated_by : UserId__158757552;
     mrp_snapshot : Float;
     product_id : ProductId__160010635;
     product_name_snapshot : Text;
@@ -208,10 +162,21 @@ type SaleItem__404363257 =
   };
 type Sale__289909216 =
   {
+    amount_paid : ?Float;
+    balance_due : ?Float;
+    created_by : UserId__158757552;
+    creation_date : Timestamp__301639476;
     customer_id : CustomerId__1015005394;
     customer_name : Text;
+    discount_applied : ?Float;
+    discount_type : ?DiscountType__708504574;
     id : SaleId__807252808;
+    last_update_date : Timestamp__301639476;
+    last_updated_by : UserId__158757552;
+    original_subtotal : ?Float;
     owner : UserId__158757552;
+    payment_mode : ?PaymentMode__779188169;
+    payment_status : ?PaymentStatus__1050999476;
     profile_key : ProfileKey__816367989;
     sold_by : UserId__158757552;
     timestamp : Timestamp__301639476;
@@ -223,8 +188,12 @@ type Timestamp__301639476 = Int;
 type UserId__158757552 = Principal;
 type UserProfile__277265826 =
   {
+    created_by : UserId__158757552;
+    creation_date : Timestamp__301639476;
     display_name : Text;
     joined_at : Timestamp__301639476;
+    last_update_date : Timestamp__301639476;
+    last_updated_by : UserId__158757552;
     principal : UserId__158757552;
     profile_key : ProfileKey__816367989;
     role : UserRole__451090586;
@@ -232,35 +201,7 @@ type UserProfile__277265826 =
   };
 type UserRole__451090586 = {#admin; #subAdmin; #superAdmin};
 type WarehouseName__270980106 = Text;
-actor ({
-  in batchStore :
-    Map__605269027<OldBatchId__43896954, OldInventoryBatch__613662252>;
-  in categoryStore :
-    Map__605269027<OldCategoryId__129021267, OldCategory__901310687>;
-  stable customerStore :
-    {
-      var root : Node__46230540<CustomerId__1015005394, Customer__225412617>;
-      var size : Nat__490723111
-    };
-  stable var nextBatchId : Nat;
-  stable var nextCategoryId : Nat;
-  stable var nextCustomerId : Nat;
-  stable var nextMovementId : Nat;
-  stable var nextPOBatchId : Nat;
-  stable var nextPOId : Nat;
-  stable var nextProductId : Nat;
-  stable var nextSaleId : Nat;
-  in poItemStore : List__415060402<OldPurchaseOrderItem__843366489>;
-  in poStore :
-    Map__605269027<OldPurchaseOrderId__46382071, OldPurchaseOrder__547702421>;
-  in productStore :
-    Map__605269027<OldProductId__233768222, OldProduct__278484740>;
-  in profileStore :
-    Map__605269027<OldUserId__580276348, OldProfile__14094539>;
-  in saleItemStore : List__415060402<OldSaleItem__751652278>;
-  in saleStore : Map__605269027<OldSaleId__91081417, OldSale__972883563>;
-  stable var superAdminPrincipal : ?UserId__158757552
-}, {
+actor {
   stable batchStore :
     {
       var root : Node__46230540<BatchId__34059046, InventoryBatch__1022194201>;
@@ -289,6 +230,7 @@ actor ({
   stable var nextPOBatchId : Nat;
   stable var nextPOId : Nat;
   stable var nextProductId : Nat;
+  stable var nextSaleBatchId : Nat;
   stable var nextSaleId : Nat;
   stable poItemStore :
     {
@@ -329,4 +271,4 @@ actor ({
       var root : Node__46230540<UserId__158757552, UserProfile__277265826>;
       var size : Nat__490723111
     }
-}) ;
+};

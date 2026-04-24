@@ -1,4 +1,5 @@
 import Map "mo:core/Map";
+import Time "mo:core/Time";
 import Runtime "mo:core/Runtime";
 import Common "../types/common";
 import CatalogTypes "../types/catalog";
@@ -25,12 +26,18 @@ module {
 
   public func createCategory(store : CategoryStore, userStore : Map.Map<Common.UserId, UserTypes.UserProfile>, caller : Common.UserId, nextId : Nat, input : CatalogTypes.CategoryInput) : Common.CategoryId {
     let profileKey = callerProfileKey(userStore, caller);
+    let now = Time.now();
     let cat : CatalogTypes.Category = {
       id = nextId;
       name = input.name;
       description = input.description;
       profile_key = profileKey;
       owner = caller;
+      // Who-columns
+      created_by = caller;
+      last_updated_by = caller;
+      creation_date = now;
+      last_update_date = now;
     };
     store.add(nextId, cat);
     nextId
@@ -42,7 +49,7 @@ module {
       case null false;
       case (?existing) {
         if (existing.profile_key != profileKey) return false;
-        store.add(id, { existing with name = input.name; description = input.description });
+        store.add(id, { existing with name = input.name; description = input.description; last_updated_by = caller; last_update_date = Time.now() });
         true
       };
     }
@@ -76,6 +83,7 @@ module {
       prod.profile_key == profileKey and prod.sku == input.sku
     });
     if (skuTaken) return null;
+    let now = Time.now();
     let prod : CatalogTypes.Product = {
       id = nextId;
       sku = input.sku;
@@ -87,6 +95,11 @@ module {
       hsn_code = input.hsn_code;
       profile_key = profileKey;
       owner = caller;
+      // Who-columns
+      created_by = caller;
+      last_updated_by = caller;
+      creation_date = now;
+      last_update_date = now;
     };
     store.add(nextId, prod);
     ?nextId
@@ -106,7 +119,7 @@ module {
           if (skuTaken) return false;
         };
         store.add(id, {
-          id = existing.id;
+          existing with
           sku = input.sku;
           name = input.name;
           category_id = input.category_id;
@@ -114,8 +127,9 @@ module {
           earn_base = input.earn_base;
           mrp = input.mrp;
           hsn_code = input.hsn_code;
-          profile_key = existing.profile_key;
-          owner = existing.owner;
+          // Who-columns: update last_updated_by and last_update_date
+          last_updated_by = caller;
+          last_update_date = Time.now();
         });
         true
       };
