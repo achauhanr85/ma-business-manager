@@ -1,0 +1,29 @@
+{
+  "overview": "MA Herb Business Manager is a full-stack mobile-first business management application for herbal product distributors. It features Internet Identity authentication with per-user data isolation, a sales cart with FIFO inventory costing, real-time profit tracking, volume points aggregation, purchase order management, and a branded receipt generator with WhatsApp sharing.",
+  "features": [
+    "Internet Identity authentication with per-user data scoping",
+    "Dashboard with KPI cards (Monthly Volume Points, Estimated Profit, Inventory Value) and Recharts sales trend chart",
+    "Sales cart interface with product search, manual price override, FIFO inventory deduction, and receipt generation",
+    "Inventory management with FIFO batch costing and low-stock alerts",
+    "Purchase orders that update inventory batches with unit cost",
+    "Products and Categories CRUD management",
+    "Business Profile with FSSAI number validation (14 digits) and map placeholder",
+    "Branded receipt with Print and WhatsApp share functionality",
+    "Collapsible sidebar navigation with green and white herbal theme",
+    "Mobile-first responsive design using shadcn/ui components"
+  ],
+  "category": "productivity",
+  "tags": [
+    "business-management",
+    "inventory",
+    "sales",
+    "herbal",
+    "mobile-first",
+    "fifo",
+    "receipt",
+    "whatsapp",
+    "internet-identity",
+    "motoko"
+  ],
+  "last_updated": "2026-04-23T22:17:01.761Z"
+}

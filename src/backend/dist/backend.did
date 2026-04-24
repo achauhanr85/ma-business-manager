@@ -1,0 +1,159 @@
+type UserId = principal;
+type Timestamp = int;
+type SaleItem = 
+ record {
+   actual_sale_price: float64;
+   mrp_snapshot: float64;
+   product_id: ProductId;
+   product_name_snapshot: text;
+   quantity: nat;
+   sale_id: SaleId;
+   unit_cost_snapshot: float64;
+   volume_points_snapshot: float64;
+ };
+type SaleId = nat;
+type Sale = 
+ record {
+   id: SaleId;
+   owner: UserId;
+   timestamp: Timestamp;
+   total_profit: float64;
+   total_revenue: float64;
+   total_volume_points: float64;
+ };
+type PurchaseOrderItemInput = 
+ record {
+   product_id: ProductId;
+   quantity: nat;
+   unit_cost: float64;
+ };
+type PurchaseOrderItem = 
+ record {
+   po_id: PurchaseOrderId;
+   product_id: ProductId;
+   quantity: nat;
+   unit_cost: float64;
+ };
+type PurchaseOrderInput = 
+ record {
+   items: vec PurchaseOrderItemInput;
+   vendor: text;
+ };
+type PurchaseOrderId = nat;
+type PurchaseOrder = 
+ record {
+   id: PurchaseOrderId;
+   owner: UserId;
+   status: POStatus;
+   timestamp: Timestamp;
+   vendor: text;
+ };
+type ProfileInput = 
+ record {
+   business_address: text;
+   business_name: text;
+   email: text;
+   fssai_number: text;
+   phone_number: text;
+ };
+type ProductInput = 
+ record {
+   category_id: CategoryId;
+   earn_base: float64;
+   hsn_code: text;
+   mrp: float64;
+   name: text;
+   sku: text;
+   volume_points: float64;
+ };
+type ProductId = nat;
+type Product = 
+ record {
+   category_id: CategoryId;
+   earn_base: float64;
+   hsn_code: text;
+   id: ProductId;
+   mrp: float64;
+   name: text;
+   owner: UserId;
+   sku: text;
+   volume_points: float64;
+ };
+type POStatus = 
+ variant {
+   Pending;
+   Received;
+ };
+type MonthlySalesTrend = 
+ record {
+   month_label: text;
+   total_revenue: float64;
+   total_volume_points: float64;
+ };
+type InventoryLevel = 
+ record {
+   batches: vec InventoryBatchPublic;
+   product_id: ProductId;
+   total_qty: nat;
+ };
+type InventoryBatchPublic = 
+ record {
+   date_received: Timestamp;
+   id: BatchId;
+   product_id: ProductId;
+   quantity_remaining: nat;
+   unit_cost: float64;
+ };
+type DashboardStats = 
+ record {
+   monthly_profit: float64;
+   monthly_volume_points: float64;
+   recent_sales: vec Sale;
+   total_inventory_value: float64;
+ };
+type CategoryInput = 
+ record {
+   description: text;
+   name: text;
+ };
+type CategoryId = nat;
+type Category = 
+ record {
+   description: text;
+   id: CategoryId;
+   name: text;
+   owner: UserId;
+ };
+type CartItem = 
+ record {
+   actual_sale_price: float64;
+   product_id: ProductId;
+   quantity: nat;
+ };
+type BatchId = nat;
+service : {
+  createCategory: (input: CategoryInput) -> (CategoryId);
+  createProduct: (input: ProductInput) -> (opt ProductId);
+  createPurchaseOrder: (input: PurchaseOrderInput) -> (PurchaseOrderId);
+  createSale: (cartItems: vec CartItem) -> (opt SaleId);
+  deleteCategory: (id: CategoryId) -> (bool);
+  deleteProduct: (id: ProductId) -> (bool);
+  getCategories: () -> (vec Category) query;
+  getDashboardStats: () -> (DashboardStats) query;
+  getInventoryBatches: (product_id: ProductId) ->
+   (vec InventoryBatchPublic) query;
+  getInventoryLevels: () -> (vec InventoryLevel) query;
+  getMonthlySalesTrend: () -> (vec MonthlySalesTrend) query;
+  getProducts: () -> (vec Product) query;
+  getProfile: () -> (opt ProfileInput) query;
+  getPurchaseOrderItems: (po_id: PurchaseOrderId) ->
+   (vec PurchaseOrderItem) query;
+  getPurchaseOrders: () -> (vec PurchaseOrder) query;
+  getSale: (sale_id: SaleId) -> (opt Sale) query;
+  getSaleItems: (sale_id: SaleId) -> (vec SaleItem) query;
+  getSales: () -> (vec Sale) query;
+  markPurchaseOrderReceived: (po_id: PurchaseOrderId) -> (bool);
+  updateCategory: (id: CategoryId, input: CategoryInput) -> (bool);
+  updateProduct: (id: ProductId, input: ProductInput) -> (bool);
+  updateProfile: (input: ProfileInput) -> (bool);
+}
