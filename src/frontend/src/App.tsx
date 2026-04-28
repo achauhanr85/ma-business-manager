@@ -15,6 +15,7 @@ import { CustomerGoalsPage } from "@/pages/CustomerGoalsPage";
 import { CustomerMedicalIssuesPage } from "@/pages/CustomerMedicalIssuesPage";
 import { CustomersPage } from "@/pages/CustomersPage";
 import { DashboardPage } from "@/pages/DashboardPage";
+import { IndexPage } from "@/pages/IndexPage";
 import { InventoryMovementPage } from "@/pages/InventoryMovementPage";
 import { InventoryPage } from "@/pages/InventoryPage";
 import { LoanerInventoryPage } from "@/pages/LoanerInventoryPage";
@@ -30,6 +31,7 @@ import { SuperAdminPage } from "@/pages/SuperAdminPage";
 import { SuperAdminSetupPage } from "@/pages/SuperAdminSetupPage";
 import { UserManagementPage } from "@/pages/UserManagementPage";
 import { UserPreferencesPage } from "@/pages/UserPreferencesPage";
+import { VendorsPage } from "@/pages/VendorsPage";
 import { useActor } from "@caffeineai/core-infrastructure";
 import { Clock, Leaf } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -40,6 +42,7 @@ type AppPath =
   | "/inventory"
   | "/inventory-movement"
   | "/purchase-orders"
+  | "/vendors"
   | "/products"
   | "/analytics"
   | "/profile"
@@ -61,6 +64,7 @@ function getPageTitle(path: string): string {
     "/inventory": "Inventory",
     "/inventory-movement": "Inventory Movement",
     "/purchase-orders": "Purchase Orders",
+    "/vendors": "Vendors",
     "/products": "Products & Categories",
     "/analytics": "Analytics",
     "/profile": "Business Profile",
@@ -81,6 +85,14 @@ function getPageTitle(path: string): string {
 // ── Shared gate screens ───────────────────────────────────────────────────────
 
 function PendingApprovalGate() {
+  const { logout } = useAuth();
+
+  // Log the user out so they must log in again next time — they should not
+  // retain an active session while their account is blocked.
+  useEffect(() => {
+    logout();
+  }, [logout]);
+
   return (
     <div
       className="min-h-screen bg-background flex flex-col items-center justify-center px-4 py-8"
@@ -103,7 +115,8 @@ function PendingApprovalGate() {
             Approval Pending
           </h1>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            Admin notified. You can access the system once approved by Admin.
+            You have been logged out. Admin has been notified — please log back
+            in once you've been approved.
           </p>
         </div>
         <div className="rounded-lg border border-amber-300/50 bg-amber-50/60 dark:bg-amber-950/20 dark:border-amber-800/30 px-4 py-4 text-left space-y-2">
@@ -113,7 +126,9 @@ function PendingApprovalGate() {
           <ul className="text-xs text-amber-700 dark:text-amber-300 space-y-1.5 list-disc list-inside">
             <li>Your join request has been sent to the Admin</li>
             <li>The Admin will review and approve your account</li>
-            <li>You will gain full access once approved</li>
+            <li>
+              You will gain full access once approved — log back in to check
+            </li>
           </ul>
         </div>
         <p className="text-xs text-muted-foreground">
@@ -133,6 +148,13 @@ function PendingApprovalGate() {
 }
 
 export function ProfilePendingApprovalGate() {
+  const { logout } = useAuth();
+
+  // Log the user out so they must re-authenticate after profile approval
+  useEffect(() => {
+    logout();
+  }, [logout]);
+
   return (
     <div
       className="min-h-screen bg-background flex flex-col items-center justify-center px-4 py-8"
@@ -155,8 +177,8 @@ export function ProfilePendingApprovalGate() {
             Profile Under Review
           </h1>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            Your profile registration is pending approval by Super Admin. You
-            will be notified once access is granted.
+            You have been logged out. Your profile is pending Super Admin
+            approval — please log back in once access has been granted.
           </p>
         </div>
         <div className="rounded-lg border border-border bg-muted/40 px-4 py-4 text-left space-y-2">
@@ -166,7 +188,7 @@ export function ProfilePendingApprovalGate() {
           <ul className="text-xs text-muted-foreground space-y-1.5 list-disc list-inside">
             <li>Super Admin has been notified of your new profile</li>
             <li>They will review your registration</li>
-            <li>Once approved, your full profile will be active</li>
+            <li>Once approved, log back in to access your full profile</li>
           </ul>
         </div>
         <p className="text-xs text-muted-foreground">
@@ -279,6 +301,8 @@ function AppContent() {
         return <InventoryMovementPage onNavigate={navigate} />;
       case "/purchase-orders":
         return <PurchaseOrdersPage onNavigate={navigate} />;
+      case "/vendors":
+        return <VendorsPage onNavigate={navigate} />;
       case "/products":
         return <ProductsPage onNavigate={navigate} />;
       case "/analytics":
@@ -359,6 +383,8 @@ function SuperAdminApp() {
           return <InventoryMovementPage onNavigate={navigate} />;
         case "/purchase-orders":
           return <PurchaseOrdersPage onNavigate={navigate} />;
+        case "/vendors":
+          return <VendorsPage onNavigate={navigate} />;
         case "/products":
           return <ProductsPage onNavigate={navigate} />;
         case "/analytics":
@@ -540,6 +566,16 @@ function AuthenticatedApp() {
 
 export default function App() {
   const { isAuthenticated, isLoading } = useAuth();
+
+  // Public index page — no authentication required
+  const isIndexRoute =
+    window.location.pathname === "/" ||
+    window.location.pathname === "/index" ||
+    window.location.pathname === "";
+
+  if (isIndexRoute && !isAuthenticated && !isLoading) {
+    return <IndexPage />;
+  }
 
   if (isLoading) return <AppLoader />;
   if (!isAuthenticated) return <LoginPage />;

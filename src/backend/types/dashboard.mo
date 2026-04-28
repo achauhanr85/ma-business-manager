@@ -11,6 +11,8 @@ module {
     lead_count : Nat;
     active_count : Nat;
     inactive_count : Nat;
+    // Inventory KPI
+    out_of_stock_count : Nat;
   };
 
   public type MonthlySalesTrend = {

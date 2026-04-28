@@ -48,13 +48,27 @@ export interface InventoryMovementInput {
     quantity: bigint;
     to_warehouse: WarehouseName;
 }
+export interface LeadInput {
+    name: string;
+    business_name: string;
+    email: string;
+    message: string;
+    phone: string;
+}
+export interface Lead {
+    id: bigint;
+    name: string;
+    business_name: string;
+    created_at: Timestamp;
+    email: string;
+    message: string;
+    is_closed: boolean;
+    phone: string;
+    profile_link?: string;
+}
 export interface CyclesInfo {
     profiles_cycles: Array<ProfileCyclesEntry>;
     total_cycles: bigint;
-}
-export interface CustomerNoteInput {
-    text: string;
-    note_date: Timestamp;
 }
 export interface CustomerOrderDetail {
     sale: Sale;
@@ -67,6 +81,10 @@ export interface ReferralCommissionEntry {
     referral_user_principal: UserId;
     referral_user_display_name: string;
     profile_key: ProfileKey;
+}
+export interface CustomerNoteInput {
+    text: string;
+    note_date: Timestamp;
 }
 export interface CustomerInput {
     age?: bigint;
@@ -219,6 +237,7 @@ export interface Sale {
 }
 export interface DashboardStats {
     monthly_profit: number;
+    out_of_stock_count: bigint;
     inactive_count: bigint;
     total_inventory_value: number;
     active_count: bigint;
@@ -308,6 +327,7 @@ export interface ProfilePublic {
     fssai_number: string;
 }
 export interface UserPreferences {
+    theme: string;
     defaultReceiptLanguage: string;
     language: string;
     whatsappNumber: string;
@@ -482,6 +502,7 @@ export interface PurchaseOrderInput {
     vendor_id?: string;
 }
 export interface UserProfilePublic {
+    theme: string;
     principal: UserId;
     default_receipt_language: string;
     role: UserRole;
@@ -545,6 +566,7 @@ export interface Product {
     creation_date: Timestamp;
 }
 export interface UserProfileInput {
+    theme?: string;
     default_receipt_language?: string;
     email?: string;
     approval_status?: string;
@@ -636,6 +658,7 @@ export interface backendInterface {
      * / Use this in preview/development to start with a completely fresh state.
      */
     clearAllData(): Promise<void>;
+    closeLead(id: bigint, profile_link: string | null): Promise<boolean>;
     createBodyCompositionEntry(customerId: CustomerId, input: BodyCompositionInput): Promise<BodyCompositionEntry | null>;
     createBodyInchesEntry(customerId: CustomerId, input: BodyInchesInput): Promise<BodyInchesPublic>;
     createCategory(input: CategoryInput): Promise<CategoryId>;
@@ -659,6 +682,7 @@ export interface backendInterface {
     deleteCustomerNote(noteId: bigint, customerId: CustomerId): Promise<boolean>;
     deleteGoal(id: bigint): Promise<boolean>;
     deleteGoalMaster(id: bigint): Promise<boolean>;
+    deleteLead(id: bigint): Promise<boolean>;
     deleteMedicalIssue(id: bigint): Promise<boolean>;
     deleteMedicalIssueMaster(id: bigint): Promise<boolean>;
     deleteProduct(id: ProductId): Promise<boolean>;
@@ -696,6 +720,8 @@ export interface backendInterface {
     getInventoryLevels(): Promise<Array<InventoryLevel>>;
     getInventoryMovements(): Promise<Array<InventoryMovement>>;
     getLastSaleForCustomer(customer_id: CustomerId): Promise<CustomerOrderDetail | null>;
+    getLead(id: bigint): Promise<Lead | null>;
+    getLeads(): Promise<Array<Lead>>;
     getMedicalIssue(id: bigint): Promise<MedicalIssueMasterPublic | null>;
     getMedicalIssueMasterData(profileKey: ProfileKey): Promise<Array<MedicalIssueMasterPublic__1>>;
     getMonthlySalesTrend(): Promise<Array<MonthlySalesTrend>>;
@@ -723,6 +749,10 @@ export interface backendInterface {
     getSuperAdminStats(): Promise<SuperAdminStats>;
     getUserPreferences(): Promise<UserPreferences>;
     getUserProfile(): Promise<UserProfilePublic | null>;
+    /**
+     * / Wipe ALL stored data — clears every Map store and resets the super admin principal.
+     * / Use this in preview/development to start with a completely fresh state.
+     */
     getUsersByProfile(profile_key: ProfileKey): Promise<Array<UserProfilePublic>>;
     getVendor(vendorId: string): Promise<Vendor | null>;
     getVendors(profileKey: string): Promise<Array<Vendor>>;
@@ -745,6 +775,7 @@ export interface backendInterface {
     runBackgroundChecks(): Promise<bigint>;
     setProfileWindow(profile_key: ProfileKey, start_date: Timestamp | null, end_date: Timestamp | null): Promise<boolean>;
     setSuperAdminActiveProfile(profile_key: ProfileKey): Promise<boolean>;
+    submitLead(input: LeadInput): Promise<Lead>;
     updateCategory(id: CategoryId, input: CategoryInput): Promise<boolean>;
     updateCustomer(id: CustomerId, input: CustomerInput): Promise<boolean>;
     updateGoal(id: bigint, input: GoalMasterInput): Promise<boolean>;
@@ -756,7 +787,7 @@ export interface backendInterface {
     updateProfile(input: ProfileInput): Promise<boolean>;
     updateProfileKey(oldKey: ProfileKey, newKey: ProfileKey): Promise<boolean>;
     updateSale(input: UpdateSaleInput): Promise<boolean>;
-    updateUserPreferences(language: string, dateFormat: string, defaultReceiptLanguage: string, whatsappNumber: string): Promise<boolean>;
+    updateUserPreferences(language: string, dateFormat: string, defaultReceiptLanguage: string, whatsappNumber: string, theme: string): Promise<boolean>;
     updateUserProfile(input: UserProfileInput): Promise<boolean>;
     updateVendor(vendorId: string, input: VendorInput): Promise<boolean>;
 }

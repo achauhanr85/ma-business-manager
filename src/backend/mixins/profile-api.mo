@@ -46,21 +46,22 @@ mixin (
   /// so the app can immediately apply the correct language without a flash to English.
   public shared query ({ caller }) func getUserPreferences() : async UserTypes.UserPreferences {
     if (caller.isAnonymous()) {
-      return { language = "en"; dateFormat = "DD/MM/YYYY"; defaultReceiptLanguage = "en"; whatsappNumber = "" };
+      return { language = "en"; dateFormat = "DD/MM/YYYY"; defaultReceiptLanguage = "en"; whatsappNumber = ""; theme = "dark" };
     };
     ProfileLib.getUserPreferences(userStore, caller)
   };
 
-  /// Saves user preferences (language, date format, receipt language, whatsapp number).
+  /// Saves user preferences (language, date format, receipt language, whatsapp number, theme).
   /// Returns true on success.  Frontend should log out and prompt re-login to apply language.
   public shared ({ caller }) func updateUserPreferences(
     language : Text,
     dateFormat : Text,
     defaultReceiptLanguage : Text,
     whatsappNumber : Text,
+    theme : Text,
   ) : async Bool {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
-    ProfileLib.updateUserPreferences(userStore, caller, language, dateFormat, defaultReceiptLanguage, whatsappNumber)
+    ProfileLib.updateUserPreferences(userStore, caller, language, dateFormat, defaultReceiptLanguage, whatsappNumber, theme)
   };
 
   /// Returns the active profile_key for Super Admin impersonation context.

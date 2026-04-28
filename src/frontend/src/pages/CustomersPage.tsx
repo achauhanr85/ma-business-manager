@@ -41,11 +41,15 @@ import {
   useCheckCustomerDuplicate,
   useCreateBodyInchesEntry as useCreateBodyInchesEntryBackend,
   useCreateCustomer,
+  useCreateGoalMaster as useCreateGoalMasterBackend,
+  useCreateMedicalIssueMaster as useCreateMedicalIssueMasterBackend,
   useDeleteCustomer,
   useDeleteCustomerNote as useDeleteCustomerNoteBackend,
   useGetBodyInchesHistory as useGetBodyInchesHistoryBackend,
   useGetCustomerOrders,
   useGetCustomers,
+  useGetGoalMasterData,
+  useGetMedicalIssueMasterData,
   useGetReferralUsers,
   useGetUsersByProfile,
   useUpdateCustomer,
@@ -615,21 +619,6 @@ function useDeleteBodyCompositionEntry() {
   });
 }
 
-// ─── Goal / Medical Issue Master Types ───────────────────────────────────────
-
-interface GoalMaster {
-  id: bigint;
-  name: string;
-  description: string;
-  product_bundle: bigint[];
-}
-
-interface MedicalIssueMaster {
-  id: bigint;
-  name: string;
-  description: string;
-}
-
 // ─── Customer Note Type (multi-note) ─────────────────────────────────────────
 
 interface CustomerNote {
@@ -638,100 +627,6 @@ interface CustomerNote {
   note_date: bigint;
   created_by: string;
   creation_date: bigint;
-}
-
-// ─── Goal Master Hooks (local) ────────────────────────────────────────────────
-
-function useGetGoalMasterData(profileKey: string | null) {
-  const { actor, isFetching } = useBackendActor();
-  return useQuery<GoalMaster[]>({
-    queryKey: ["goal-master-data", profileKey],
-    queryFn: async () => {
-      if (!actor || !profileKey) return [];
-      const a = actor as unknown as Record<string, unknown>;
-      if (typeof a.getGoalMasterData !== "function") return [];
-      return (a.getGoalMasterData as (pk: string) => Promise<GoalMaster[]>)(
-        profileKey,
-      );
-    },
-    enabled: !!actor && !isFetching && !!profileKey,
-  });
-}
-
-function useCreateGoalMaster() {
-  const { actor } = useBackendActor();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      profileKey,
-      input,
-    }: {
-      profileKey: string;
-      input: { name: string; description: string; product_bundle: bigint[] };
-    }) => {
-      if (!actor) throw new Error("Actor not ready");
-      const a = actor as unknown as Record<string, unknown>;
-      if (typeof a.createGoalMaster !== "function")
-        throw new Error("createGoalMaster not available");
-      return (
-        a.createGoalMaster as (
-          pk: string,
-          inp: { name: string; description: string; product_bundle: bigint[] },
-        ) => Promise<bigint>
-      )(profileKey, input);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["goal-master-data"] });
-    },
-  });
-}
-
-// ─── Medical Issue Master Hooks (local) ──────────────────────────────────────
-
-function useGetMedicalIssueMasterData(profileKey: string | null) {
-  const { actor, isFetching } = useBackendActor();
-  return useQuery<MedicalIssueMaster[]>({
-    queryKey: ["medical-issue-master-data", profileKey],
-    queryFn: async () => {
-      if (!actor || !profileKey) return [];
-      const a = actor as unknown as Record<string, unknown>;
-      if (typeof a.getMedicalIssueMasterData !== "function") return [];
-      return (
-        a.getMedicalIssueMasterData as (
-          pk: string,
-        ) => Promise<MedicalIssueMaster[]>
-      )(profileKey);
-    },
-    enabled: !!actor && !isFetching && !!profileKey,
-  });
-}
-
-function useCreateMedicalIssueMaster() {
-  const { actor } = useBackendActor();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      profileKey,
-      input,
-    }: {
-      profileKey: string;
-      input: { name: string; description: string };
-    }) => {
-      if (!actor) throw new Error("Actor not ready");
-      const a = actor as unknown as Record<string, unknown>;
-      if (typeof a.createMedicalIssueMaster !== "function")
-        throw new Error("createMedicalIssueMaster not available");
-      return (
-        a.createMedicalIssueMaster as (
-          pk: string,
-          inp: { name: string; description: string },
-        ) => Promise<bigint>
-      )(profileKey, input);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["medical-issue-master-data"] });
-    },
-  });
 }
 
 // ─── Body Inches Hooks (re-exported from useBackend with profile-aware wrapper) ─
@@ -1758,6 +1653,7 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
   const updateCustomer = useUpdateCustomer();
   const checkDuplicate = useCheckCustomerDuplicate();
   const createBodyComp = useCreateBodyCompositionEntry();
+  const createBodyInchesEntry = useCreateBodyInchesEntryBackend();
 
   // Fetch all profile users for the "Created By" dropdown
   const profileKey = userProfile?.profile_key ?? null;
@@ -1769,8 +1665,8 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
   // Fetch goals and medical issues for multi-select
   const { data: allGoals = [] } = useGetGoalMasterData(profileKey);
   const { data: allIssues = [] } = useGetMedicalIssueMasterData(profileKey);
-  const createGoal = useCreateGoalMaster();
-  const createIssue = useCreateMedicalIssueMaster();
+  const createGoal = useCreateGoalMasterBackend();
+  const createIssue = useCreateMedicalIssueMasterBackend();
 
   // Auto-select logged-in user as "Referred By" if they are a referral user
   const currentUserIsReferral =
@@ -1796,6 +1692,10 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
     date: new Date().toISOString().split("T")[0],
   });
   const [hasBodyComp, setHasBodyComp] = useState(false);
+  const [bodyInchesOpen, setBodyInchesOpen] = useState(false);
+  const [bodyInchesForm, setBodyInchesForm] = useState<BodyInchesFormState>({
+    date: new Date().toISOString().split("T")[0],
+  });
   const nameCheckedRef = useRef<string>("");
 
   useEffect(() => {
@@ -1850,6 +1750,8 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
         });
         setBodyCompForm({ date: new Date().toISOString().split("T")[0] });
         setHasBodyComp(false);
+        setBodyInchesForm({ date: new Date().toISOString().split("T")[0] });
+        setBodyInchesOpen(false);
       }
       setGoalSearch("");
       setIssueSearch("");
@@ -2013,6 +1915,42 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
             );
           }
         }
+        // Save initial body inches entry if any field is filled
+        if (
+          profileKey &&
+          bodyInchesOpen &&
+          (bodyInchesForm.chest !== undefined ||
+            bodyInchesForm.biceps !== undefined ||
+            bodyInchesForm.waist !== undefined ||
+            bodyInchesForm.hips !== undefined ||
+            bodyInchesForm.thighs !== undefined ||
+            bodyInchesForm.calves !== undefined)
+        ) {
+          try {
+            const entryDate =
+              BigInt(
+                new Date(
+                  bodyInchesForm.date || new Date().toISOString().split("T")[0],
+                ).getTime(),
+              ) * BigInt(1_000_000);
+            await createBodyInchesEntry.mutateAsync({
+              customerId,
+              profileKey,
+              entryDate,
+              chest: bodyInchesForm.chest,
+              biceps: bodyInchesForm.biceps,
+              waist: bodyInchesForm.waist,
+              hips: bodyInchesForm.hips,
+              thighs: bodyInchesForm.thighs,
+              calves: bodyInchesForm.calves,
+            });
+          } catch {
+            // Non-blocking
+            toast.warning(
+              "Customer created, but body inches entry failed to save",
+            );
+          }
+        }
         toast.success("Customer added successfully");
         onClose();
       }
@@ -2026,7 +1964,8 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
   const loading =
     createCustomer.isPending ||
     updateCustomer.isPending ||
-    createBodyComp.isPending;
+    createBodyComp.isPending ||
+    createBodyInchesEntry.isPending;
   const showForm = dupState.step !== "found";
   const showDiscountValue = !!form.discount_applicable;
 
@@ -2663,14 +2602,16 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
                         ) {
                           e.preventDefault();
                           try {
-                            const newId = await createGoal.mutateAsync({
+                            const result = await createGoal.mutateAsync({
                               profileKey,
-                              input: {
-                                name: newGoalName.trim(),
-                                description: "",
-                                product_bundle: [],
-                              },
+                              name: newGoalName.trim(),
+                              description: "",
                             });
+                            // result may be the new GoalMasterPublic or a bigint id
+                            const newId =
+                              typeof result === "bigint"
+                                ? result
+                                : (result as { id: bigint }).id;
                             setSelectedGoalIds((prev) => [...prev, newId]);
                             setNewGoalName("");
                             setAddingGoal(false);
@@ -2687,14 +2628,15 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
                       onClick={async () => {
                         if (!newGoalName.trim() || !profileKey) return;
                         try {
-                          const newId = await createGoal.mutateAsync({
+                          const result = await createGoal.mutateAsync({
                             profileKey,
-                            input: {
-                              name: newGoalName.trim(),
-                              description: "",
-                              product_bundle: [],
-                            },
+                            name: newGoalName.trim(),
+                            description: "",
                           });
+                          const newId =
+                            typeof result === "bigint"
+                              ? result
+                              : (result as { id: bigint }).id;
                           setSelectedGoalIds((prev) => [...prev, newId]);
                           setNewGoalName("");
                           setAddingGoal(false);
@@ -2808,13 +2750,15 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
                         ) {
                           e.preventDefault();
                           try {
-                            const newId = await createIssue.mutateAsync({
+                            const result = await createIssue.mutateAsync({
                               profileKey,
-                              input: {
-                                name: newIssueName.trim(),
-                                description: "",
-                              },
+                              name: newIssueName.trim(),
+                              description: "",
                             });
+                            const newId =
+                              typeof result === "bigint"
+                                ? result
+                                : (result as { id: bigint }).id;
                             setSelectedIssueIds((prev) => [...prev, newId]);
                             setNewIssueName("");
                             setAddingIssue(false);
@@ -2831,13 +2775,15 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
                       onClick={async () => {
                         if (!newIssueName.trim() || !profileKey) return;
                         try {
-                          const newId = await createIssue.mutateAsync({
+                          const result = await createIssue.mutateAsync({
                             profileKey,
-                            input: {
-                              name: newIssueName.trim(),
-                              description: "",
-                            },
+                            name: newIssueName.trim(),
+                            description: "",
                           });
+                          const newId =
+                            typeof result === "bigint"
+                              ? result
+                              : (result as { id: bigint }).id;
                           setSelectedIssueIds((prev) => [...prev, newId]);
                           setNewIssueName("");
                           setAddingIssue(false);
@@ -2920,6 +2866,97 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
                           setHasBodyComp(true);
                         }}
                       />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Body Inches Section (Create only) */}
+              {!editing && (
+                <div className="rounded-lg border border-border bg-muted/10">
+                  <button
+                    type="button"
+                    className="w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium hover:bg-muted/20 transition-colors rounded-lg"
+                    onClick={() => setBodyInchesOpen((p) => !p)}
+                    data-ocid="customer.body_inches_toggle"
+                  >
+                    <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      <Ruler className="w-3.5 h-3.5" />
+                      Body Inches (optional)
+                    </span>
+                    {bodyInchesOpen ? (
+                      <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                    ) : (
+                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                    )}
+                  </button>
+                  {bodyInchesOpen && (
+                    <div
+                      className="px-3 pb-3 pt-1 space-y-3"
+                      data-ocid="customer.body_inches_section"
+                    >
+                      <div className="space-y-1.5">
+                        <Label htmlFor="bi-create-date" className="text-xs">
+                          Date
+                        </Label>
+                        <Input
+                          id="bi-create-date"
+                          type="date"
+                          className="h-8 text-xs"
+                          value={bodyInchesForm.date}
+                          onChange={(e) =>
+                            setBodyInchesForm((p) => ({
+                              ...p,
+                              date: e.target.value,
+                            }))
+                          }
+                          data-ocid="customer.body_inches.date.input"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        {(
+                          [
+                            ["chest", "Chest (in)"],
+                            ["biceps", "Biceps (in)"],
+                            ["waist", "Waist (in)"],
+                            ["hips", "Hips (in)"],
+                            ["thighs", "Thighs (in)"],
+                            ["calves", "Calves (in)"],
+                          ] as [
+                            keyof Omit<BodyInchesFormState, "date">,
+                            string,
+                          ][]
+                        ).map(([key, label]) => (
+                          <div key={key} className="space-y-1.5">
+                            <Label
+                              htmlFor={`bi-create-${key}`}
+                              className="text-xs"
+                            >
+                              {label}
+                            </Label>
+                            <Input
+                              id={`bi-create-${key}`}
+                              type="number"
+                              step="0.1"
+                              min={0}
+                              className="h-8 text-xs"
+                              value={
+                                bodyInchesForm[key] !== undefined
+                                  ? String(bodyInchesForm[key])
+                                  : ""
+                              }
+                              onChange={(e) => {
+                                const v =
+                                  e.target.value === ""
+                                    ? undefined
+                                    : Number.parseFloat(e.target.value);
+                                setBodyInchesForm((p) => ({ ...p, [key]: v }));
+                              }}
+                              data-ocid={`customer.body_inches.${key}.input`}
+                            />
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>

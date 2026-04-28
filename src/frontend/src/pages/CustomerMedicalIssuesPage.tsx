@@ -21,17 +21,17 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { useProfile } from "@/contexts/ProfileContext";
+import {
+  useCreateMedicalIssueMaster,
+  useDeleteMedicalIssueMaster,
+  useGetMedicalIssueMasterData,
+  useUpdateMedicalIssueMaster,
+} from "@/hooks/useBackend";
+import type { MedicalIssueMasterPublic } from "@/hooks/useBackend";
 import { ROLES } from "@/types";
-import { useActor } from "@caffeineai/core-infrastructure";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, Download, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { createActor } from "../backend";
-import type {
-  MedicalIssueMasterInput,
-  MedicalIssueMasterPublic,
-} from "../backend.d";
 
 interface CustomerMedicalIssuesPageProps {
   onNavigate?: (path: string) => void;
@@ -46,79 +46,18 @@ interface IssueFormState {
 
 const EMPTY_FORM: IssueFormState = { name: "", description: "" };
 
-// ─── Actor helper ─────────────────────────────────────────────────────────────
-
-function useBackendActor() {
-  return useActor(createActor);
-}
-
-// ─── Hooks ────────────────────────────────────────────────────────────────────
-
-function useListMedicalIssues() {
-  const { actor, isFetching } = useBackendActor();
-  return useQuery<MedicalIssueMasterPublic[]>({
-    queryKey: ["medical-issues"],
-    queryFn: async () => {
-      if (!actor) return [];
-      return actor.listMedicalIssues();
-    },
-    enabled: !!actor && !isFetching,
-  });
-}
-
-function useCreateMedicalIssue() {
-  const { actor } = useBackendActor();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: MedicalIssueMasterInput) => {
-      if (!actor) throw new Error("Actor not ready");
-      return actor.createMedicalIssue(input);
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["medical-issues"] }),
-  });
-}
-
-function useUpdateMedicalIssue() {
-  const { actor } = useBackendActor();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      id,
-      input,
-    }: {
-      id: bigint;
-      input: MedicalIssueMasterInput;
-    }) => {
-      if (!actor) throw new Error("Actor not ready");
-      return actor.updateMedicalIssue(id, input);
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["medical-issues"] }),
-  });
-}
-
-function useDeleteMedicalIssue() {
-  const { actor } = useBackendActor();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: bigint) => {
-      if (!actor) throw new Error("Actor not ready");
-      return actor.deleteMedicalIssue(id);
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["medical-issues"] }),
-  });
-}
-
 // ─── Issue Form Dialog ────────────────────────────────────────────────────────
 
 interface IssueDialogProps {
   open: boolean;
   editing: MedicalIssueMasterPublic | null;
+  profileKey: string;
   onClose: () => void;
 }
 
-function IssueDialog({ open, editing, onClose }: IssueDialogProps) {
-  const createIssue = useCreateMedicalIssue();
-  const updateIssue = useUpdateMedicalIssue();
+function IssueDialog({ open, editing, profileKey, onClose }: IssueDialogProps) {
+  const createIssue = useCreateMedicalIssueMaster();
+  const updateIssue = useUpdateMedicalIssueMaster();
   const [form, setForm] = useState<IssueFormState>(EMPTY_FORM);
   const prevOpenRef = useRef(open);
 
@@ -142,16 +81,20 @@ function IssueDialog({ open, editing, onClose }: IssueDialogProps) {
       toast.error("Issue name is required");
       return;
     }
-    const input: MedicalIssueMasterInput = {
-      name: form.name.trim(),
-      description: form.description,
-    };
     try {
       if (editing) {
-        await updateIssue.mutateAsync({ id: editing.id, input });
+        await updateIssue.mutateAsync({
+          id: editing.id,
+          name: form.name.trim(),
+          description: form.description,
+        });
         toast.success("Medical issue updated");
       } else {
-        await createIssue.mutateAsync(input);
+        await createIssue.mutateAsync({
+          profileKey,
+          name: form.name.trim(),
+          description: form.description,
+        });
         toast.success("Medical issue created");
       }
       onClose();
@@ -184,6 +127,7 @@ function IssueDialog({ open, editing, onClose }: IssueDialogProps) {
               onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
               placeholder="e.g. Diabetes, Hypertension"
               required
+              autoFocus
             />
           </div>
           <div className="space-y-1.5">
@@ -259,12 +203,24 @@ export function CustomerMedicalIssuesPage({
   onNavigate: _onNavigate,
 }: CustomerMedicalIssuesPageProps) {
   const { userProfile } = useProfile();
-  const { data: issues = [], isLoading, isError } = useListMedicalIssues();
-  const deleteIssueMut = useDeleteMedicalIssue();
-  const createIssueMut = useCreateMedicalIssue();
+
+  // Profile key — Super Admin may not have one
+  const profileKey = userProfile?.profile_key ?? null;
+
+  const {
+    data: issues = [],
+    isLoading,
+    isError,
+  } = useGetMedicalIssueMasterData(profileKey);
+  const deleteIssueMut = useDeleteMedicalIssueMaster();
+  const createIssueForImport = useCreateMedicalIssueMaster();
 
   const role = userProfile?.role as string | undefined;
-  const canEdit = role === ROLES.ADMIN || role === ROLES.STAFF;
+  const canEdit =
+    role === ROLES.ADMIN ||
+    role === ROLES.STAFF ||
+    role === "superAdmin" ||
+    role === undefined;
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<MedicalIssueMasterPublic | null>(null);
@@ -295,6 +251,10 @@ export function CustomerMedicalIssuesPage({
   }
 
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+    if (!profileKey) {
+      toast.error("No profile key — cannot import");
+      return;
+    }
     const file = e.target.files?.[0];
     if (!file) return;
     const text = await file.text();
@@ -311,7 +271,11 @@ export function CustomerMedicalIssuesPage({
       const description = (cols[1] ?? "").replace(/^"|"$/g, "").trim();
       if (!name) continue;
       try {
-        await createIssueMut.mutateAsync({ name, description });
+        await createIssueForImport.mutateAsync({
+          profileKey,
+          name,
+          description,
+        });
         created++;
       } catch {
         failed++;
@@ -321,6 +285,29 @@ export function CustomerMedicalIssuesPage({
       `Import complete: ${created} created${failed > 0 ? `, ${failed} failed` : ""}`,
     );
     if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  // No profile key
+  if (!profileKey) {
+    return (
+      <div className="space-y-4" data-ocid="medical_issues.page">
+        <div className="flex items-center gap-2">
+          <Activity className="w-6 h-6 text-primary" />
+          <h1 className="text-2xl font-display font-semibold tracking-tight">
+            Customer Medical Issues
+          </h1>
+        </div>
+        <div
+          className="flex flex-col items-center gap-3 py-16 text-muted-foreground rounded-lg border border-dashed border-border"
+          data-ocid="medical_issues.empty_state"
+        >
+          <Activity className="w-12 h-12 opacity-20" />
+          <p className="text-sm text-muted-foreground">
+            Select a business profile to manage medical issues.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -336,49 +323,51 @@ export function CustomerMedicalIssuesPage({
             Define medical conditions to associate with customers
           </p>
         </div>
-        {canEdit && (
-          <div className="flex items-center gap-2 flex-wrap">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => exportIssuesCSV(issues)}
-              disabled={issues.length === 0}
-              data-ocid="medical_issues.export_button"
-            >
-              <Download className="w-3.5 h-3.5 mr-1.5" />
-              Export CSV
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={downloadIssueTemplate}
-              data-ocid="medical_issues.template_button"
-            >
-              <Download className="w-3.5 h-3.5 mr-1.5" />
-              Template
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => fileInputRef.current?.click()}
-              data-ocid="medical_issues.import_button"
-            >
-              <Upload className="w-3.5 h-3.5 mr-1.5" />
-              Import CSV
-            </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".csv"
-              className="hidden"
-              onChange={handleImport}
-            />
-            <Button onClick={openAdd} data-ocid="medical_issues.add_button">
-              <Plus className="w-4 h-4 mr-1.5" />
-              Add Medical Issue
-            </Button>
-          </div>
-        )}
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => exportIssuesCSV(issues)}
+            disabled={issues.length === 0}
+            data-ocid="medical_issues.export_button"
+          >
+            <Download className="w-3.5 h-3.5 mr-1.5" />
+            Export CSV
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={downloadIssueTemplate}
+            data-ocid="medical_issues.template_button"
+          >
+            <Download className="w-3.5 h-3.5 mr-1.5" />
+            Template
+          </Button>
+          {canEdit && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                data-ocid="medical_issues.import_button"
+              >
+                <Upload className="w-3.5 h-3.5 mr-1.5" />
+                Import CSV
+              </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv"
+                className="hidden"
+                onChange={handleImport}
+              />
+              <Button onClick={openAdd} data-ocid="medical_issues.add_button">
+                <Plus className="w-4 h-4 mr-1.5" />
+                Add Medical Issue
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Error state */}
@@ -530,6 +519,7 @@ export function CustomerMedicalIssuesPage({
       <IssueDialog
         open={dialogOpen}
         editing={editing}
+        profileKey={profileKey}
         onClose={() => {
           setDialogOpen(false);
           setEditing(null);

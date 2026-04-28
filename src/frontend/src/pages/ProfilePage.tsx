@@ -25,6 +25,7 @@ import {
   useUpdateUserProfile,
 } from "@/hooks/useBackend";
 import { hexToOklch } from "@/lib/color";
+import { useTranslation } from "@/translations";
 import {
   AlertCircle,
   AtSign,
@@ -807,6 +808,7 @@ function BusinessForm({
 }: BusinessFormProps) {
   const { refetchProfile } = useProfile();
   const updateProfile = useUpdateProfile();
+  const t = useTranslation();
 
   const [form, setForm] = useState<ExtendedProfileForm>(EMPTY_FORM);
   const [errors, setErrors] = useState<BusinessFormErrors>({});
@@ -818,7 +820,11 @@ function BusinessForm({
   // Hydrate form whenever profile data changes
   useEffect(() => {
     if (profileData) {
-      const instagramHandle = getInstagramHandle(profileData.profile_key);
+      // BUG FIX: Read instagram_handle from backend profileData first,
+      // fall back to localStorage for backwards compatibility
+      const backendInstagram = profileData.instagram_handle ?? "";
+      const localInstagram = getInstagramHandle(profileData.profile_key);
+      const instagramHandle = backendInstagram || localInstagram;
       setForm({
         business_name: profileData.business_name ?? "",
         phone_number: profileData.phone_number ?? "",
@@ -897,13 +903,11 @@ function BusinessForm({
       const success = await updateProfile.mutateAsync(saveInput);
 
       if (!success) {
-        toast.error(
-          "Profile update was rejected by the server. Please try again.",
-        );
+        toast.error(t.profile.profileError);
         return;
       }
 
-      // Save instagram handle to localStorage (scoped by profile key)
+      // Save instagram handle to localStorage (scoped by profile key) as cache
       setInstagramHandle(form.profile_key, form.instagram_handle.trim());
 
       setSaved(true);
@@ -921,13 +925,13 @@ function BusinessForm({
         }
       }
 
-      toast.success("Profile saved!", {
+      toast.success(t.profile.profileSaved, {
         description: "Your business information has been updated.",
         icon: <CheckCircle2 className="w-4 h-4 text-primary" />,
       });
     } catch (err) {
       console.error("Profile save error:", err);
-      toast.error("Failed to save profile", {
+      toast.error(t.profile.profileError, {
         description: "Please check your connection and try again.",
       });
     }
@@ -943,7 +947,7 @@ function BusinessForm({
             </div>
             <div className="min-w-0">
               <CardTitle className="text-base font-display">
-                Business Information
+                {t.profile.title}
               </CardTitle>
               <CardDescription className="text-xs mt-0.5">
                 {isSuperAdmin
@@ -1225,17 +1229,17 @@ function BusinessForm({
               {updateProfile.isPending ? (
                 <span className="flex items-center gap-2">
                   <span className="w-4 h-4 border-2 border-primary-foreground/40 border-t-primary-foreground rounded-full animate-spin" />
-                  Saving…
+                  {t.common.loading}
                 </span>
               ) : saved ? (
                 <span className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4" />
-                  Saved
+                  {t.common.success}
                 </span>
               ) : (
                 <span className="flex items-center gap-2">
                   <Save className="w-4 h-4" />
-                  Save Profile
+                  {t.profile.saveProfile}
                 </span>
               )}
             </Button>

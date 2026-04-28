@@ -3,7 +3,7 @@ import Runtime "mo:core/Runtime";
 import Time "mo:core/Time";
 import Timer "mo:core/Timer";
 
-import Migration "migration";
+
 
 import ProfileLib "lib/profile";
 import CatalogLib "lib/catalog";
@@ -16,6 +16,7 @@ import LocationMasterLib "lib/location-master";
 import NotificationsLib "lib/notifications";
 import GoalsLib "lib/goals";
 import CustomerGoalsMedicalLib "lib/customer-goals-medical";
+import LeadsLib "lib/leads";
 
 import ProfileApi "mixins/profile-api";
 import CatalogApi "mixins/catalog-api";
@@ -29,13 +30,15 @@ import LocationMasterApi "mixins/location-master-api";
 import NotificationsApi "mixins/notifications-api";
 import GoalsApi "mixins/goals-api";
 import CustomerGoalsMedicalApi "mixins/customer-goals-medical-api";
+import LeadsApi "mixins/leads-api";
 
 import Common "types/common";
 import UserTypes "types/users";
 
 
 
-(with migration = Migration.run)
+
+
 actor {
   // --- Profile state ---
   let profileStore : ProfileLib.Store = Map.empty();
@@ -80,6 +83,9 @@ actor {
   let medicalIssueMasterStore : CustomerGoalsMedicalLib.MedicalIssueMasterStore = Map.empty();
   let bodyInchesStore2 : CustomerGoalsMedicalLib.BodyInchesStore = Map.empty();
   let customerNoteStore : CustomerGoalsMedicalLib.CustomerNoteStore = Map.empty();
+
+  // --- Leads state (public marketing page submissions) ---
+  let leadStore : LeadsLib.LeadStore = Map.empty();
 
   // --- Super Admin principal (set once via initSuperAdmin) ---
   var superAdminPrincipal : ?Common.UserId = null;
@@ -142,6 +148,7 @@ actor {
     medicalIssueMasterStore.clear();
     bodyInchesStore2.clear();
     customerNoteStore.clear();
+    leadStore.clear();
     // Re-seed location master after clearing
     LocationMasterLib.seedIfEmpty(locationMasterStore);
     superAdminPrincipal := null;
@@ -175,6 +182,7 @@ actor {
           language_preference = "en";
           date_format = "DD/MM/YYYY";
           default_receipt_language = "en";
+          theme = "dark";
           created_by = principal;
           last_updated_by = principal;
           creation_date = now;
@@ -249,4 +257,5 @@ actor {
   include NotificationsApi(notificationsStore, saleStore, customerStore, userStore, profileStore);
   include GoalsApi(goalStore, medicalIssueStore, bodyInchesStore, userStore);
   include CustomerGoalsMedicalApi(goalMasterStore, medicalIssueMasterStore, bodyInchesStore2, customerNoteStore, customerStore, profileStore, userStore);
+  include LeadsApi(leadStore, userStore);
 };

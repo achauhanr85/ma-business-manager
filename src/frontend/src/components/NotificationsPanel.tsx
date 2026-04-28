@@ -7,6 +7,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { useProfile } from "@/contexts/ProfileContext";
+import { useTranslation } from "@/translations";
 import { useActor } from "@caffeineai/core-infrastructure";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -25,13 +27,18 @@ import {
 import { useEffect, useRef } from "react";
 import { createActor } from "../backend";
 import type { Notification } from "../backend";
-import { useProfile } from "../contexts/ProfileContext";
 
 function useBackendActor() {
   return useActor(createActor);
 }
 
-function useGetNotificationsLocal(
+/**
+ * BUG-04 FIX: Fetch notifications for the current user via getNotificationsForUser().
+ * This API merges personal notifications (welcome, account-level) + role-scoped
+ * notifications (staff approvals, profile registrations) in one call.
+ * Falls back to getNotifications(profileKey, targetRole) if the merged API is unavailable.
+ */
+function useGetNotificationsForCurrentUser(
   profileKey: string | null,
   targetRole: string | null,
 ) {
@@ -39,11 +46,22 @@ function useGetNotificationsLocal(
   return useQuery<Notification[]>({
     queryKey: ["notifications", profileKey, targetRole],
     queryFn: async () => {
-      if (!actor || !profileKey || !targetRole) return [];
+      if (!actor) return [];
+      // Prefer getNotificationsForUser() — returns ALL notifications for caller
+      if (typeof actor.getNotificationsForUser === "function") {
+        try {
+          const results = await actor.getNotificationsForUser();
+          return Array.isArray(results) ? results : [];
+        } catch {
+          // Fall through to old API
+        }
+      }
+      // Fallback: old profileKey + targetRole scoped query
+      if (!profileKey || !targetRole) return [];
       if (typeof actor.getNotifications !== "function") return [];
       return actor.getNotifications(profileKey, targetRole);
     },
-    enabled: !!actor && !isFetching && !!profileKey && !!targetRole,
+    enabled: !!actor && !isFetching,
     refetchInterval: 60_000,
   });
 }
@@ -98,6 +116,7 @@ function notificationIcon(type: string) {
       return <DollarSign className="w-4 h-4 text-orange-500" />;
     case "WelcomeNotification":
     case "Welcome":
+    case "welcome":
       return <Smile className="w-4 h-4 text-primary" />;
     case "NewProfileRegistered":
     case "profile_registered":
@@ -247,6 +266,9 @@ export function NotificationsPanel({
   onNavigate,
 }: NotificationsPanelProps) {
   const { profile, userProfile } = useProfile();
+  const t = useTranslation();
+
+  // BUG-04 FIX: Derive profileKey and targetRole from context
   const profileKey = profile?.profile_key ?? userProfile?.profile_key ?? null;
   const targetRole = userProfile?.role
     ? typeof userProfile.role === "string"
@@ -254,15 +276,16 @@ export function NotificationsPanel({
       : String(userProfile.role)
     : null;
 
-  const { data: notifications = [], isLoading } = useGetNotificationsLocal(
-    profileKey,
-    targetRole,
-  );
+  // BUG-04 FIX: Use merged getNotificationsForUser() API
+  const { data: notifications = [], isLoading } =
+    useGetNotificationsForCurrentUser(profileKey, targetRole);
+
   const checkAndCreate = useCheckAndCreateNotificationsLocal(profileKey);
   const checkAndCreateRef = useRef(checkAndCreate);
   checkAndCreateRef.current = checkAndCreate;
 
   // Trigger backend notification scan on mount and every 5 minutes
+  // This also creates welcome notification for first-time users
   useEffect(() => {
     if (profileKey) checkAndCreateRef.current.mutate();
     const interval = setInterval(
@@ -282,6 +305,12 @@ export function NotificationsPanel({
   }
 
   // Group notifications by type
+  const welcomeNotifs = notifications.filter(
+    (n) =>
+      n.notification_type === "WelcomeNotification" ||
+      n.notification_type === "Welcome" ||
+      n.notification_type === "welcome",
+  );
   const staffAlerts = notifications.filter(
     (n) => n.notification_type === "StaffPendingApproval",
   );
@@ -306,6 +335,9 @@ export function NotificationsPanel({
   );
   const others = notifications.filter(
     (n) =>
+      n.notification_type !== "WelcomeNotification" &&
+      n.notification_type !== "Welcome" &&
+      n.notification_type !== "welcome" &&
       n.notification_type !== "StaffPendingApproval" &&
       n.notification_type !== "PaymentOverdue" &&
       n.notification_type !== "CustomerFollowUp" &&
@@ -328,13 +360,12 @@ export function NotificationsPanel({
           STICKY PANEL HEADER
           - Title on the left, close button on the RIGHT in the same flex row
           - z-10 keeps it above scrollable content but does NOT overlap content action buttons
-          - The close button is part of the header row, not a floating overlay
         */}
         <SheetHeader className="px-4 py-3 border-b border-border flex-shrink-0 sticky top-0 z-10 bg-card">
           <div className="flex items-center justify-between gap-2">
             <SheetTitle className="flex items-center gap-2 text-base font-semibold">
               <Bell className="w-4 h-4 text-primary" />
-              Notifications
+              {t.notifications.title}
               {unreadCount > 0 && (
                 <Badge
                   variant="destructive"
@@ -351,7 +382,7 @@ export function NotificationsPanel({
               size="icon"
               className="h-7 w-7 flex-shrink-0"
               onClick={onClose}
-              aria-label="Close notifications"
+              aria-label={t.common.close}
               data-ocid="notifications.close_button"
             >
               <X className="w-4 h-4" />
@@ -367,7 +398,9 @@ export function NotificationsPanel({
               data-ocid="notifications.loading_state"
             >
               <div className="w-6 h-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-              <p className="text-sm text-muted-foreground">Loading…</p>
+              <p className="text-sm text-muted-foreground">
+                {t.common.loading}
+              </p>
             </div>
           ) : notifications.length === 0 ? (
             <div
@@ -381,11 +414,17 @@ export function NotificationsPanel({
                 All caught up!
               </p>
               <p className="text-xs text-muted-foreground text-center px-8">
-                No pending notifications right now.
+                {t.notifications.noNotifications}
               </p>
             </div>
           ) : (
             <div className="divide-y divide-border">
+              <NotificationGroup
+                title="Welcome"
+                notifications={welcomeNotifs}
+                ocid="notifications.welcome_section"
+                onNavigate={handleNavigate}
+              />
               <NotificationGroup
                 title="Staff Approvals"
                 notifications={staffAlerts}
@@ -438,13 +477,14 @@ export function NotificationsBellButton({
   onClick: () => void;
   unreadCount: number;
 }) {
+  const t = useTranslation();
   return (
     <Button
       variant="ghost"
       size="icon"
       className="h-8 w-8 relative"
       onClick={onClick}
-      aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ""}`}
+      aria-label={`${t.notifications.title}${unreadCount > 0 ? `, ${unreadCount} unread` : ""}`}
       data-ocid="header.notifications_button"
     >
       <Bell className="w-4 h-4" />

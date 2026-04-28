@@ -5,18 +5,21 @@ import {
   DATE_FORMAT_OPTIONS,
   UserPreferencesContext,
 } from "@/contexts/UserPreferencesContext";
+import type { ThemeName } from "@/contexts/UserPreferencesContext";
 import { useAuth } from "@/hooks/useAuth";
+import { useTranslation } from "@/translations";
 import {
   Calendar,
   CheckCircle2,
   Globe,
   Languages,
   LogOut,
+  Palette,
   Receipt,
   RefreshCw,
   Save,
 } from "lucide-react";
-import { useContext, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 interface UserPreferencesPageProps {
@@ -24,21 +27,31 @@ interface UserPreferencesPageProps {
 }
 
 const LANGUAGES = [
-  { value: "en", label: "English", flag: "🇬🇧" },
-  { value: "gu", label: "ગુજરાતી (Gujarati)", flag: "🇮🇳" },
-  { value: "hi", label: "हिंदी (Hindi)", flag: "🇮🇳" },
+  { value: "en", flag: "🇬🇧" },
+  { value: "gu", flag: "🇮🇳" },
+  { value: "hi", flag: "🇮🇳" },
 ] as const;
 
 type Language = "en" | "gu" | "hi";
+
+/** Visual theme options */
+const THEMES: { value: ThemeName; emoji: string; descKey: string }[] = [
+  { value: "dark", emoji: "🌑", descKey: "themeDark" },
+  { value: "herbal", emoji: "🌿", descKey: "themeHerbal" },
+  { value: "minimalist", emoji: "⬜", descKey: "themeMinimalist" },
+  { value: "punk", emoji: "⚡", descKey: "themePunk" },
+];
 
 export function UserPreferencesPage({
   onNavigate: _onNavigate,
 }: UserPreferencesPageProps) {
   const {
     language,
+    theme,
     dateFormat,
     defaultReceiptLanguage,
     updateLanguage,
+    updateTheme,
     updateDateFormat,
     updateDefaultReceiptLanguage,
     saveAllPreferences,
@@ -46,19 +59,26 @@ export function UserPreferencesPage({
   } = useContext(UserPreferencesContext);
 
   const { logout } = useAuth();
+  const t = useTranslation();
   const [isSaving, setIsSaving] = useState(false);
+  const logoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (logoutTimerRef.current !== null) {
+        clearTimeout(logoutTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleSave = async () => {
     setIsSaving(true);
     try {
       const ok = await saveAllPreferences();
       if (ok) {
-        toast.success(
-          "Preferences saved. Please log in again to see updated changes.",
-          { duration: 5000 },
-        );
+        toast.success(t.userPreferences.preferencesSaved, { duration: 5000 });
         // Short delay so the user can read the toast, then logout
-        setTimeout(() => {
+        logoutTimerRef.current = setTimeout(() => {
           logout();
         }, 1800);
       } else {
@@ -82,6 +102,12 @@ export function UserPreferencesPage({
     );
   }
 
+  const langLabels: Record<Language, string> = {
+    en: t.userPreferences.english,
+    gu: t.userPreferences.gujarati,
+    hi: t.userPreferences.hindi,
+  };
+
   return (
     <div className="space-y-6 max-w-xl pb-8" data-ocid="user_preferences.page">
       {/* Header */}
@@ -92,7 +118,7 @@ export function UserPreferencesPage({
           </div>
           <div>
             <h1 className="text-xl font-display font-bold text-foreground">
-              User Preferences
+              {t.userPreferences.title}
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
               Personalise your app experience. Saved per user account.
@@ -101,12 +127,66 @@ export function UserPreferencesPage({
         </div>
       </div>
 
+      {/* Theme selector */}
+      <Card data-ocid="user_preferences.theme_section">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <Palette className="w-4 h-4 text-primary" />
+            {t.userPreferences.theme}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            {THEMES.map((th) => {
+              const label = t.userPreferences[
+                th.descKey as keyof typeof t.userPreferences
+              ] as string;
+              return (
+                <label
+                  key={th.value}
+                  className={`
+                    flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors
+                    ${
+                      theme === th.value
+                        ? "border-primary bg-primary/5 shadow-sm"
+                        : "border-border hover:bg-muted/40"
+                    }
+                  `}
+                  data-ocid={`user_preferences.theme_${th.value}`}
+                >
+                  <input
+                    type="radio"
+                    name="theme"
+                    value={th.value}
+                    checked={theme === th.value}
+                    onChange={() => updateTheme(th.value)}
+                    className="accent-primary"
+                  />
+                  <span className="text-lg">{th.emoji}</span>
+                  <span className="text-sm font-medium text-foreground flex-1">
+                    {label}
+                  </span>
+                  {theme === th.value && (
+                    <CheckCircle2 className="w-4 h-4 text-primary flex-shrink-0" />
+                  )}
+                </label>
+              );
+            })}
+          </div>
+          <p className="text-xs text-muted-foreground pt-1">
+            Theme preview applies instantly. Save to persist across logins.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Separator />
+
       {/* Language */}
       <Card data-ocid="user_preferences.language_section">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
             <Languages className="w-4 h-4 text-primary" />
-            Application Language
+            {t.userPreferences.language}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -134,7 +214,7 @@ export function UserPreferencesPage({
                 />
                 <span className="text-lg">{lang.flag}</span>
                 <span className="text-sm font-medium text-foreground flex-1">
-                  {lang.label}
+                  {langLabels[lang.value]}
                 </span>
                 {language === lang.value && (
                   <CheckCircle2 className="w-4 h-4 text-primary flex-shrink-0" />
@@ -152,7 +232,7 @@ export function UserPreferencesPage({
             </p>
           </div>
 
-          {/* Refresh button — re-applies saved language to current session immediately */}
+          {/* Refresh button — re-applies saved language to current session */}
           <Button
             type="button"
             variant="outline"
@@ -174,7 +254,7 @@ export function UserPreferencesPage({
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
             <Calendar className="w-4 h-4 text-primary" />
-            Date Format
+            {t.userPreferences.dateFormat}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -219,7 +299,7 @@ export function UserPreferencesPage({
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
             <Receipt className="w-4 h-4 text-primary" />
-            Default Receipt Language
+            {t.userPreferences.defaultReceiptLanguage}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -253,7 +333,7 @@ export function UserPreferencesPage({
                 />
                 <span className="text-lg">{lang.flag}</span>
                 <span className="text-sm font-medium text-foreground flex-1">
-                  {lang.label}
+                  {langLabels[lang.value]}
                 </span>
                 {defaultReceiptLanguage === lang.value && (
                   <CheckCircle2 className="w-4 h-4 text-primary flex-shrink-0" />
@@ -284,7 +364,7 @@ export function UserPreferencesPage({
           ) : (
             <>
               <Save className="w-4 h-4" />
-              Save Preferences
+              {t.userPreferences.savePreferences}
             </>
           )}
         </Button>

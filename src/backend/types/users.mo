@@ -30,6 +30,7 @@ module {
     language_preference : Text;              // BCP-47 language code, default "en"
     date_format : Text;                      // e.g. "DD/MM/YYYY", "MM/DD/YYYY", "YYYY-MM-DD"
     default_receipt_language : Text;         // BCP-47 language code for generated receipts, default "en"
+    theme : Text;                            // UI theme name: "dark" | "minimalist" | "herbal" | "punk", default "dark"
 
     // Who-columns
     created_by : Common.UserId;
@@ -51,6 +52,7 @@ module {
     language_preference : ?Text;
     date_format : ?Text;
     default_receipt_language : ?Text;
+    theme : ?Text;                       // UI theme: "dark" | "minimalist" | "herbal" | "punk"
   };
 
   // Public projection
@@ -69,6 +71,7 @@ module {
     language_preference : Text;
     date_format : Text;
     default_receipt_language : Text;
+    theme : Text;                        // UI theme name
   };
 
   // ── UserPreferences ───────────────────────────────────────────────────────────
@@ -79,5 +82,6 @@ module {
     dateFormat : Text;             // e.g. "DD/MM/YYYY"
     defaultReceiptLanguage : Text; // BCP-47 language code for generated receipts
     whatsappNumber : Text;         // WhatsApp number mapped to this user
+    theme : Text;                  // UI theme: "dark" | "minimalist" | "herbal" | "punk"
   };
 };

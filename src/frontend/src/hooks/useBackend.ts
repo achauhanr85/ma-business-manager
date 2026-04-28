@@ -356,6 +356,36 @@ export function useGetSales() {
   });
 }
 
+/**
+ * BUG-06: Fetch sales scoped to a profile key.
+ * Admin must see ALL orders for their profile — filtered by profile_key only, NOT by user_id.
+ * Prefers getSalesHistory(profileKey) if available; falls back to getSales().
+ */
+export function useGetSalesByProfile(profileKey: string | null) {
+  const { actor, isFetching } = useBackendActor();
+  return useQuery({
+    queryKey: ["sales-by-profile", profileKey],
+    queryFn: async () => {
+      if (!actor || !profileKey) return [];
+      try {
+        const a = actor as unknown as Record<string, unknown>;
+        if (typeof a.getSalesHistory === "function") {
+          const result = await (
+            a.getSalesHistory as (pk: string) => Promise<unknown[]>
+          )(profileKey);
+          return Array.isArray(result) ? result : [];
+        }
+        // Fallback: getSales() is already profile-scoped by the backend caller context
+        const result = await actor.getSales();
+        return Array.isArray(result) ? result : [];
+      } catch {
+        return [];
+      }
+    },
+    enabled: !!actor && !isFetching && !!profileKey,
+  });
+}
+
 export function useGetSaleItems(saleId: bigint | null) {
   const { actor, isFetching } = useBackendActor();
   return useQuery({
@@ -2091,6 +2121,78 @@ export function useAddPaymentEntry() {
         queryKey: ["payment-history", vars.saleId.toString()],
       });
       qc.invalidateQueries({ queryKey: ["sales"] });
+    },
+  });
+}
+
+// ─── Leads (Super Admin) ──────────────────────────────────────────────────────
+
+export interface LeadPublic {
+  id: bigint;
+  name: string;
+  business_name: string;
+  phone: string;
+  email: string;
+  message: string;
+  created_at: bigint;
+  is_closed: boolean;
+  profile_link?: string;
+}
+
+export function useGetLeads() {
+  const { actor, isFetching } = useBackendActor();
+  return useQuery<LeadPublic[]>({
+    queryKey: ["leads"],
+    queryFn: async () => {
+      if (!actor) return [];
+      const a = actor as unknown as Record<string, unknown>;
+      if (typeof a.getLeads !== "function") return [];
+      return (a.getLeads as () => Promise<LeadPublic[]>)();
+    },
+    enabled: !!actor && !isFetching,
+    staleTime: 30_000,
+  });
+}
+
+export function useCloseLead() {
+  const { actor } = useBackendActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      profileLink,
+    }: {
+      id: bigint;
+      profileLink: string;
+    }) => {
+      if (!actor) throw new Error("Actor not ready");
+      const a = actor as unknown as Record<string, unknown>;
+      if (typeof a.closeLead !== "function")
+        throw new Error("closeLead not available");
+      return (a.closeLead as (id: bigint, link: string) => Promise<boolean>)(
+        id,
+        profileLink,
+      );
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["leads"] });
+    },
+  });
+}
+
+export function useDeleteLead() {
+  const { actor } = useBackendActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: bigint) => {
+      if (!actor) throw new Error("Actor not ready");
+      const a = actor as unknown as Record<string, unknown>;
+      if (typeof a.deleteLead !== "function")
+        throw new Error("deleteLead not available");
+      return (a.deleteLead as (id: bigint) => Promise<boolean>)(id);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["leads"] });
     },
   });
 }

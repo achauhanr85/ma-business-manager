@@ -12,9 +12,25 @@ mixin (
   userStore : ProfileLib.UserStore,
   profileStore : ProfileLib.Store,
 ) {
+  /// Returns unread notifications for a profile + role, plus any personal notifications
+  /// for the caller (welcome messages etc.).  Merges both query paths.
+  /// For Super Admin callers, also fetches system-level SuperAdmin notifications
+  /// (stored with profile_key="superadmin", target_role="superAdmin") regardless of profileKey.
   public shared query ({ caller }) func getNotifications(profileKey : Text, targetRole : Text) : async [NotificationsLib.Notification] {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
-    NotificationsLib.getNotifications(notificationsStore, profileKey, targetRole)
+    let roleNotifs = NotificationsLib.getNotifications(notificationsStore, profileKey, targetRole);
+    let personalNotifs = NotificationsLib.getNotificationsForUser(notificationsStore, caller.toText());
+    // Super Admin: also include system-level notifications (new profile approvals, etc.)
+    let isSuperAdmin = switch (userStore.get(caller)) {
+      case (?up) up.role == #superAdmin;
+      case null false;
+    };
+    let superAdminNotifs = if (isSuperAdmin) {
+      NotificationsLib.getSuperAdminNotifications(notificationsStore)
+    } else {
+      []
+    };
+    roleNotifs.concat(personalNotifs).concat(superAdminNotifs)
   };
 
   /// Returns personal notifications for the caller (e.g. welcome message).

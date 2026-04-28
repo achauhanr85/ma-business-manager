@@ -326,6 +326,7 @@ export const ProfilePublic = IDL.Record({
   'fssai_number' : IDL.Text,
 });
 export const UserProfilePublic = IDL.Record({
+  'theme' : IDL.Text,
   'principal' : UserId,
   'default_receipt_language' : IDL.Text,
   'role' : UserRole,
@@ -416,6 +417,7 @@ export const CyclesInfo = IDL.Record({
 });
 export const DashboardStats = IDL.Record({
   'monthly_profit' : IDL.Float64,
+  'out_of_stock_count' : IDL.Nat,
   'inactive_count' : IDL.Nat,
   'total_inventory_value' : IDL.Float64,
   'active_count' : IDL.Nat,
@@ -474,6 +476,17 @@ export const InventoryMovement = IDL.Record({
   'creation_date' : Timestamp,
   'moved_at' : Timestamp,
   'moved_by' : UserId,
+});
+export const Lead = IDL.Record({
+  'id' : IDL.Nat,
+  'name' : IDL.Text,
+  'business_name' : IDL.Text,
+  'created_at' : Timestamp,
+  'email' : IDL.Text,
+  'message' : IDL.Text,
+  'is_closed' : IDL.Bool,
+  'phone' : IDL.Text,
+  'profile_link' : IDL.Opt(IDL.Text),
 });
 export const MedicalIssueMasterPublic = IDL.Record({
   'id' : IDL.Nat,
@@ -585,6 +598,7 @@ export const SuperAdminStats = IDL.Record({
   'profiles' : IDL.Vec(ProfileStats),
 });
 export const UserPreferences = IDL.Record({
+  'theme' : IDL.Text,
   'defaultReceiptLanguage' : IDL.Text,
   'language' : IDL.Text,
   'whatsappNumber' : IDL.Text,
@@ -598,6 +612,13 @@ export const InventoryMovementInput = IDL.Record({
   'quantity' : IDL.Nat,
   'to_warehouse' : WarehouseName,
 });
+export const LeadInput = IDL.Record({
+  'name' : IDL.Text,
+  'business_name' : IDL.Text,
+  'email' : IDL.Text,
+  'message' : IDL.Text,
+  'phone' : IDL.Text,
+});
 export const UpdateSaleInput = IDL.Record({
   'payment_mode' : IDL.Opt(PaymentMode),
   'sale_note' : IDL.Opt(IDL.Text),
@@ -608,6 +629,7 @@ export const UpdateSaleInput = IDL.Record({
   'sale_id' : SaleId,
 });
 export const UserProfileInput = IDL.Record({
+  'theme' : IDL.Opt(IDL.Text),
   'default_receipt_language' : IDL.Opt(IDL.Text),
   'email' : IDL.Opt(IDL.Text),
   'approval_status' : IDL.Opt(IDL.Text),
@@ -644,6 +666,7 @@ export const idlService = IDL.Service({
     ),
   'claimSuperAdmin' : IDL.Func([], [IDL.Bool], []),
   'clearAllData' : IDL.Func([], [], []),
+  'closeLead' : IDL.Func([IDL.Nat, IDL.Opt(IDL.Text)], [IDL.Bool], []),
   'createBodyCompositionEntry' : IDL.Func(
       [CustomerId, BodyCompositionInput],
       [IDL.Opt(BodyCompositionEntry)],
@@ -691,6 +714,7 @@ export const idlService = IDL.Service({
   'deleteCustomerNote' : IDL.Func([IDL.Nat, CustomerId], [IDL.Bool], []),
   'deleteGoal' : IDL.Func([IDL.Nat], [IDL.Bool], []),
   'deleteGoalMaster' : IDL.Func([IDL.Nat], [IDL.Bool], []),
+  'deleteLead' : IDL.Func([IDL.Nat], [IDL.Bool], []),
   'deleteMedicalIssue' : IDL.Func([IDL.Nat], [IDL.Bool], []),
   'deleteMedicalIssueMaster' : IDL.Func([IDL.Nat], [IDL.Bool], []),
   'deleteProduct' : IDL.Func([ProductId], [IDL.Bool], []),
@@ -759,6 +783,8 @@ export const idlService = IDL.Service({
       [IDL.Opt(CustomerOrderDetail)],
       ['query'],
     ),
+  'getLead' : IDL.Func([IDL.Nat], [IDL.Opt(Lead)], ['query']),
+  'getLeads' : IDL.Func([], [IDL.Vec(Lead)], ['query']),
   'getMedicalIssue' : IDL.Func(
       [IDL.Nat],
       [IDL.Opt(MedicalIssueMasterPublic)],
@@ -889,6 +915,7 @@ export const idlService = IDL.Service({
       [],
     ),
   'setSuperAdminActiveProfile' : IDL.Func([ProfileKey], [IDL.Bool], []),
+  'submitLead' : IDL.Func([LeadInput], [Lead], []),
   'updateCategory' : IDL.Func([CategoryId, CategoryInput], [IDL.Bool], []),
   'updateCustomer' : IDL.Func([CustomerId, CustomerInput], [IDL.Bool], []),
   'updateGoal' : IDL.Func([IDL.Nat, GoalMasterInput], [IDL.Bool], []),
@@ -917,7 +944,7 @@ export const idlService = IDL.Service({
   'updateProfileKey' : IDL.Func([ProfileKey, ProfileKey], [IDL.Bool], []),
   'updateSale' : IDL.Func([UpdateSaleInput], [IDL.Bool], []),
   'updateUserPreferences' : IDL.Func(
-      [IDL.Text, IDL.Text, IDL.Text, IDL.Text],
+      [IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text],
       [IDL.Bool],
       [],
     ),
@@ -1243,6 +1270,7 @@ export const idlFactory = ({ IDL }) => {
     'fssai_number' : IDL.Text,
   });
   const UserProfilePublic = IDL.Record({
+    'theme' : IDL.Text,
     'principal' : UserId,
     'default_receipt_language' : IDL.Text,
     'role' : UserRole,
@@ -1333,6 +1361,7 @@ export const idlFactory = ({ IDL }) => {
   });
   const DashboardStats = IDL.Record({
     'monthly_profit' : IDL.Float64,
+    'out_of_stock_count' : IDL.Nat,
     'inactive_count' : IDL.Nat,
     'total_inventory_value' : IDL.Float64,
     'active_count' : IDL.Nat,
@@ -1391,6 +1420,17 @@ export const idlFactory = ({ IDL }) => {
     'creation_date' : Timestamp,
     'moved_at' : Timestamp,
     'moved_by' : UserId,
+  });
+  const Lead = IDL.Record({
+    'id' : IDL.Nat,
+    'name' : IDL.Text,
+    'business_name' : IDL.Text,
+    'created_at' : Timestamp,
+    'email' : IDL.Text,
+    'message' : IDL.Text,
+    'is_closed' : IDL.Bool,
+    'phone' : IDL.Text,
+    'profile_link' : IDL.Opt(IDL.Text),
   });
   const MedicalIssueMasterPublic = IDL.Record({
     'id' : IDL.Nat,
@@ -1499,6 +1539,7 @@ export const idlFactory = ({ IDL }) => {
     'profiles' : IDL.Vec(ProfileStats),
   });
   const UserPreferences = IDL.Record({
+    'theme' : IDL.Text,
     'defaultReceiptLanguage' : IDL.Text,
     'language' : IDL.Text,
     'whatsappNumber' : IDL.Text,
@@ -1512,6 +1553,13 @@ export const idlFactory = ({ IDL }) => {
     'quantity' : IDL.Nat,
     'to_warehouse' : WarehouseName,
   });
+  const LeadInput = IDL.Record({
+    'name' : IDL.Text,
+    'business_name' : IDL.Text,
+    'email' : IDL.Text,
+    'message' : IDL.Text,
+    'phone' : IDL.Text,
+  });
   const UpdateSaleInput = IDL.Record({
     'payment_mode' : IDL.Opt(PaymentMode),
     'sale_note' : IDL.Opt(IDL.Text),
@@ -1522,6 +1570,7 @@ export const idlFactory = ({ IDL }) => {
     'sale_id' : SaleId,
   });
   const UserProfileInput = IDL.Record({
+    'theme' : IDL.Opt(IDL.Text),
     'default_receipt_language' : IDL.Opt(IDL.Text),
     'email' : IDL.Opt(IDL.Text),
     'approval_status' : IDL.Opt(IDL.Text),
@@ -1562,6 +1611,7 @@ export const idlFactory = ({ IDL }) => {
       ),
     'claimSuperAdmin' : IDL.Func([], [IDL.Bool], []),
     'clearAllData' : IDL.Func([], [], []),
+    'closeLead' : IDL.Func([IDL.Nat, IDL.Opt(IDL.Text)], [IDL.Bool], []),
     'createBodyCompositionEntry' : IDL.Func(
         [CustomerId, BodyCompositionInput],
         [IDL.Opt(BodyCompositionEntry)],
@@ -1609,6 +1659,7 @@ export const idlFactory = ({ IDL }) => {
     'deleteCustomerNote' : IDL.Func([IDL.Nat, CustomerId], [IDL.Bool], []),
     'deleteGoal' : IDL.Func([IDL.Nat], [IDL.Bool], []),
     'deleteGoalMaster' : IDL.Func([IDL.Nat], [IDL.Bool], []),
+    'deleteLead' : IDL.Func([IDL.Nat], [IDL.Bool], []),
     'deleteMedicalIssue' : IDL.Func([IDL.Nat], [IDL.Bool], []),
     'deleteMedicalIssueMaster' : IDL.Func([IDL.Nat], [IDL.Bool], []),
     'deleteProduct' : IDL.Func([ProductId], [IDL.Bool], []),
@@ -1689,6 +1740,8 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Opt(CustomerOrderDetail)],
         ['query'],
       ),
+    'getLead' : IDL.Func([IDL.Nat], [IDL.Opt(Lead)], ['query']),
+    'getLeads' : IDL.Func([], [IDL.Vec(Lead)], ['query']),
     'getMedicalIssue' : IDL.Func(
         [IDL.Nat],
         [IDL.Opt(MedicalIssueMasterPublic)],
@@ -1831,6 +1884,7 @@ export const idlFactory = ({ IDL }) => {
         [],
       ),
     'setSuperAdminActiveProfile' : IDL.Func([ProfileKey], [IDL.Bool], []),
+    'submitLead' : IDL.Func([LeadInput], [Lead], []),
     'updateCategory' : IDL.Func([CategoryId, CategoryInput], [IDL.Bool], []),
     'updateCustomer' : IDL.Func([CustomerId, CustomerInput], [IDL.Bool], []),
     'updateGoal' : IDL.Func([IDL.Nat, GoalMasterInput], [IDL.Bool], []),
@@ -1859,7 +1913,7 @@ export const idlFactory = ({ IDL }) => {
     'updateProfileKey' : IDL.Func([ProfileKey, ProfileKey], [IDL.Bool], []),
     'updateSale' : IDL.Func([UpdateSaleInput], [IDL.Bool], []),
     'updateUserPreferences' : IDL.Func(
-        [IDL.Text, IDL.Text, IDL.Text, IDL.Text],
+        [IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text],
         [IDL.Bool],
         [],
       ),

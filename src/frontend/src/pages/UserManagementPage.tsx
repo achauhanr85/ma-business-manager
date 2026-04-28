@@ -37,6 +37,7 @@ import {
   useGetUsersByProfile,
   useUpdateUserProfile,
 } from "@/hooks/useBackend";
+import { useTranslation } from "@/translations";
 import type { UserProfilePublic } from "@/types";
 import { UserRole } from "@/types";
 import {
@@ -149,6 +150,7 @@ function UserRow({ user, profileKey, index }: UserRowProps) {
   const approveUser = useApproveUser();
   const assignRole = useAssignUserRole();
   const updateUserProfile = useUpdateUserProfile();
+  const t = useTranslation();
 
   const currentModules = parseModuleAccess(user.module_access);
   const [modules, setModules] = useState<Set<Module>>(currentModules);
@@ -169,7 +171,7 @@ function UserRow({ user, profileKey, index }: UserRowProps) {
     if (ok) {
       toast.success(
         newApproved
-          ? `Access granted to ${user.display_name}`
+          ? `${t.common.active}: ${user.display_name}`
           : `Access revoked for ${user.display_name}`,
       );
     } else {
@@ -228,16 +230,33 @@ function UserRow({ user, profileKey, index }: UserRowProps) {
         </div>
       </TableCell>
       <TableCell className="py-3">
-        {/* email field is not in UserProfilePublic — display principal as Internet Identity ID */}
-        <div
-          className="text-xs text-muted-foreground font-mono truncate max-w-[180px]"
-          title={user.principal.toText?.() ?? user.principal.toString()}
-        >
-          {user.principal.toText?.() ?? user.principal.toString()}
-        </div>
-        <div className="text-xs text-muted-foreground mt-0.5 italic">
-          Internet Identity
-        </div>
+        {/* BUG FIX: Show user's email from UserProfilePublic.email if available,
+            then fall back to showing the Internet Identity principal */}
+        {user.email ? (
+          <div>
+            <div className="text-xs text-foreground font-medium truncate max-w-[180px]">
+              {user.email}
+            </div>
+            <div
+              className="text-[10px] text-muted-foreground font-mono truncate max-w-[180px] mt-0.5"
+              title={user.principal.toText?.() ?? user.principal.toString()}
+            >
+              {user.principal.toText?.() ?? user.principal.toString()}
+            </div>
+          </div>
+        ) : (
+          <div>
+            <div
+              className="text-xs text-muted-foreground font-mono truncate max-w-[180px]"
+              title={user.principal.toText?.() ?? user.principal.toString()}
+            >
+              {user.principal.toText?.() ?? user.principal.toString()}
+            </div>
+            <div className="text-[10px] text-muted-foreground mt-0.5 italic">
+              {t.customers.emailIdentity}
+            </div>
+          </div>
+        )}
       </TableCell>
       <TableCell className="py-3">
         {isReferralUser ? (
@@ -562,6 +581,7 @@ export function UserManagementPage({ onNavigate }: UserManagementPageProps) {
   const { userProfile } = useProfile();
   const role = userProfile?.role;
   const profileKey = userProfile?.profile_key ?? null;
+  const t = useTranslation();
 
   // useGetUsersByProfile is keyed on profileKey — re-fetches whenever profileKey changes
   const {
@@ -594,7 +614,7 @@ export function UserManagementPage({ onNavigate }: UserManagementPageProps) {
           onClick={() => onNavigate("/dashboard")}
           data-ocid="user_management.go_dashboard_button"
         >
-          Go to Dashboard
+          {t.common.back}
         </Button>
       </div>
     );
@@ -618,7 +638,7 @@ export function UserManagementPage({ onNavigate }: UserManagementPageProps) {
           </div>
           <div>
             <h1 className="text-xl font-display font-semibold text-foreground">
-              User Management
+              {t.nav.userManagement}
             </h1>
             <p className="text-sm text-muted-foreground">
               Manage team access, roles, and module permissions
@@ -709,12 +729,18 @@ export function UserManagementPage({ onNavigate }: UserManagementPageProps) {
               <Table className="min-w-[560px]">
                 <TableHeader>
                   <TableRow className="bg-muted/30 hover:bg-muted/30">
-                    <TableHead className="font-semibold">User</TableHead>
-                    <TableHead className="font-semibold w-48">
-                      Email / Identity
+                    <TableHead className="font-semibold">
+                      {t.common.name}
                     </TableHead>
-                    <TableHead className="font-semibold w-32">Role</TableHead>
-                    <TableHead className="font-semibold w-28">Access</TableHead>
+                    <TableHead className="font-semibold w-48">
+                      {t.customers.emailIdentity}
+                    </TableHead>
+                    <TableHead className="font-semibold w-32">
+                      {t.common.actions}
+                    </TableHead>
+                    <TableHead className="font-semibold w-28">
+                      {t.common.status}
+                    </TableHead>
                     <TableHead className="font-semibold w-40">
                       Module Access
                     </TableHead>
@@ -756,12 +782,18 @@ export function UserManagementPage({ onNavigate }: UserManagementPageProps) {
               <Table className="min-w-[560px]">
                 <TableHeader>
                   <TableRow className="bg-muted/30 hover:bg-muted/30">
-                    <TableHead className="font-semibold">User</TableHead>
-                    <TableHead className="font-semibold w-48">
-                      Email / Identity
+                    <TableHead className="font-semibold">
+                      {t.common.name}
                     </TableHead>
-                    <TableHead className="font-semibold w-32">Role</TableHead>
-                    <TableHead className="font-semibold w-28">Access</TableHead>
+                    <TableHead className="font-semibold w-48">
+                      {t.customers.emailIdentity}
+                    </TableHead>
+                    <TableHead className="font-semibold w-32">
+                      {t.common.actions}
+                    </TableHead>
+                    <TableHead className="font-semibold w-28">
+                      {t.common.status}
+                    </TableHead>
                     <TableHead className="font-semibold w-40">
                       Module Access
                     </TableHead>

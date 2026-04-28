@@ -45,11 +45,25 @@ module {
       };
     };
 
-    // Total inventory value for this profile
+    // Total inventory value for this profile + out-of-stock count
     var totalInventoryValue : Float = 0.0;
+    // Build a set of product IDs that have stock remaining
+    let productsWithStock = Map.empty<Common.ProductId, Bool>();
+    let productsInProfile = Map.empty<Common.ProductId, Bool>();
     for ((_id, batch) in batchStore.entries()) {
-      if (batch.profile_key == profileKey and batch.quantity_remaining > 0) {
-        totalInventoryValue += batch.quantity_remaining.toFloat() * batch.unit_cost;
+      if (batch.profile_key == profileKey) {
+        productsInProfile.add(batch.product_id, true);
+        if (batch.quantity_remaining > 0) {
+          totalInventoryValue += batch.quantity_remaining.toFloat() * batch.unit_cost;
+          productsWithStock.add(batch.product_id, true);
+        };
+      };
+    };
+    // out_of_stock_count: products that appear in batches for this profile but have 0 stock remaining
+    var outOfStockCount : Nat = 0;
+    for ((pid, _) in productsInProfile.entries()) {
+      if (not productsWithStock.containsKey(pid)) {
+        outOfStockCount += 1;
       };
     };
 
@@ -84,6 +98,7 @@ module {
       lead_count = leadCount;
       active_count = activeCount;
       inactive_count = inactiveCount;
+      out_of_stock_count = outOfStockCount;
     }
   };
 

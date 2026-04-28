@@ -170,6 +170,7 @@ export interface CyclesInfo {
 }
 export interface DashboardStats {
   'monthly_profit' : number,
+  'out_of_stock_count' : bigint,
   'inactive_count' : bigint,
   'total_inventory_value' : number,
   'active_count' : bigint,
@@ -243,6 +244,24 @@ export interface InventoryMovementInput {
   'loaned_source' : [] | [string],
   'quantity' : bigint,
   'to_warehouse' : WarehouseName,
+}
+export interface Lead {
+  'id' : bigint,
+  'name' : string,
+  'business_name' : string,
+  'created_at' : Timestamp,
+  'email' : string,
+  'message' : string,
+  'is_closed' : boolean,
+  'phone' : string,
+  'profile_link' : [] | [string],
+}
+export interface LeadInput {
+  'name' : string,
+  'business_name' : string,
+  'email' : string,
+  'message' : string,
+  'phone' : string,
 }
 export type LoanedItemStatus = { 'active' : null } |
   { 'archived' : null };
@@ -532,12 +551,14 @@ export interface UpdateSaleInput {
 }
 export type UserId = Principal;
 export interface UserPreferences {
+  'theme' : string,
   'defaultReceiptLanguage' : string,
   'language' : string,
   'whatsappNumber' : string,
   'dateFormat' : string,
 }
 export interface UserProfileInput {
+  'theme' : [] | [string],
   'default_receipt_language' : [] | [string],
   'email' : [] | [string],
   'approval_status' : [] | [string],
@@ -549,6 +570,7 @@ export interface UserProfileInput {
   'profile_key' : ProfileKey,
 }
 export interface UserProfilePublic {
+  'theme' : string,
   'principal' : UserId,
   'default_receipt_language' : string,
   'role' : UserRole,
@@ -616,6 +638,7 @@ export interface _SERVICE {
    * / Use this in preview/development to start with a completely fresh state.
    */
   'clearAllData' : ActorMethod<[], undefined>,
+  'closeLead' : ActorMethod<[bigint, [] | [string]], boolean>,
   'createBodyCompositionEntry' : ActorMethod<
     [CustomerId, BodyCompositionInput],
     [] | [BodyCompositionEntry]
@@ -657,6 +680,7 @@ export interface _SERVICE {
   'deleteCustomerNote' : ActorMethod<[bigint, CustomerId], boolean>,
   'deleteGoal' : ActorMethod<[bigint], boolean>,
   'deleteGoalMaster' : ActorMethod<[bigint], boolean>,
+  'deleteLead' : ActorMethod<[bigint], boolean>,
   'deleteMedicalIssue' : ActorMethod<[bigint], boolean>,
   'deleteMedicalIssueMaster' : ActorMethod<[bigint], boolean>,
   'deleteProduct' : ActorMethod<[ProductId], boolean>,
@@ -705,6 +729,8 @@ export interface _SERVICE {
     [CustomerId],
     [] | [CustomerOrderDetail]
   >,
+  'getLead' : ActorMethod<[bigint], [] | [Lead]>,
+  'getLeads' : ActorMethod<[], Array<Lead>>,
   'getMedicalIssue' : ActorMethod<[bigint], [] | [MedicalIssueMasterPublic]>,
   'getMedicalIssueMasterData' : ActorMethod<
     [ProfileKey],
@@ -744,6 +770,10 @@ export interface _SERVICE {
   'getSuperAdminStats' : ActorMethod<[], SuperAdminStats>,
   'getUserPreferences' : ActorMethod<[], UserPreferences>,
   'getUserProfile' : ActorMethod<[], [] | [UserProfilePublic]>,
+  /**
+   * / Wipe ALL stored data — clears every Map store and resets the super admin principal.
+   * / Use this in preview/development to start with a completely fresh state.
+   */
   'getUsersByProfile' : ActorMethod<[ProfileKey], Array<UserProfilePublic>>,
   'getVendor' : ActorMethod<[string], [] | [Vendor]>,
   'getVendors' : ActorMethod<[string], Array<Vendor>>,
@@ -775,6 +805,7 @@ export interface _SERVICE {
     boolean
   >,
   'setSuperAdminActiveProfile' : ActorMethod<[ProfileKey], boolean>,
+  'submitLead' : ActorMethod<[LeadInput], Lead>,
   'updateCategory' : ActorMethod<[CategoryId, CategoryInput], boolean>,
   'updateCustomer' : ActorMethod<[CustomerId, CustomerInput], boolean>,
   'updateGoal' : ActorMethod<[bigint, GoalMasterInput], boolean>,
@@ -796,7 +827,7 @@ export interface _SERVICE {
   'updateProfileKey' : ActorMethod<[ProfileKey, ProfileKey], boolean>,
   'updateSale' : ActorMethod<[UpdateSaleInput], boolean>,
   'updateUserPreferences' : ActorMethod<
-    [string, string, string, string],
+    [string, string, string, string, string],
     boolean
   >,
   'updateUserProfile' : ActorMethod<[UserProfileInput], boolean>,

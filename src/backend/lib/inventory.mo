@@ -303,7 +303,7 @@ module {
         if (batch.quantity_remaining < quantity) return null;
 
         let now = Time.now();
-        let newQty = batch.quantity_remaining - quantity;
+        let newQty : Nat = if (batch.quantity_remaining >= quantity) batch.quantity_remaining - quantity else 0;
         let newStatus : ?InventoryTypes.LoanedItemStatus = if (newQty == 0) ?#archived else ?#active;
         let updated : InventoryTypes.InventoryBatch = {
           id = batch.id;

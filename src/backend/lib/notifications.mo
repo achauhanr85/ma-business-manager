@@ -55,6 +55,18 @@ module {
       .toArray()
   };
 
+  /// Returns all unread notifications for Super Admin.
+  /// These are stored with profile_key = "superadmin" and target_role = "superAdmin".
+  /// Queried by target_role only (no profile_key filter) so they are never missed.
+  public func getSuperAdminNotifications(store : Store) : [Notification] {
+    store.entries()
+      .filter(func((_id, n) : (Text, Notification)) : Bool {
+        not n.is_read and n.target_role == "superAdmin"
+      })
+      .map(func((_id, n) : (Text, Notification)) : Notification { n })
+      .toArray()
+  };
+
   /// Returns all unread notifications whose target_role matches "user:<principalText>".
   /// Used to fetch welcome and personal notifications for a specific user.
   public func getNotificationsForUser(store : Store, principalText : Text) : [Notification] {

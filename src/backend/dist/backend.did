@@ -44,6 +44,7 @@ type UserProfilePublic =
    "principal": UserId;
    profile_key: ProfileKey;
    role: UserRole;
+   theme: text;
    warehouse_name: WarehouseName;
  };
 type UserProfileInput = 
@@ -56,6 +57,7 @@ type UserProfileInput =
    language_preference: opt text;
    module_access: opt text;
    profile_key: ProfileKey;
+   theme: opt text;
    warehouse_name: WarehouseName;
  };
 type UserPreferences = 
@@ -63,6 +65,7 @@ type UserPreferences =
    dateFormat: text;
    defaultReceiptLanguage: text;
    language: text;
+   theme: text;
    whatsappNumber: text;
  };
 type UserId = principal;
@@ -402,6 +405,26 @@ type LoanedItemStatus =
    active;
    archived;
  };
+type LeadInput = 
+ record {
+   business_name: text;
+   email: text;
+   message: text;
+   name: text;
+   phone: text;
+ };
+type Lead = 
+ record {
+   business_name: text;
+   created_at: Timestamp;
+   email: text;
+   id: nat;
+   is_closed: bool;
+   message: text;
+   name: text;
+   phone: text;
+   profile_link: opt text;
+ };
 type InventoryMovementInput = 
  record {
    from_warehouse: WarehouseName;
@@ -487,6 +510,7 @@ type DashboardStats =
    lead_count: nat;
    monthly_profit: float64;
    monthly_volume_points: float64;
+   out_of_stock_count: nat;
    recent_sales: vec Sale;
    total_inventory_value: float64;
  };
@@ -689,6 +713,7 @@ service : {
   /// Wipe ALL stored data — clears every Map store and resets the super admin principal.
   /// Use this in preview/development to start with a completely fresh state.
   clearAllData: () -> ();
+  closeLead: (id: nat, profile_link: opt text) -> (bool);
   createBodyCompositionEntry: (customerId: CustomerId, input:
    BodyCompositionInput) -> (opt BodyCompositionEntry);
   createBodyInchesEntry: (customerId: CustomerId, input: BodyInchesInput) ->
@@ -717,6 +742,7 @@ service : {
   deleteCustomerNote: (noteId: nat, customerId: CustomerId) -> (bool);
   deleteGoal: (id: nat) -> (bool);
   deleteGoalMaster: (id: nat) -> (bool);
+  deleteLead: (id: nat) -> (bool);
   deleteMedicalIssue: (id: nat) -> (bool);
   deleteMedicalIssueMaster: (id: nat) -> (bool);
   deleteProduct: (id: ProductId) -> (bool);
@@ -759,6 +785,8 @@ service : {
   getInventoryMovements: () -> (vec InventoryMovement) query;
   getLastSaleForCustomer: (customer_id: CustomerId) ->
    (opt CustomerOrderDetail) query;
+  getLead: (id: nat) -> (opt Lead) query;
+  getLeads: () -> (vec Lead) query;
   getMedicalIssue: (id: nat) -> (opt MedicalIssueMasterPublic) query;
   getMedicalIssueMasterData: (profileKey: ProfileKey) ->
    (vec MedicalIssueMasterPublic__1) query;
@@ -791,6 +819,8 @@ service : {
   getSuperAdminStats: () -> (SuperAdminStats) query;
   getUserPreferences: () -> (UserPreferences) query;
   getUserProfile: () -> (opt UserProfilePublic) query;
+  /// Wipe ALL stored data — clears every Map store and resets the super admin principal.
+  /// Use this in preview/development to start with a completely fresh state.
   getUsersByProfile: (profile_key: ProfileKey) ->
    (vec UserProfilePublic) query;
   getVendor: (vendorId: text) -> (opt Vendor) query;
@@ -819,6 +849,7 @@ service : {
   setProfileWindow: (profile_key: ProfileKey, start_date: opt Timestamp,
    end_date: opt Timestamp) -> (bool);
   setSuperAdminActiveProfile: (profile_key: ProfileKey) -> (bool);
+  submitLead: (input: LeadInput) -> (Lead);
   updateCategory: (id: CategoryId, input: CategoryInput) -> (bool);
   updateCustomer: (id: CustomerId, input: CustomerInput) -> (bool);
   updateGoal: (id: nat, input: GoalMasterInput) -> (bool);
@@ -834,7 +865,8 @@ service : {
   updateProfileKey: (oldKey: ProfileKey, newKey: ProfileKey) -> (bool);
   updateSale: (input: UpdateSaleInput) -> (bool);
   updateUserPreferences: (language: text, dateFormat: text,
-   defaultReceiptLanguage: text, whatsappNumber: text) -> (bool);
+   defaultReceiptLanguage: text, whatsappNumber: text, theme: text) -> (
+   bool);
   updateUserProfile: (input: UserProfileInput) -> (bool);
   updateVendor: (vendorId: text, input: VendorInput) -> (bool);
 }

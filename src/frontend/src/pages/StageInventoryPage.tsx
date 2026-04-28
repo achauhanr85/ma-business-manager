@@ -54,7 +54,9 @@ export function StageInventoryPage({
 }: StageInventoryPageProps) {
   const { userProfile, profile } = useProfile();
   const profileKey = userProfile?.profile_key ?? profile?.profile_key ?? "";
-  const isAdmin =
+  // BUG-08: Both Admin and Staff can access Stage Inventory and view items.
+  // Only Admin/SuperAdmin has the Accept/Reject action buttons.
+  const isAdminOrSuperAdmin =
     userProfile?.role === UserRole.admin ||
     userProfile?.role === UserRole.superAdmin;
   const reviewerName = userProfile?.display_name ?? "Unknown";
@@ -212,7 +214,7 @@ export function StageInventoryPage({
                       </div>
 
                       {/* Admin-only action buttons */}
-                      {isAdmin && (
+                      {isAdminOrSuperAdmin && (
                         <div className="mt-3 flex items-center gap-2">
                           <Button
                             type="button"
@@ -241,7 +243,7 @@ export function StageInventoryPage({
                         </div>
                       )}
 
-                      {!isAdmin && (
+                      {!isAdminOrSuperAdmin && (
                         <p className="mt-2 text-xs text-muted-foreground italic">
                           Awaiting Admin review
                         </p>

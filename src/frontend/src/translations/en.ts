@@ -12,7 +12,12 @@ export const en = {
     superAdmin: "Super Admin",
     userManagement: "User Management",
     loanerInventory: "Loaner Inventory",
+    stageInventory: "Stage Inventory",
+    customerGoals: "Customer Goals",
+    medicalIssues: "Medical Issues",
+    adminTests: "Regression Tests",
     userPreferences: "Preferences",
+    vendors: "Vendors",
     help: "Help",
     logout: "Logout",
   },
@@ -276,13 +281,19 @@ export const en = {
   userPreferences: {
     title: "User Preferences",
     language: "Language",
+    theme: "Theme",
     dateFormat: "Date Format",
     defaultReceiptLanguage: "Default Receipt Language",
     english: "English",
     gujarati: "Gujarati",
     hindi: "Hindi",
+    themeDark: "Dark Editorial",
+    themeHerbal: "Herbal",
+    themeMinimalist: "Minimalist",
+    themePunk: "Punk",
     savePreferences: "Save Preferences",
-    preferencesSaved: "Preferences saved",
+    preferencesSaved:
+      "Preferences saved — please log back in to apply changes.",
     applyLanguage: "Apply Language",
     applyLanguageHint:
       "Save language to backend and refresh all on-screen text",
@@ -373,6 +384,32 @@ export const en = {
   adminTests: {
     link: "Admin Tests",
     runTests: "Run Regression Tests",
+  },
+  index: {
+    tagline: "Manage Your Herbal Business Smarter",
+    subtagline:
+      "The complete mobile-first platform for herbal product distributors — inventory, sales, customers, and receipts in one place.",
+    requestDemo: "Request a Demo",
+    signIn: "Sign In",
+    login: "Login",
+    featuresTitle: "Built for Herbal Distributors",
+    featuresSubtitle:
+      "From inventory tracking to branded PDF receipts — every feature your herbal business needs.",
+    howItWorksTitle: "Up and Running in Minutes",
+    demoTitle: "Request a Free Demo",
+    demoSubtitle:
+      "Fill in your details and our team will contact you via WhatsApp within 24 hours.",
+    formName: "Full Name",
+    formBusiness: "Business Name",
+    formPhone: "Phone Number",
+    formEmail: "Email Address",
+    formMessage: "Message (optional)",
+    formSubmit: "Request a Demo",
+    formSuccess: "Request Received!",
+    formSuccessDesc:
+      "Thank you for your interest. We will contact you via WhatsApp within 24 hours.",
+    formError: "Something went wrong. Please try again.",
+    alreadyHaveAccount: "Already have an account?",
   },
 } as const;
 

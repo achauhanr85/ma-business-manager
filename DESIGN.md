@@ -1,73 +1,159 @@
-# Design Brief: Indi Negocio Livre — Theme Color System
+# Design Brief: Indi Negocio Livre — 4 Selectable UI Themes
 
-## Tone & Direction
-Premium, natural, professional. Trustworthy business tool for herbal product distributors reflecting natural, organic essence. Information-dense, never cluttered. Emerald green signals health/natural products; neutrals maximize readability. Multi-tenant branding: each profile customizes theme color while preserving design system structure.
+## Direction
 
-## Color Palette
+Premium herbal business management system with 4 user-selectable, persistent themes: **Herbal** (organic, warm, default), **Dark** (editorial, focused), **Minimalist** (clarity-focused), **Punk** (high-contrast, bold).
 
-| Token | Light | Dark | Purpose |
-|-------|-------|------|---------|
-| Primary | `0.55 0.15 142` (emerald) | `0.70 0.18 140` | CTA, active states, navigation. Dynamic: profile theme color overrides. |
-| Secondary | `0.93 0.06 130` (soft sage) | `0.24 0 0` | Tertiary actions, muted backgrounds, form section wash. |
-| Accent | `0.62 0.12 120` (teal-green) | `0.72 0.16 135` | Highlights, badges, status indicators. |
-| Destructive | `0.58 0.18 28` (coral-red) | `0.65 0.18 28` | Delete, alert, warning states. |
-| Neutral | Background `0.98 0 0` | Background `0.14 0 0` | Clean, minimal, readable hierarchy. |
+## Tone
 
-## Theme Color CSS Variables
-Dynamic profile theme colors set via `--theme-color-h`, `--theme-color-c`, `--theme-color-l` (injected by JS). Computed tokens: `--theme-color` (base), `--theme-color-hover` (darker), `--theme-color-dark` (darkest), `--theme-color-light` (lighter), `--theme-color-bg` (subtle wash, 10% opacity), `--theme-color-border` (subtle border, 30% opacity), `--theme-color-ring` (focus ring, 20% opacity). All interpolated automatically for light/dark modes. No manual color overrides needed.
+Each theme commits to a distinct aesthetic extreme: Herbal = organic trust; Dark = refined focus; Minimalist = information clarity; Punk = bold confidence. All themes preserve the dynamic profile branding color system.
+
+## Differentiation
+
+Multi-tenant theme flexibility without visual fragmentation. Every theme enforces the same information hierarchy, spacing, and interaction patterns while varying hue, contrast, and typography personality.
+
+---
+
+## Theme Specifications
+
+### HERBAL (Default)
+- **Aesthetic**: Warm, botanical, editorial elegance.
+- **Primary Font**: Lora (display) + Satoshi (body) — organic, refined pairing.
+- **Palette**: Cream background (`0.96 0.015 75`), sage green primary (`0.48 0.14 160`), warm accents.
+- **Contrast**: AA+ on light backgrounds. Warm, inviting feel.
+- **Use case**: Public-facing index page, default for new users, small business comfort.
+
+| Token | OKLCH | Usage |
+|-------|-------|-------|
+| Background | `0.96 0.015 75` | Warm cream base |
+| Foreground | `0.2 0.03 50` | Deep brown text |
+| Primary | `0.48 0.14 160` | Sage green buttons, nav |
+| Accent | `0.5 0.1 160` | Muted teal highlights |
+| Card | `0.98 0.01 75` | Warm card surface |
+
+### DARK (Editorial)
+- **Aesthetic**: Deep, focused, professional. For power users and long sessions.
+- **Primary Font**: Space Grotesk (display) + Satoshi (body) — modern, technical precision.
+- **Palette**: Forest black (`0.13 0.02 0`), botanical green primary (`0.65 0.18 155`), gold accent (`0.7 0.12 85`).
+- **Contrast**: AAA on dark backgrounds. High visibility, low eye strain.
+- **Use case**: Admin dashboards, power-user workflows, late-night operations.
+
+| Token | OKLCH | Usage |
+|-------|-------|-------|
+| Background | `0.13 0.02 0` | Deep forest black |
+| Foreground | `0.92 0.01 0` | Bright neutral text |
+| Primary | `0.65 0.18 155` | Vivid botanical green |
+| Accent | `0.7 0.12 85` | Warm gold contrast |
+| Card | `0.17 0.022 0` | Card surface, elevated |
+
+### MINIMALIST (Notion-like)
+- **Aesthetic**: Maximum clarity. Distractionless information density.
+- **Primary Font**: Space Grotesk (display) + Satoshi (body) — structured, geometric.
+- **Palette**: Off-white background (`0.99 0.005 260`), deep indigo primary (`0.45 0.2 265`), minimal chroma.
+- **Contrast**: High contrast for data legibility. Focused, no visual noise.
+- **Use case**: Data-heavy views, compliance/audit workflows, teams that prioritize readability.
+
+| Token | OKLCH | Usage |
+|-------|-------|-------|
+| Background | `0.99 0.005 260` | Cool off-white |
+| Foreground | `0.15 0.01 260` | Deep navy text |
+| Primary | `0.45 0.2 265` | Deep indigo CTA |
+| Accent | `0.45 0.2 265` | Indigo highlights |
+| Card | `1.0 0.0 0` | Pure white cards |
+
+### PUNK (Bold, High-Contrast)
+- **Aesthetic**: Energetic, confident, rebellious. No timidity.
+- **Primary Font**: Space Grotesk (display) + Satoshi (body) — geometric boldness.
+- **Palette**: Pure black background (`0.12 0.0 0`), electric green primary (`0.75 0.2 145`), monochromatic structure.
+- **Contrast**: Maximum contrast everywhere. Striking, memorable.
+- **Use case**: Teams seeking a bold visual identity, startups, creative-forward businesses.
+
+| Token | OKLCH | Usage |
+|-------|-------|-------|
+| Background | `0.12 0.0 0` | Pure black |
+| Foreground | `0.9 0.0 0` | Bright white text |
+| Primary | `0.75 0.2 145` | Electric lime green |
+| Accent | `0.75 0.2 145` | Neon green highlights |
+| Card | `0.16 0.0 0` | Elevated card surface |
+
+---
+
+## Theme Switching System
+
+**Implementation**: CSS variable presets applied via `.theme-[name]` class on `:root`. Storage: `UserPreferences.theme` (string: "herbal" | "dark" | "minimalist" | "punk").
+
+**Flow**: User selects theme in Preferences → `applyTheme(themeName)` sets class on document.documentElement → all CSS variables update → profile branding color (--theme-color-*) re-injected to preserve custom profile colors.
+
+**Fallback**: Herbal theme applied on first load (default). Public/marketing index page uses Herbal unless user overrides in preferences.
+
+**Dark mode**: Each theme supports light + dark mode via `.dark` class (e.g., `:root.theme-dark.dark` for Dark theme in dark mode). Lightness and contrast adjusted per theme for readability in both modes.
+
+---
 
 ## Typography
 
 | Layer | Font | Usage | Weight | Size |
 |-------|------|-------|--------|------|
-| Display | General Sans | Page titles, section headers, CTAs | 600–700 | 20px–32px |
-| Body | DM Sans | Paragraph text, form labels, table rows | 400–500 | 14px–16px |
-| Mono | Geist Mono | SKUs, order IDs, warehouse codes, keys | 500 | 13px–14px |
+| Display | Lora (Herbal) / Space Grotesk (Dark/Minimalist/Punk) | Page titles, hero text, section headers | 600–700 | 20px–32px |
+| Body | Satoshi | Paragraph text, form labels, table rows, UI labels | 400–500 | 14px–16px |
+| Mono | JetBrains Mono | SKUs, order IDs, warehouse codes, profile keys | 500 | 13px–14px |
 
-## Structural Zones
+**Scale**: Hero `text-5xl md:text-7xl font-bold tracking-tight`. Section headers `text-3xl md:text-5xl font-bold`. Labels `text-sm font-semibold tracking-widest uppercase`. Body `text-base md:text-lg`.
 
-| Zone | Treatment | Purpose |
-|------|-----------|---------|
-| Sidebar | `--sidebar` background, `border-r`. Profile dropdown top. Collapsible on mobile. | Navigation anchor, persistent profile context. |
-| Header | `--background`, `border-b`. Page title, breadcrumbs, quick action buttons. | Page context, quick actions. |
-| Content | `--background` base. Card sections with `border`, subtle shadow. Forms use `secondary/10` wash. | Data presentation, modular layout. |
-| Modal/Drawer | `popover` background, `border`. Form overlays. Smooth slide-in animation. | Focused input, interruption flows. |
-| Footer | Light `--muted/20` background, `border-t`. Optional links. | Utility, not prominent. |
+---
 
-## Component Patterns — Theme Color Integration
-**Buttons**: Primary (`.btn-theme` — solid theme color bg, white text). Outline (`.btn-theme-outline` — theme border, theme text, theme wash on hover). Ghost (`.btn-theme-ghost` — theme text, wash on hover). Hover states lift shadow via `--theme-color-ring`. Active states darken via `--theme-color-dark`.
-**Links**: `.link-theme` — underline animates on hover via theme color.
-**Badges**: `.badge-theme` — theme wash bg, theme text, subtle theme border. Hover darkens border.
-**Focus rings**: All interactive elements use `--theme-color-ring` (20% opacity) for soft, visible focus state.
-**Navigation**: `.nav-link-theme.active` — theme bg wash, theme text, left border accent (theme color).
-**Progress bars**: `.progress-theme-fill` — theme color bar over neutral background.
-**Spinners**: `.spinner-theme` — theme color top border, rotates infinitely. Smooth 0.8s easing.
-**Cards**: `.card-theme-accent` — subtle theme border, theme wash bg on hover, theme ring shadow.
-**Inputs**: `.input-theme` — neutral border by default, theme border on focus, theme ring shadow (3px soft focus state).
-**Sections**: `.bg-theme-wash` — 10% opacity theme color background for accent sections.
+## Structural Zones (All Themes)
+
+| Zone | Treatment | Notes |
+|------|-----------|-------|
+| Sidebar | `--sidebar` bg, `border-r`, profile dropdown top. Collapsible <768px. | Navigation anchor, persistent context. |
+| Header | `--background` base, `border-b`, page title, breadcrumbs, quick actions. | Page context, theme selector icon in top-right. |
+| Content | `--background` base, card sections with `border` + `shadow-theme-sm`. Forms use `--secondary/10` wash. | Data presentation, modular card layout. |
+| Modal/Drawer | `--popover` bg, smooth slide-in from bottom (0.3s). | Focused input, minimal distraction. |
+| Footer | `--muted/20` bg, `border-t`, optional links. | Utility zone, not prominent. |
+
+---
+
+## Component Patterns — Theme-Aware
+
+- **Buttons**: `.btn-theme` (solid bg), `.btn-theme-outline` (border), `.btn-theme-ghost` (text). All use `--primary` or profile brand color.
+- **Cards**: `.card-theme-accent` — `--primary-bg` on hover, soft shadow via `--theme-color-ring`.
+- **Badges**: `.badge-theme` — `--accent` bg, subtle border. Status badges use semantic colors (destructive, success).
+- **Focus rings**: 2px outline, 2px offset, `--ring` color. Applied globally to all interactive elements.
+- **Navigation**: `.nav-link-theme.active` — active state shows left border accent + bg wash.
+- **Spinners**: `.spinner-theme` — theme color rotation, 0.8s linear infinite.
+- **Inputs**: Border color `--border`, focus state `--ring`, 3px soft shadow on focus.
+
+---
 
 ## Motion & Animation
-**Transitions**: `transition-smooth` (0.3s cubic-bezier) on all interactive elements.
-**Button hover**: Lifts 1px up, shadow via theme ring.
-**Focus states**: 2px outline, 2px offset, theme color.
-**Sidebar collapse**: Smooth slide-out, no glitch.
-**Form animations**: Modal/drawer slide-in from bottom (0.3s).
-**List fade-in**: Stagger animation per row (0.4s ease-out, 4px offset).
-**Loader animation**: Spinner rotates via `spin-theme` (0.8s linear infinite). Pulse animation via `pulse-theme` (2s cubic-bezier).
-**Shadows**: Theme-aware: `shadow-theme-sm`, `shadow-theme-md`, `shadow-theme-lg` — all use `--theme-color-ring` for soft color-matched shadows.
+
+- **Transitions**: `transition-smooth` (0.3s cubic-bezier(0.4, 0, 0.2, 1)) on all interactive elements.
+- **Button hover**: Lifts 1px up, soft shadow via `--theme-color-ring`.
+- **Focus states**: 2px solid outline, 2px offset, `--ring` color.
+- **Sidebar collapse**: Smooth slide-out, no jank.
+- **Modal entrance**: Slide up from bottom (0.3s cubic-bezier).
+- **List fade-in**: Stagger animation per row (0.4s ease-out, 4px translateY offset).
+- **Loader**: Spinner rotates (`spin-theme` 0.8s linear infinite). Pulse animation (`pulse-theme` 2s).
+
+---
 
 ## Constraints
-- **No decorative gradients**: Solid OKLCH values. Gradient line accent (`.line-theme`) uses theme color fade to transparent.
-- **No arbitrary colors**: Every color resolves to design token. No hex, rgb, inline styles. Profile theme color injected via CSS variables.
-- **No generic animations**: Motion purposeful. Slide-in for modals, stagger for lists, smooth transitions for interactions.
-- **Mobile-first**: Stack vertically, 8px padding. Desktop: 16px minimum gutters.
 
-## Accessibility
-- Minimum 5.5:1 contrast ratio (AA) all text-background pairs.
-- Focus states: 2px outline, 2px offset, theme color on all interactive elements.
-- Font loading: `font-display: swap` all custom fonts.
-- Responsive: 375px mobile, 640px tablet, 1024px desktop. Sidebar hides below 768px.
-- Animations respect `prefers-reduced-motion` via `motion-safe:` prefix (future enhancement).
+- **OKLCH values only**: No hex, rgb, or inline color styles. All colors resolve to CSS variables.
+- **Profile brand color preserved**: Dynamic `--theme-color-*` injected after theme selection. No theme overrides brand color.
+- **No decorative gradients**: Solid OKLCH except `.line-theme` (gradient fade to transparent).
+- **Mobile-first stacking**: Vertical at <640px. Desktop: 16px minimum gutters, 12-column grid where applicable.
+- **Shadows theme-aware**: `shadow-theme-sm`, `shadow-theme-md`, `shadow-theme-lg` use `--theme-color-ring`.
+- **Focus states mandatory**: Every interactive element must have visible focus (outline or ring).
+- **Animations respect prefers-reduced-motion**: Future enhancement — use `motion-safe:` prefix.
 
-## Theme Color Injection (Frontend)
-JS function sets `--theme-color-h`, `--theme-color-c`, `--theme-color-l` on root element. Derived tokens (`--theme-color`, `--theme-color-hover`, etc.) auto-compute. Dark mode via `.dark` class adjusts lightness (`--theme-color-l: 0.7`). All components consume theme via CSS variables — no runtime color calculation needed. Profile update persists theme color via localStorage + CSS variable re-injection on page load.
+---
+
+## Public Index / Marketing Page (Herbal Theme Default)
+
+The public index page (unauthenticated) defaults to **Herbal theme** to reflect natural, organic branding. Logged-in users see their selected theme. No theme selector on public pages — simplicity for lead capture and feature showcase.
+
+---
+
+**Total tokens: 4 themes × ~15 semantic tokens per theme = 60 token combinations. All inherit from the same design system structure, ensuring consistency across themes while delivering distinctive visual personalities.**

@@ -31,3 +31,29 @@ export function hexToOklch(hex: string): string {
 
   return `${(L * 100).toFixed(1)}% ${C.toFixed(3)} ${((h % 360) + 360) % 360}`;
 }
+
+export type ThemeName = "herbal" | "dark" | "minimalist" | "punk";
+
+const THEME_CLASSES: ThemeName[] = ["herbal", "dark", "minimalist", "punk"];
+
+/**
+ * Applies a named theme to the document root by toggling the appropriate
+ * theme-[name] class. Removes all other theme classes first to prevent
+ * conflicts. The class selector in index.css (.theme-dark, .theme-herbal, etc.)
+ * overrides the :root defaults with the correct OKLCH token set for that theme.
+ *
+ * Profile brand color (--theme-color-*) is applied on top as an overlay
+ * and is NOT cleared by this function.
+ */
+export function applyTheme(themeName: string): void {
+  const root = document.documentElement;
+  // Remove all existing theme classes
+  for (const t of THEME_CLASSES) {
+    root.classList.remove(`theme-${t}`);
+  }
+  // Apply the requested theme class (if valid)
+  const safe = themeName as ThemeName;
+  if (THEME_CLASSES.includes(safe)) {
+    root.classList.add(`theme-${safe}`);
+  }
+}

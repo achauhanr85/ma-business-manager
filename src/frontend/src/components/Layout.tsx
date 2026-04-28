@@ -43,55 +43,27 @@ function useUnreadNotificationCount(
 }
 
 /**
- * Parse a hex color string into OKLCH H, C, L components.
- * Returns null if the hex is invalid or hexToOklch fails.
+ * Apply profile brand color as a CSS variable overlay.
+ * Sets only --primary and --theme-color-* — does NOT override the
+ * structural tokens that belong to the active theme class.
  */
-function parseOklchComponents(
-  hex: string,
-): { l: number; c: number; h: number } | null {
-  if (!hex?.startsWith("#")) return null;
-  try {
-    // hexToOklch returns a CSS string like "oklch(0.65 0.18 142)"
-    const oklchStr = hexToOklch(hex);
-    const match = oklchStr.match(
-      /oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*\)/,
-    );
-    if (!match) return null;
-    return {
-      l: Number.parseFloat(match[1]),
-      c: Number.parseFloat(match[2]),
-      h: Number.parseFloat(match[3]),
-    };
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Apply profile theme color to all CSS custom properties.
- * Sets --primary as the full OKLCH string AND the individual
- * --theme-color-h/c/l components so every utility class (btn-theme,
- * badge-theme, etc.) inherits the theme correctly.
- */
-function applyThemeVars(hex: string) {
+function applyProfileBrandVars(hex: string) {
   if (!hex?.startsWith("#")) return;
   try {
     const oklch = hexToOklch(hex);
     const root = document.documentElement;
-
-    // Primary token (used by Tailwind bg-primary, text-primary, etc.)
     root.style.setProperty("--primary", oklch);
-
-    // Theme-color component tokens for utility classes
-    const components = parseOklchComponents(hex);
-    if (components) {
-      root.style.setProperty("--theme-color-l", String(components.l));
-      root.style.setProperty("--theme-color-c", String(components.c));
-      root.style.setProperty("--theme-color-h", String(components.h));
-    }
-
-    // Store raw hex for non-oklch contexts (e.g. input[type=color])
     root.style.setProperty("--primary-raw", hex);
+
+    const match = oklch.match(/([\d.]+)%?\s+([\d.]+)\s+([\d.]+)/);
+    if (match) {
+      const l = Number.parseFloat(match[1]) / 100;
+      const c = Number.parseFloat(match[2]);
+      const h = Number.parseFloat(match[3]);
+      root.style.setProperty("--theme-color-l", String(l));
+      root.style.setProperty("--theme-color-c", String(c));
+      root.style.setProperty("--theme-color-h", String(h));
+    }
   } catch {
     // Invalid color — silently skip
   }
@@ -112,6 +84,9 @@ function pathToHelpPage(path: string): string {
     "/user-management": "userManagement",
     "/super-admin": "superAdmin",
     "/loaner-inventory": "inventory",
+    "/stage-inventory": "inventory",
+    "/customer-goals": "customers",
+    "/customer-medical-issues": "customers",
     "/user-preferences": "dashboard",
   };
   return map[path] ?? "dashboard";
@@ -143,13 +118,11 @@ export function Layout({
   );
 
   // Background checks — run once on mount and every 5 minutes
-  // This supplements the Motoko timer for reliability
   const runBackgroundChecks = useRunBackgroundChecks();
   const bgChecksRef = useRef(runBackgroundChecks);
   bgChecksRef.current = runBackgroundChecks;
 
   useEffect(() => {
-    // Only run background checks when we have a real profile (non-super-admin users)
     if (!profileKey) return;
     bgChecksRef.current.mutate();
     const interval = setInterval(
@@ -159,11 +132,11 @@ export function Layout({
     return () => clearInterval(interval);
   }, [profileKey]);
 
-  // Inject theme color CSS variables every time profile.theme_color changes.
-  // This runs on mount AND after refresh — always reads from the DB via context.
+  // Apply profile brand color overlay when profile.theme_color changes.
+  // This is SEPARATE from the theme class — only overrides --primary.
   useEffect(() => {
     if (profile?.theme_color) {
-      applyThemeVars(profile.theme_color);
+      applyProfileBrandVars(profile.theme_color);
     }
   }, [profile?.theme_color]);
 
@@ -256,7 +229,7 @@ export function Layout({
         onNavigate={onNavigate}
       />
 
-      {/* Help panel — page-aware, opens at top-right */}
+      {/* Help panel — page-aware */}
       <HelpPanel
         isOpen={helpOpen}
         onClose={() => setHelpOpen(false)}

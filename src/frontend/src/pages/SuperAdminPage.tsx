@@ -31,12 +31,15 @@ import type { ImpersonationRole } from "@/contexts/ImpersonationContext";
 import { useProfile } from "@/contexts/ProfileContext";
 import {
   useAssignUserRole,
+  useCloseLead,
   useCreateProfile,
+  useDeleteLead,
   useDeleteProfile,
   useEnableProfile,
   useGetAllProfilesForAdmin,
   useGetAllUsersForAdmin,
   useGetCanisterCyclesInfo,
+  useGetLeads,
   useGetSuperAdminStats,
   useGetUsersByProfile,
   useInitSuperAdmin,
@@ -44,6 +47,7 @@ import {
   useUpdateProfile,
   useUpdateProfileKey,
 } from "@/hooks/useBackend";
+import type { LeadPublic } from "@/hooks/useBackend";
 import type {
   ProfileStats,
   ProfileStatsExtended,
@@ -60,11 +64,14 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  ExternalLink,
   HardDrive,
   HelpCircle,
   Info,
   Key,
+  Link2,
   Lock,
+  MessageCircle,
   Pencil,
   Plus,
   RefreshCw,
@@ -1787,6 +1794,320 @@ function PendingProfileApprovalSection({
   );
 }
 
+// ─── Leads Panel ──────────────────────────────────────────────────────────────
+
+interface SendLinkModalProps {
+  lead: LeadPublic;
+  open: boolean;
+  onClose: () => void;
+}
+
+function SendLinkModal({ lead, open, onClose }: SendLinkModalProps) {
+  const closeLead = useCloseLead();
+  const [profileLink, setProfileLink] = useState("");
+  const [error, setError] = useState("");
+
+  const handleSend = async () => {
+    if (!profileLink.trim()) {
+      setError("Please enter a profile creation link.");
+      return;
+    }
+    try {
+      await closeLead.mutateAsync({
+        id: lead.id,
+        profileLink: profileLink.trim(),
+      });
+      toast.success(
+        `Profile link sent and lead "${lead.name}" marked as closed.`,
+      );
+      setProfileLink("");
+      setError("");
+      onClose();
+    } catch {
+      toast.error("Failed to close lead.");
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-md" data-ocid="leads.send_link.dialog">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Link2 className="w-4 h-4 text-primary" />
+            Send Profile Creation Link
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 pt-2">
+          <div className="rounded-lg bg-muted/40 border border-border p-3 text-sm">
+            <p className="font-medium text-foreground">{lead.name}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {lead.business_name}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {lead.phone} · {lead.email}
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="profile-link">Profile Creation Link</Label>
+            <Input
+              id="profile-link"
+              value={profileLink}
+              onChange={(e) => {
+                setProfileLink(e.target.value);
+                setError("");
+              }}
+              placeholder="https://your-app.ic0.app/onboarding?key=…"
+              className={error ? "border-destructive" : ""}
+              data-ocid="leads.send_link.link_input"
+            />
+            {error && <p className="text-xs text-destructive">{error}</p>}
+            <p className="text-xs text-muted-foreground">
+              This link will be stored against the lead and the lead will be
+              marked as closed.
+            </p>
+          </div>
+        </div>
+        <DialogFooter className="gap-2">
+          <Button
+            variant="outline"
+            onClick={onClose}
+            data-ocid="leads.send_link.cancel_button"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSend}
+            disabled={closeLead.isPending}
+            data-ocid="leads.send_link.confirm_button"
+          >
+            {closeLead.isPending ? (
+              <span className="flex items-center gap-2">
+                <span className="w-3.5 h-3.5 border-2 border-primary-foreground/40 border-t-primary-foreground rounded-full animate-spin" />
+                Sending…
+              </span>
+            ) : (
+              <>
+                <Link2 className="w-3.5 h-3.5 mr-1.5" />
+                Send Link & Close Lead
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function LeadsPanel() {
+  const { data: leads = [], isLoading } = useGetLeads();
+  const deleteLead = useDeleteLead();
+  const [sendLinkTarget, setSendLinkTarget] = useState<LeadPublic | null>(null);
+  const [deletingId, setDeletingId] = useState<bigint | null>(null);
+  const [filterClosed, setFilterClosed] = useState<"all" | "open" | "closed">(
+    "open",
+  );
+
+  const filtered = useMemo(() => {
+    if (filterClosed === "open") return leads.filter((l) => !l.is_closed);
+    if (filterClosed === "closed") return leads.filter((l) => l.is_closed);
+    return leads;
+  }, [leads, filterClosed]);
+
+  const handleDelete = async (lead: LeadPublic) => {
+    setDeletingId(lead.id);
+    try {
+      await deleteLead.mutateAsync(lead.id);
+      toast.success(`Lead "${lead.name}" deleted.`);
+    } catch {
+      toast.error("Failed to delete lead.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const buildWhatsAppUrl = (lead: LeadPublic) => {
+    const phone = lead.phone.replace(/\D/g, "");
+    const msg = encodeURIComponent(
+      `Hi ${lead.name}, thank you for your interest in Indi Negocio Livre! We'd love to set up a demo for ${lead.business_name}. Please reach out so we can get started.`,
+    );
+    return `https://wa.me/${phone}?text=${msg}`;
+  };
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3" data-ocid="leads.loading_state">
+        {[1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-20 rounded-lg" />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Filter tabs */}
+      <div
+        className="flex gap-1 p-1 rounded-lg bg-muted w-fit"
+        data-ocid="leads.filter.tab"
+      >
+        {(["open", "closed", "all"] as const).map((f) => (
+          <button
+            key={f}
+            type="button"
+            onClick={() => setFilterClosed(f)}
+            className={`px-3 py-1 rounded-md text-xs font-medium transition-colors capitalize ${
+              filterClosed === f
+                ? "bg-card text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            data-ocid={`leads.filter_${f}.tab`}
+          >
+            {f === "open"
+              ? `Open (${leads.filter((l) => !l.is_closed).length})`
+              : f === "closed"
+                ? `Closed (${leads.filter((l) => l.is_closed).length})`
+                : `All (${leads.length})`}
+          </button>
+        ))}
+      </div>
+
+      {filtered.length === 0 ? (
+        <div
+          className="py-14 flex flex-col items-center gap-3 text-center"
+          data-ocid="leads.empty_state"
+        >
+          <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
+            <Users className="w-5 h-5 text-muted-foreground" />
+          </div>
+          <p className="text-sm font-medium text-foreground">No leads yet</p>
+          <p className="text-xs text-muted-foreground max-w-xs">
+            {filterClosed === "open"
+              ? "No open leads. All leads have been closed."
+              : "No leads have been submitted via the public index page."}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3" data-ocid="leads.list">
+          {filtered.map((lead, idx) => (
+            <div
+              key={lead.id.toString()}
+              className={`rounded-lg border p-4 ${lead.is_closed ? "bg-muted/20 border-border/50" : "bg-card border-border"}`}
+              data-ocid={`leads.item.${idx + 1}`}
+            >
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 text-sm font-semibold text-primary uppercase">
+                  {lead.name.charAt(0)}
+                </div>
+                <div className="flex-1 min-w-0 space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-semibold text-foreground">
+                      {lead.name}
+                    </p>
+                    {lead.is_closed && (
+                      <span className="text-xs px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-700 dark:text-green-400 border border-green-500/20 font-medium">
+                        Closed
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs font-medium text-primary truncate">
+                    {lead.business_name}
+                  </p>
+                  <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+                    <span className="text-xs text-muted-foreground">
+                      {lead.phone}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {lead.email}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(
+                        Number(lead.created_at) / 1_000_000,
+                      ).toLocaleDateString("en-IN", {
+                        day: "2-digit",
+                        month: "short",
+                        year: "numeric",
+                      })}
+                    </span>
+                  </div>
+                  {lead.message && (
+                    <p className="text-xs text-muted-foreground italic line-clamp-2 mt-1">
+                      "{lead.message}"
+                    </p>
+                  )}
+                  {lead.profile_link && (
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <Link2 className="w-3 h-3 text-primary flex-shrink-0" />
+                      <a
+                        href={lead.profile_link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-primary hover:underline truncate"
+                      >
+                        {lead.profile_link}
+                      </a>
+                      <ExternalLink className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
+                  {/* WhatsApp */}
+                  <a
+                    href={buildWhatsAppUrl(lead)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md text-xs font-medium border border-green-500/40 text-green-700 dark:text-green-400 bg-green-500/10 hover:bg-green-500/20 transition-colors"
+                    data-ocid={`leads.whatsapp_button.${idx + 1}`}
+                  >
+                    <MessageCircle className="w-3 h-3" />
+                    <span className="hidden sm:inline">WhatsApp</span>
+                  </a>
+                  {/* Send Link */}
+                  {!lead.is_closed && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs gap-1"
+                      onClick={() => setSendLinkTarget(lead)}
+                      data-ocid={`leads.send_link_button.${idx + 1}`}
+                    >
+                      <Link2 className="w-3 h-3" />
+                      <span className="hidden sm:inline">Send Link</span>
+                    </Button>
+                  )}
+                  {/* Delete */}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10"
+                    onClick={() => handleDelete(lead)}
+                    disabled={deletingId === lead.id}
+                    aria-label="Delete lead"
+                    data-ocid={`leads.delete_button.${idx + 1}`}
+                  >
+                    {deletingId === lead.id ? (
+                      <span className="w-3 h-3 border-2 border-destructive/40 border-t-destructive rounded-full animate-spin" />
+                    ) : (
+                      <Trash2 className="w-3.5 h-3.5" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {sendLinkTarget && (
+        <SendLinkModal
+          lead={sendLinkTarget}
+          open={!!sendLinkTarget}
+          onClose={() => setSendLinkTarget(null)}
+        />
+      )}
+    </div>
+  );
+}
+
 // ─── All Users Panel ──────────────────────────────────────────────────────────
 
 function AllUsersPanel() {
@@ -2051,7 +2372,7 @@ function PageHeader({
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
-type ActiveTab = "profiles" | "users";
+type ActiveTab = "profiles" | "users" | "leads";
 
 export function SuperAdminPage({ onNavigate }: SuperAdminPageProps) {
   const { userProfile } = useProfile();
@@ -2404,6 +2725,19 @@ export function SuperAdminPage({ onNavigate }: SuperAdminPageProps) {
           <UserCog className="w-3.5 h-3.5" />
           User Management
         </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("leads")}
+          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+            activeTab === "leads"
+              ? "bg-card text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+          data-ocid="super_admin.leads.tab"
+        >
+          <Users className="w-3.5 h-3.5" />
+          Leads
+        </button>
       </div>
 
       {/* Profiles Tab — Split Panel Layout */}
@@ -2514,6 +2848,29 @@ export function SuperAdminPage({ onNavigate }: SuperAdminPageProps) {
           </CardHeader>
           <CardContent className="pt-4">
             <AllUsersPanel />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Leads Tab */}
+      {activeTab === "leads" && (
+        <Card className="card-elevated" data-ocid="super_admin.leads_card">
+          <CardHeader className="pb-3 border-b border-border">
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-base font-semibold">
+                Demo Leads
+              </CardTitle>
+              <Badge variant="secondary" className="text-xs">
+                From public index page
+              </Badge>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Leads who requested a demo. Contact via WhatsApp or send a profile
+              creation link to close the lead.
+            </p>
+          </CardHeader>
+          <CardContent className="pt-4">
+            <LeadsPanel />
           </CardContent>
         </Card>
       )}

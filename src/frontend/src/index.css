@@ -4,55 +4,61 @@
 
 @layer base {
   :root {
-    --font-display: "General Sans";
-    --font-body: "DM Sans";
-    --font-mono: "Geist Mono";
+    /* ============================================
+       THEME SELECTOR - Applied at Root Level
+       Options: herbal (default), dark, minimalist, punk
+       ============================================ */
+
+    /* HERBAL THEME (Default) - Warm, organic, botanical */
+    --font-display: "Lora";
+    --font-body: "Satoshi";
+    --font-mono: "JetBrains Mono";
     --radius: 0.625rem;
 
-    --background: 0.98 0 0;
-    --foreground: 0.18 0 0;
-    --card: 1.0 0 0;
-    --card-foreground: 0.18 0 0;
-    --popover: 1.0 0 0;
-    --popover-foreground: 0.18 0 0;
+    --background: 0.96 0.015 75;
+    --foreground: 0.2 0.03 50;
+    --card: 0.98 0.01 75;
+    --card-foreground: 0.2 0.03 50;
+    --popover: 0.98 0.01 75;
+    --popover-foreground: 0.2 0.03 50;
 
-    --primary: 0.55 0.15 142;
-    --primary-foreground: 0.98 0 0;
+    --primary: 0.48 0.14 160;
+    --primary-foreground: 0.96 0.015 75;
 
-    --secondary: 0.93 0.06 130;
-    --secondary-foreground: 0.2 0 0;
-    --muted: 0.92 0 0;
-    --muted-foreground: 0.52 0 0;
+    --secondary: 0.92 0.02 75;
+    --secondary-foreground: 0.3 0.03 50;
+    --muted: 0.92 0.02 75;
+    --muted-foreground: 0.5 0.02 50;
 
-    --accent: 0.62 0.12 120;
-    --accent-foreground: 0.98 0 0;
+    --accent: 0.5 0.1 160;
+    --accent-foreground: 0.96 0.01 160;
 
-    --destructive: 0.58 0.18 28;
-    --destructive-foreground: 0.98 0 0;
+    --destructive: 0.5 0.2 25;
+    --destructive-foreground: 0.96 0.01 25;
 
-    --border: 0.88 0.02 120;
-    --input: 0.96 0.01 120;
-    --ring: 0.55 0.15 142;
+    --border: 0.88 0.025 75;
+    --input: 0.88 0.025 75;
+    --ring: 0.48 0.14 160;
 
-    --chart-1: 0.55 0.15 142;
-    --chart-2: 0.62 0.12 120;
-    --chart-3: 0.58 0.18 28;
-    --chart-4: 0.7 0.08 265;
-    --chart-5: 0.65 0.1 65;
+    --chart-1: 0.48 0.14 160;
+    --chart-2: 0.5 0.1 160;
+    --chart-3: 0.5 0.2 25;
+    --chart-4: 0.45 0.12 30;
+    --chart-5: 0.55 0.15 150;
 
-    --sidebar: 0.98 0 0;
-    --sidebar-foreground: 0.18 0 0;
-    --sidebar-primary: 0.55 0.15 142;
-    --sidebar-primary-foreground: 0.98 0 0;
-    --sidebar-accent: 0.92 0 0;
-    --sidebar-accent-foreground: 0.28 0 0;
-    --sidebar-border: 0.88 0.02 120;
-    --sidebar-ring: 0.55 0.15 142;
+    --sidebar: 0.96 0.015 75;
+    --sidebar-foreground: 0.2 0.03 50;
+    --sidebar-primary: 0.48 0.14 160;
+    --sidebar-primary-foreground: 0.96 0.015 75;
+    --sidebar-accent: 0.92 0.02 75;
+    --sidebar-accent-foreground: 0.28 0.03 50;
+    --sidebar-border: 0.88 0.025 75;
+    --sidebar-ring: 0.48 0.14 160;
 
     /* Dynamic theme color support for profile branding (set via JS) */
-    --theme-color-h: 142;
-    --theme-color-c: 0.15;
-    --theme-color-l: 0.55;
+    --theme-color-h: 160;
+    --theme-color-c: 0.14;
+    --theme-color-l: 0.48;
     --theme-color: oklch(
       var(--theme-color-l) var(--theme-color-c) var(--theme-color-h)
     );
@@ -125,7 +131,6 @@
     --sidebar-border: 0.3 0.02 140;
     --sidebar-ring: 0.7 0.18 140;
 
-    /* Dark mode theme color adjustments */
     --theme-color-l: 0.7;
     --theme-color-hover: oklch(
       calc(var(--theme-color-l) - 0.1) var(--theme-color-c) var(--theme-color-h)
@@ -152,6 +157,265 @@
     );
   }
 
+  /* Theme-specific dark mode adjustments */
+  :root.theme-dark.dark {
+    --theme-color-l: 0.65;
+  }
+
+  :root.theme-minimalist.dark {
+    --background: 0.14 0 0;
+    --foreground: 0.95 0 0;
+    --card: 0.2 0 0;
+    --card-foreground: 0.95 0 0;
+    --popover: 0.24 0 0;
+    --popover-foreground: 0.95 0 0;
+    --primary: 0.65 0.2 265;
+    --primary-foreground: 0.14 0 0;
+    --secondary: 0.24 0 0;
+    --secondary-foreground: 0.85 0 0;
+    --muted: 0.24 0 0;
+    --muted-foreground: 0.58 0 0;
+    --accent: 0.65 0.2 265;
+    --accent-foreground: 0.14 0 0;
+    --border: 0.3 0 260;
+    --input: 0.32 0 260;
+    --ring: 0.65 0.2 265;
+    --theme-color-l: 0.65;
+  }
+
+  :root.theme-herbal.dark {
+    --background: 0.14 0.015 75;
+    --foreground: 0.92 0.01 60;
+    --card: 0.18 0.018 75;
+    --card-foreground: 0.92 0.01 60;
+    --popover: 0.18 0.018 75;
+    --popover-foreground: 0.92 0.01 60;
+    --primary: 0.65 0.15 150;
+    --primary-foreground: 0.14 0.015 150;
+    --secondary: 0.22 0.02 75;
+    --secondary-foreground: 0.82 0.01 60;
+    --muted: 0.22 0.02 75;
+    --muted-foreground: 0.52 0.012 55;
+    --accent: 0.58 0.12 85;
+    --accent-foreground: 0.95 0.005 85;
+    --border: 0.28 0.02 75;
+    --input: 0.28 0.02 75;
+    --ring: 0.65 0.15 150;
+    --theme-color-l: 0.65;
+  }
+
+  :root.theme-punk.dark {
+    --theme-color-l: 0.75;
+  }
+
+  /* ============================================
+     DARK EDITORIAL THEME - Forest black, botanical green, gold accent
+     ============================================ */
+  :root.theme-dark {
+    --font-display: "Lora";
+    --font-body: "Satoshi";
+    --font-mono: "JetBrains Mono";
+
+    --background: 0.13 0.01 150;
+    --foreground: 0.92 0.01 80;
+    --card: 0.17 0.015 150;
+    --card-foreground: 0.92 0.01 80;
+    --popover: 0.17 0.015 150;
+    --popover-foreground: 0.92 0.01 80;
+
+    --primary: 0.68 0.18 140;
+    --primary-foreground: 0.13 0.01 150;
+
+    --secondary: 0.21 0.018 150;
+    --secondary-foreground: 0.82 0.01 80;
+    --muted: 0.21 0.018 150;
+    --muted-foreground: 0.55 0.01 80;
+
+    --accent: 0.72 0.14 80;
+    --accent-foreground: 0.13 0.01 150;
+
+    --destructive: 0.62 0.2 28;
+    --destructive-foreground: 0.13 0.01 28;
+
+    --border: 0.27 0.025 150;
+    --input: 0.27 0.025 150;
+    --ring: 0.68 0.18 140;
+
+    --chart-1: 0.68 0.18 140;
+    --chart-2: 0.72 0.14 80;
+    --chart-3: 0.62 0.2 28;
+    --chart-4: 0.7 0.15 265;
+    --chart-5: 0.65 0.12 180;
+
+    --sidebar: 0.11 0.01 150;
+    --sidebar-foreground: 0.92 0.01 80;
+    --sidebar-primary: 0.68 0.18 140;
+    --sidebar-primary-foreground: 0.13 0.01 150;
+    --sidebar-accent: 0.21 0.018 150;
+    --sidebar-accent-foreground: 0.82 0.01 80;
+    --sidebar-border: 0.27 0.025 150;
+    --sidebar-ring: 0.68 0.18 140;
+
+    --theme-color-h: 140;
+    --theme-color-c: 0.18;
+    --theme-color-l: 0.68;
+  }
+
+  /* ============================================
+     HERBAL THEME - Warm, organic, cream + sage green
+     ============================================ */
+  :root.theme-herbal {
+    --font-display: "Lora";
+    --font-body: "Satoshi";
+    --font-mono: "JetBrains Mono";
+
+    --background: 0.96 0.015 75;
+    --foreground: 0.2 0.03 50;
+    --card: 0.98 0.01 75;
+    --card-foreground: 0.2 0.03 50;
+    --popover: 0.98 0.01 75;
+    --popover-foreground: 0.2 0.03 50;
+
+    --primary: 0.48 0.14 160;
+    --primary-foreground: 0.96 0.015 75;
+
+    --secondary: 0.92 0.02 75;
+    --secondary-foreground: 0.3 0.03 50;
+    --muted: 0.92 0.02 75;
+    --muted-foreground: 0.5 0.02 50;
+
+    --accent: 0.5 0.1 160;
+    --accent-foreground: 0.96 0.01 160;
+
+    --destructive: 0.5 0.2 25;
+    --destructive-foreground: 0.96 0.01 25;
+
+    --border: 0.88 0.025 75;
+    --input: 0.88 0.025 75;
+    --ring: 0.48 0.14 160;
+
+    --chart-1: 0.48 0.14 160;
+    --chart-2: 0.5 0.1 160;
+    --chart-3: 0.5 0.2 25;
+    --chart-4: 0.45 0.12 30;
+    --chart-5: 0.55 0.15 150;
+
+    --sidebar: 0.94 0.02 75;
+    --sidebar-foreground: 0.2 0.03 50;
+    --sidebar-primary: 0.48 0.14 160;
+    --sidebar-primary-foreground: 0.96 0.015 75;
+    --sidebar-accent: 0.92 0.02 75;
+    --sidebar-accent-foreground: 0.28 0.03 50;
+    --sidebar-border: 0.88 0.025 75;
+    --sidebar-ring: 0.48 0.14 160;
+
+    --theme-color-h: 160;
+    --theme-color-c: 0.14;
+    --theme-color-l: 0.48;
+  }
+
+  /* ============================================
+     MINIMALIST THEME - Notion-like clarity
+     ============================================ */
+  :root.theme-minimalist {
+    --font-display: "Space Grotesk";
+    --font-body: "Satoshi";
+    --font-mono: "JetBrains Mono";
+
+    --background: 0.99 0.005 260;
+    --foreground: 0.15 0.01 260;
+    --card: 1.0 0.0 0;
+    --card-foreground: 0.15 0.01 260;
+    --popover: 1.0 0.0 0;
+    --popover-foreground: 0.15 0.01 260;
+
+    --primary: 0.45 0.2 265;
+    --primary-foreground: 0.98 0.005 265;
+
+    --secondary: 0.95 0.01 260;
+    --secondary-foreground: 0.25 0.01 260;
+    --muted: 0.95 0.01 260;
+    --muted-foreground: 0.5 0.01 260;
+
+    --accent: 0.45 0.2 265;
+    --accent-foreground: 0.98 0.005 265;
+
+    --destructive: 0.55 0.22 25;
+    --destructive-foreground: 0.98 0.005 25;
+
+    --border: 0.9 0.01 260;
+    --input: 0.9 0.01 260;
+    --ring: 0.45 0.2 265;
+
+    --chart-1: 0.45 0.2 265;
+    --chart-2: 0.5 0.18 200;
+    --chart-3: 0.55 0.22 25;
+    --chart-4: 0.4 0.15 310;
+    --chart-5: 0.6 0.16 150;
+
+    --sidebar: 0.98 0.005 260;
+    --sidebar-foreground: 0.15 0.01 260;
+    --sidebar-primary: 0.45 0.2 265;
+    --sidebar-primary-foreground: 0.98 0.005 265;
+    --sidebar-accent: 0.95 0.01 260;
+    --sidebar-accent-foreground: 0.25 0.01 260;
+    --sidebar-border: 0.9 0.01 260;
+    --sidebar-ring: 0.45 0.2 265;
+
+    --theme-color-l: 0.45;
+  }
+
+  /* ============================================
+     PUNK THEME - Bold, high-contrast
+     ============================================ */
+  :root.theme-punk {
+    --font-display: "Space Grotesk";
+    --font-body: "Satoshi";
+    --font-mono: "JetBrains Mono";
+
+    --background: 0.12 0.0 0;
+    --foreground: 0.9 0.0 0;
+    --card: 0.16 0.0 0;
+    --card-foreground: 0.9 0.0 0;
+    --popover: 0.16 0.0 0;
+    --popover-foreground: 0.9 0.0 0;
+
+    --primary: 0.75 0.2 145;
+    --primary-foreground: 0.12 0.0 0;
+
+    --secondary: 0.2 0.0 0;
+    --secondary-foreground: 0.8 0.0 0;
+    --muted: 0.2 0.0 0;
+    --muted-foreground: 0.5 0.0 0;
+
+    --accent: 0.75 0.2 145;
+    --accent-foreground: 0.12 0.0 0;
+
+    --destructive: 0.75 0.2 25;
+    --destructive-foreground: 0.12 0.0 0;
+
+    --border: 0.25 0.0 0;
+    --input: 0.25 0.0 0;
+    --ring: 0.75 0.2 145;
+
+    --chart-1: 0.75 0.2 145;
+    --chart-2: 0.78 0.18 120;
+    --chart-3: 0.75 0.2 25;
+    --chart-4: 0.8 0.18 310;
+    --chart-5: 0.72 0.18 150;
+
+    --sidebar: 0.12 0.0 0;
+    --sidebar-foreground: 0.9 0.0 0;
+    --sidebar-primary: 0.75 0.2 145;
+    --sidebar-primary-foreground: 0.12 0.0 0;
+    --sidebar-accent: 0.2 0.0 0;
+    --sidebar-accent-foreground: 0.8 0.0 0;
+    --sidebar-border: 0.25 0.0 0;
+    --sidebar-ring: 0.75 0.2 145;
+
+    --theme-color-l: 0.75;
+  }
+
   * {
     @apply border-border;
   }
@@ -161,8 +425,22 @@
 }
 
 @font-face {
-  font-family: "General Sans";
-  src: url("/assets/fonts/GeneralSans.woff2") format("woff2");
+  font-family: "Satoshi";
+  src: url("/assets/fonts/Satoshi.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Lora";
+  src: url("/assets/fonts/Lora.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("/assets/fonts/SpaceGrotesk.woff2") format("woff2");
   font-weight: 100 900;
   font-display: swap;
 }
@@ -175,8 +453,8 @@
 }
 
 @font-face {
-  font-family: "Geist Mono";
-  src: url("/assets/fonts/GeistMono.woff2") format("woff2");
+  font-family: "JetBrains Mono";
+  src: url("/assets/fonts/JetBrainsMono.woff2") format("woff2");
   font-weight: 100 900;
   font-display: swap;
 }

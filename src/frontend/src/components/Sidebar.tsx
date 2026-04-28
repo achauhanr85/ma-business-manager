@@ -3,6 +3,7 @@ import { useImpersonation } from "@/contexts/ImpersonationContext";
 import { useProfile } from "@/contexts/ProfileContext";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "@/translations";
 import { ROLES } from "@/types";
 import {
   ArrowRightLeft,
@@ -20,6 +21,7 @@ import {
   Settings,
   Shield,
   ShoppingCart,
+  Store,
   Tag,
   User,
   Users,
@@ -36,7 +38,7 @@ interface SidebarProps {
 /** Module key → path mapping for permission filtering */
 const MODULE_PATH_MAP: Record<string, string[]> = {
   sales: ["/sales"],
-  po: ["/purchase-orders"],
+  po: ["/purchase-orders", "/vendors"],
   customer: ["/customers", "/customer-goals", "/customer-medical-issues"],
   product: ["/products"],
   inventory: [
@@ -49,7 +51,8 @@ const MODULE_PATH_MAP: Record<string, string[]> = {
 };
 
 interface NavItem {
-  label: string;
+  /** Translation key path, e.g. "nav.dashboard" */
+  labelKey: string;
   path: string;
   icon: React.ElementType;
   roles: readonly string[] | null;
@@ -59,7 +62,8 @@ interface NavItem {
 
 interface NavSection {
   id: string;
-  label: string;
+  /** Translation key path for section label */
+  labelKey: string;
   items: NavItem[];
 }
 
@@ -70,10 +74,10 @@ interface NavSection {
 const NAV_SECTIONS: NavSection[] = [
   {
     id: "main",
-    label: "Main",
+    labelKey: "sectionMain",
     items: [
       {
-        label: "Dashboard",
+        labelKey: "nav.dashboard",
         path: "/dashboard",
         icon: LayoutDashboard,
         roles: null,
@@ -81,7 +85,7 @@ const NAV_SECTIONS: NavSection[] = [
         superAdminDisabled: false,
       },
       {
-        label: "Profile",
+        labelKey: "nav.profile",
         path: "/profile",
         icon: User,
         roles: null,
@@ -92,10 +96,10 @@ const NAV_SECTIONS: NavSection[] = [
   },
   {
     id: "sales",
-    label: "Sales",
+    labelKey: "sectionSales",
     items: [
       {
-        label: "Sales / Cart",
+        labelKey: "nav.sales",
         path: "/sales",
         icon: ShoppingCart,
         roles: null,
@@ -103,10 +107,18 @@ const NAV_SECTIONS: NavSection[] = [
         superAdminDisabled: true,
       },
       {
-        label: "Purchase Orders",
+        labelKey: "nav.purchaseOrders",
         path: "/purchase-orders",
         icon: ClipboardList,
         roles: null,
+        module: "po",
+        superAdminDisabled: true,
+      },
+      {
+        labelKey: "nav.vendors",
+        path: "/vendors",
+        icon: Store,
+        roles: [ROLES.ADMIN, ROLES.STAFF],
         module: "po",
         superAdminDisabled: true,
       },
@@ -114,10 +126,10 @@ const NAV_SECTIONS: NavSection[] = [
   },
   {
     id: "customers",
-    label: "Customers",
+    labelKey: "sectionCustomers",
     items: [
       {
-        label: "Customers",
+        labelKey: "nav.customers",
         path: "/customers",
         icon: Users,
         roles: null,
@@ -125,7 +137,7 @@ const NAV_SECTIONS: NavSection[] = [
         superAdminDisabled: true,
       },
       {
-        label: "Customer Goals",
+        labelKey: "nav.customerGoals",
         path: "/customer-goals",
         icon: Goal,
         roles: [ROLES.ADMIN, ROLES.STAFF],
@@ -133,7 +145,7 @@ const NAV_SECTIONS: NavSection[] = [
         superAdminDisabled: true,
       },
       {
-        label: "Medical Issues",
+        labelKey: "nav.medicalIssues",
         path: "/customer-medical-issues",
         icon: HeartPulse,
         roles: [ROLES.ADMIN, ROLES.STAFF],
@@ -144,10 +156,10 @@ const NAV_SECTIONS: NavSection[] = [
   },
   {
     id: "inventory",
-    label: "Inventory",
+    labelKey: "sectionInventory",
     items: [
       {
-        label: "Inventory",
+        labelKey: "nav.inventory",
         path: "/inventory",
         icon: Boxes,
         roles: null,
@@ -155,7 +167,7 @@ const NAV_SECTIONS: NavSection[] = [
         superAdminDisabled: true,
       },
       {
-        label: "Inventory Movement",
+        labelKey: "nav.inventoryMovement",
         path: "/inventory-movement",
         icon: ArrowRightLeft,
         roles: [ROLES.STAFF, ROLES.ADMIN],
@@ -163,7 +175,7 @@ const NAV_SECTIONS: NavSection[] = [
         superAdminDisabled: true,
       },
       {
-        label: "Loaner Inventory",
+        labelKey: "nav.loanerInventory",
         path: "/loaner-inventory",
         icon: Package,
         roles: [ROLES.STAFF, ROLES.ADMIN],
@@ -171,7 +183,7 @@ const NAV_SECTIONS: NavSection[] = [
         superAdminDisabled: true,
       },
       {
-        label: "Stage Inventory",
+        labelKey: "nav.stageInventory",
         path: "/stage-inventory",
         icon: ClipboardCheck,
         roles: [ROLES.STAFF, ROLES.ADMIN],
@@ -182,10 +194,10 @@ const NAV_SECTIONS: NavSection[] = [
   },
   {
     id: "catalog",
-    label: "Catalog",
+    labelKey: "sectionCatalog",
     items: [
       {
-        label: "Products & Categories",
+        labelKey: "nav.products",
         path: "/products",
         icon: Tag,
         roles: null,
@@ -193,7 +205,7 @@ const NAV_SECTIONS: NavSection[] = [
         superAdminDisabled: true,
       },
       {
-        label: "Analytics",
+        labelKey: "nav.analytics",
         path: "/analytics",
         icon: BarChart3,
         roles: null,
@@ -204,10 +216,10 @@ const NAV_SECTIONS: NavSection[] = [
   },
   {
     id: "admin",
-    label: "Admin",
+    labelKey: "sectionAdmin",
     items: [
       {
-        label: "User Management",
+        labelKey: "nav.userManagement",
         path: "/user-management",
         icon: Users,
         roles: [ROLES.ADMIN],
@@ -215,7 +227,7 @@ const NAV_SECTIONS: NavSection[] = [
         superAdminDisabled: false,
       },
       {
-        label: "Preferences",
+        labelKey: "nav.userPreferences",
         path: "/user-preferences",
         icon: Settings,
         roles: null,
@@ -223,7 +235,7 @@ const NAV_SECTIONS: NavSection[] = [
         superAdminDisabled: false,
       },
       {
-        label: "Super Admin",
+        labelKey: "nav.superAdmin",
         path: "/super-admin",
         icon: Shield,
         roles: [ROLES.SUPER_ADMIN],
@@ -231,7 +243,7 @@ const NAV_SECTIONS: NavSection[] = [
         superAdminDisabled: false,
       },
       {
-        label: "Regression Tests",
+        labelKey: "nav.adminTests",
         path: "/admin/tests",
         icon: FlaskConical,
         roles: [ROLES.SUPER_ADMIN],
@@ -279,6 +291,17 @@ function filterItem(
   return true;
 }
 
+/** Resolve a flat labelKey like "nav.dashboard" from the translation object */
+function resolveLabel(t: Record<string, unknown>, key: string): string {
+  const parts = key.split(".");
+  let obj: unknown = t;
+  for (const p of parts) {
+    if (typeof obj !== "object" || obj === null) return key;
+    obj = (obj as Record<string, unknown>)[p];
+  }
+  return typeof obj === "string" ? obj : key;
+}
+
 export function Sidebar({
   currentPath,
   onNavigate,
@@ -288,6 +311,7 @@ export function Sidebar({
   const { logout } = useAuth();
   const { profile, userProfile } = useProfile();
   const { isImpersonating, impersonateAsRole } = useImpersonation();
+  const t = useTranslation();
 
   const currentRole = userProfile?.role;
   const isSuperAdmin = currentRole === ROLES.SUPER_ADMIN;
@@ -310,6 +334,19 @@ export function Sidebar({
     onClose();
   };
 
+  // Section labels with fallback English strings
+  const sectionLabels: Record<string, string> = {
+    sectionMain: "Main",
+    sectionSales: "Sales",
+    sectionCustomers: "Customers",
+    sectionInventory: "Inventory",
+    sectionCatalog: "Catalog",
+    sectionAdmin: "Admin",
+  };
+
+  // Extended translation object with section labels
+  const tExt = { ...t, ...sectionLabels } as Record<string, unknown>;
+
   return (
     <>
       {/* Mobile overlay */}
@@ -325,14 +362,14 @@ export function Sidebar({
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed top-0 left-0 z-50 h-full w-64 bg-card border-r border-border flex flex-col transition-transform duration-300 ease-in-out",
+          "fixed top-0 left-0 z-50 h-full w-64 bg-sidebar border-r border-sidebar-border flex flex-col transition-transform duration-300 ease-in-out",
           "lg:translate-x-0 lg:z-auto",
           isOpen ? "translate-x-0" : "-translate-x-full",
         )}
         data-ocid="sidebar"
       >
         {/* Logo header */}
-        <div className="flex items-center justify-between px-4 py-4 border-b border-border">
+        <div className="flex items-center justify-between px-4 py-4 border-b border-sidebar-border">
           <button
             type="button"
             onClick={() => handleNav("/dashboard")}
@@ -346,15 +383,15 @@ export function Sidebar({
                 className="w-8 h-8 rounded-lg object-cover"
               />
             ) : (
-              <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-                <Leaf className="w-4 h-4 text-primary-foreground" />
+              <div className="w-8 h-8 rounded-lg bg-sidebar-primary flex items-center justify-center">
+                <Leaf className="w-4 h-4 text-sidebar-primary-foreground" />
               </div>
             )}
             <div className="flex flex-col leading-none">
-              <span className="font-display font-semibold text-foreground text-sm truncate max-w-[120px]">
+              <span className="font-display font-semibold text-sidebar-foreground text-sm truncate max-w-[120px]">
                 {profile?.business_name ?? "Indi Negocio"}
               </span>
-              <span className="text-muted-foreground text-[10px]">
+              <span className="text-sidebar-accent-foreground text-[10px] opacity-60">
                 Indi Negocio Livre
               </span>
             </div>
@@ -373,18 +410,18 @@ export function Sidebar({
 
         {/* User + warehouse info */}
         {userProfile && (
-          <div className="px-4 py-2.5 border-b border-border bg-muted/30">
-            <p className="text-xs text-muted-foreground">
+          <div className="px-4 py-2.5 border-b border-sidebar-border bg-sidebar-accent/30">
+            <p className="text-xs text-sidebar-accent-foreground">
               {userProfile.display_name}
             </p>
             {userProfile.warehouse_name && (
-              <p className="text-[11px] font-medium text-primary truncate mt-0.5 flex items-center gap-1">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary" />
+              <p className="text-[11px] font-medium text-sidebar-primary truncate mt-0.5 flex items-center gap-1">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-sidebar-primary" />
                 {userProfile.warehouse_name}
               </p>
             )}
             <div className="flex items-center gap-1.5 mt-1">
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary capitalize">
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-sidebar-primary/10 text-sidebar-primary capitalize">
                 {currentRole === ROLES.SUPER_ADMIN
                   ? "Super Admin"
                   : currentRole === ROLES.ADMIN
@@ -424,15 +461,18 @@ export function Sidebar({
             // Hide entire section when no items are visible
             if (visibleItems.length === 0) return null;
 
+            const sectionLabel =
+              sectionLabels[section.labelKey] ?? section.labelKey;
+
             return (
               <div key={section.id} className="mb-1">
                 {/* Section label */}
                 <div className="px-4 pt-3 pb-1">
                   <span
-                    className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/55"
+                    className="text-[10px] font-semibold uppercase tracking-widest text-sidebar-accent-foreground/55"
                     data-ocid={`sidebar.section.${section.id}`}
                   >
-                    {section.label}
+                    {sectionLabel}
                   </span>
                 </div>
                 {/* Section items */}
@@ -442,27 +482,28 @@ export function Sidebar({
                     const isActive =
                       currentPath === item.path ||
                       currentPath.startsWith(`${item.path}/`);
+                    const label = resolveLabel(tExt, item.labelKey);
                     return (
                       <li key={item.path}>
                         <button
                           type="button"
                           onClick={() => handleNav(item.path)}
-                          data-ocid={`sidebar.nav.${item.label.toLowerCase().replace(/[^a-z0-9]/gu, "_")}_link`}
+                          data-ocid={`sidebar.nav.${item.path.replace(/\//g, "").replace(/-/g, "_")}_link`}
                           className={cn(
                             "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-smooth text-left",
                             isActive
-                              ? "bg-primary/10 text-primary"
-                              : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                              ? "bg-sidebar-primary/10 text-sidebar-primary"
+                              : "text-sidebar-accent-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground",
                           )}
                           aria-current={isActive ? "page" : undefined}
                         >
                           <Icon
                             className={cn(
                               "w-4 h-4 flex-shrink-0",
-                              isActive && "text-primary",
+                              isActive && "text-sidebar-primary",
                             )}
                           />
-                          {item.label}
+                          {label}
                         </button>
                       </li>
                     );
@@ -474,15 +515,15 @@ export function Sidebar({
         </nav>
 
         {/* Logout */}
-        <div className="px-2 py-3 border-t border-border">
+        <div className="px-2 py-3 border-t border-sidebar-border">
           <button
             type="button"
             onClick={logout}
             data-ocid="sidebar.logout_button"
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-smooth"
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-sidebar-accent-foreground hover:bg-destructive/10 hover:text-destructive transition-smooth"
           >
             <LogOut className="w-4 h-4 flex-shrink-0" />
-            Logout
+            {t.nav.logout}
           </button>
         </div>
       </aside>

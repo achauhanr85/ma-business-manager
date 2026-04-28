@@ -349,10 +349,10 @@ module {
 
   /// List all notes for a customer (newest first), from the dedicated noteStore.
   public func listCustomerNotes(
-    noteStore : CustomerNoteStore,
+    _noteStore : CustomerNoteStore,
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
     caller : Common.UserId,
-    customerId : Common.CustomerId,
+    _customerId : Common.CustomerId,
   ) : [CustomerTypes.CustomerNote] {
     // noteStore key is the note ID; notes don't store customer_id directly in the type.
     // We use a separate approach: the noteStore stores notes for ALL customers.

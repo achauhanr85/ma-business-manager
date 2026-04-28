@@ -44,12 +44,31 @@ function useBackendActor() {
   return useActor(createActor);
 }
 
-function applyThemeColor(themeColor: string) {
-  if (!themeColor || !themeColor.startsWith("#")) return;
+/**
+ * Applies ONLY the profile brand color as a CSS variable overlay on top of
+ * the current theme. Does NOT touch --background, --card, or any structural
+ * tokens — those are owned by the theme class applied by applyTheme().
+ */
+function applyProfileBrandColor(themeColor: string) {
+  if (!themeColor?.startsWith("#")) return;
   try {
     const oklch = hexToOklch(themeColor);
-    document.documentElement.style.setProperty("--primary", oklch);
-    document.documentElement.style.setProperty("--primary-raw", themeColor);
+    const root = document.documentElement;
+
+    // Set --primary as the full OKLCH string
+    root.style.setProperty("--primary", oklch);
+    root.style.setProperty("--primary-raw", themeColor);
+
+    // Parse OKLCH components for --theme-color-* utility vars
+    const match = oklch.match(/([\d.]+)%?\s+([\d.]+)\s+([\d.]+)/);
+    if (match) {
+      const l = Number.parseFloat(match[1]) / 100;
+      const c = Number.parseFloat(match[2]);
+      const h = Number.parseFloat(match[3]);
+      root.style.setProperty("--theme-color-l", String(l));
+      root.style.setProperty("--theme-color-c", String(c));
+      root.style.setProperty("--theme-color-h", String(h));
+    }
   } catch {
     // Silently ignore invalid colors
   }
@@ -116,8 +135,9 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
         const profileData = p ?? null;
         setProfile(profileData);
 
+        // Apply profile brand color as overlay (does NOT override theme tokens)
         if (profileData?.theme_color) {
-          applyThemeColor(profileData.theme_color);
+          applyProfileBrandColor(profileData.theme_color);
         }
 
         setIsProfileDisabled(checkProfileDisabled(profileData));
@@ -142,7 +162,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (profile?.theme_color) {
-      applyThemeColor(profile.theme_color);
+      applyProfileBrandColor(profile.theme_color);
     }
   }, [profile?.theme_color]);
 

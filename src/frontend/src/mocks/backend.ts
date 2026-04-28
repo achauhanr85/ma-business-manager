@@ -95,6 +95,7 @@ const mockDashboardStats: DashboardStats = {
   lead_count: BigInt(2),
   active_count: BigInt(8),
   inactive_count: BigInt(1),
+  out_of_stock_count: BigInt(0),
 };
 
 const mockSalesTrend: MonthlySalesTrend[] = [
@@ -134,6 +135,7 @@ const mockUserProfile: UserProfilePublic = {
   language_preference: "en",
   date_format: "DD/MM/YYYY",
   default_receipt_language: "en",
+  theme: "dark",
 };
 
 const mockCustomers: CustomerPublic[] = [
@@ -303,11 +305,18 @@ export const mockBackend: backendInterface = {
     dateFormat: "DD/MM/YYYY",
     defaultReceiptLanguage: "en",
     whatsappNumber: "",
+    theme: "dark",
   }),
   updateUserPreferences: async () => true,
   // Super Admin active profile
   getSuperAdminActiveProfile: async () => null,
   setSuperAdminActiveProfile: async () => true,
+  // Lead management (public marketing page leads)
+  submitLead: async () => ({ id: BigInt(1), name: "", business_name: "", created_at: NOW_NS, email: "", message: "", is_closed: false, phone: "" }),
+  getLeads: async () => [],
+  getLead: async () => null,
+  closeLead: async () => true,
+  deleteLead: async () => true,
   // Notifications
   getNotificationsForUser: async () => [
     { id: "notif-1", message: "Welcome to Indi Negocio Livre!", notification_type: "welcome", is_read: false, created_at: NOW_NS, profile_key: PROFILE_KEY, target_role: "admin" },

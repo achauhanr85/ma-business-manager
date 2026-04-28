@@ -1,16 +1,18 @@
 {
-  "overview": "Indi Negocio Libre is a comprehensive, multi-tenant business management platform for herbal product distributors. It supports inventory management, sales, purchase orders, customer tracking with health metrics, role-based access, multi-lingual UI, and a Super Admin oversight dashboard.",
+  "overview": "Indi Negocio Livre is a comprehensive, multi-tenant, mobile-first business management web app for herbal product distributors. It features inventory management, sales tracking, customer management with body composition history, purchase orders, and a public marketing page — all built on the Internet Computer with Motoko backend and React frontend.",
   "features": [
-    "Multi-tenant business profiles with role-based access (Super Admin, Admin, Staff, Referral User)",
-    "Sales cart with return orders, payment tracking, and receipt PDF generation",
-    "Customer management with body composition, body inches, primary goals, and medical issues tracking",
-    "Inventory management with FIFO, loaner/temporary stock, and warehouse sharing",
-    "Purchase orders with vendor management and inventory auto-increment",
-    "Multi-lingual UI (English, Gujarati, Hindi) with per-user preference",
-    "Super Admin dashboard with canister cycles monitoring and profile management",
-    "Automated regression test suite at /admin/tests with 130+ checks",
-    "Background notification jobs for overdue payments, follow-ups, and lead reminders",
-    "CSV bulk import/export for products, categories, customers, goals, and medical issues"
+    "Multi-tenant business profiles with strict data isolation",
+    "Role-based access (Super Admin, Admin, Staff, Referral User)",
+    "Inventory management with FIFO, multi-warehouse, loaner stock",
+    "Sales and purchase order management with return flows",
+    "Customer management with body composition, goals, medical issues",
+    "Receipt PDF generation with WhatsApp sharing",
+    "Public marketing page with demo lead form",
+    "4 selectable UI themes (Dark, Minimalist, Herbal, Punk)",
+    "Multi-lingual UI (English, Gujarati, Hindi)",
+    "Notification system with background jobs",
+    "KPI dashboard and analytics",
+    "Automated regression test suite"
   ],
   "category": "business-management",
   "tags": [
@@ -19,9 +21,9 @@
     "sales",
     "multi-tenant",
     "herbal",
-    "customers",
-    "multilingual",
-    "health-tracking"
+    "mobile-first",
+    "motoko",
+    "internet-computer"
   ],
-  "last_updated": "2026-04-27T10:21:17.053Z"
+  "last_updated": "2026-04-28T10:40:22.757Z"
 }

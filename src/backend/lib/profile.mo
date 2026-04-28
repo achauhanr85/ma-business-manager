@@ -159,6 +159,7 @@ module {
           language_preference = up.language_preference;
           date_format = up.date_format;
           default_receipt_language = up.default_receipt_language;
+          theme = up.theme;
         }
       })
       .toArray()
@@ -184,6 +185,7 @@ module {
           language_preference = up.language_preference;
           date_format = up.date_format;
           default_receipt_language = up.default_receipt_language;
+          theme = up.theme;
         }
       })
       .toArray()
@@ -263,10 +265,11 @@ module {
           // Profile creator is immediately approved as Admin
           approval_status = ?"approved";
           module_access = null;
-          // User preferences — default to English / DD/MM/YYYY
+          // User preferences — default to English / DD/MM/YYYY / dark theme
           language_preference = "en";
           date_format = "DD/MM/YYYY";
           default_receipt_language = "en";
+          theme = "dark";
           // Who-columns
           created_by = caller;
           last_updated_by = caller;
@@ -306,10 +309,11 @@ module {
           // Staff members start as pending until approved by Admin
           approval_status = ?"pending";
           module_access = null;
-          // User preferences — default to English / DD/MM/YYYY
+          // User preferences — default to English / DD/MM/YYYY / dark theme
           language_preference = "en";
           date_format = "DD/MM/YYYY";
           default_receipt_language = "en";
+          theme = "dark";
           // Who-columns
           created_by = caller;
           last_updated_by = caller;
@@ -351,6 +355,7 @@ module {
           language_preference = "en";
           date_format = "DD/MM/YYYY";
           default_receipt_language = "en";
+          theme = "dark";
           created_by = caller;
           last_updated_by = caller;
           creation_date = now;
@@ -627,6 +632,7 @@ module {
         language_preference = up.language_preference;
         date_format = up.date_format;
         default_receipt_language = up.default_receipt_language;
+        theme = up.theme;
       };
       case null null;
     }
@@ -700,10 +706,11 @@ module {
           dateFormat = up.date_format;
           defaultReceiptLanguage = up.default_receipt_language;
           whatsappNumber = switch (up.email) { case (?e) e; case null "" };
+          theme = up.theme;
         }
       };
       case null {
-        { language = "en"; dateFormat = "DD/MM/YYYY"; defaultReceiptLanguage = "en"; whatsappNumber = "" }
+        { language = "en"; dateFormat = "DD/MM/YYYY"; defaultReceiptLanguage = "en"; whatsappNumber = ""; theme = "dark" }
       };
     }
   };
@@ -716,6 +723,7 @@ module {
     dateFormat : Text,
     defaultReceiptLanguage : Text,
     whatsappNumber : Text,
+    theme : Text,
   ) : Bool {
     let now = Time.now();
     switch (userStore.get(caller)) {
@@ -726,6 +734,7 @@ module {
           language_preference = language;
           date_format = dateFormat;
           default_receipt_language = defaultReceiptLanguage;
+          theme;
           email = if (whatsappNumber == "") existing.email else ?whatsappNumber;
           last_updated_by = caller;
           last_update_date = now;
@@ -813,6 +822,7 @@ module {
           language_preference = up.language_preference;
           date_format = up.date_format;
           default_receipt_language = up.default_receipt_language;
+          theme = up.theme;
         }
       })
       .toArray()
@@ -888,6 +898,7 @@ module {
           language_preference = up.language_preference;
           date_format = up.date_format;
           default_receipt_language = up.default_receipt_language;
+          theme = up.theme;
         }
       })
       .toArray()

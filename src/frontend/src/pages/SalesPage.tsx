@@ -38,8 +38,8 @@ import {
   useGetProducts,
   useGetSaleItems,
   useGetSales,
+  useGetSalesByProfile,
   useGetUsersByProfile,
-  useUpdatePaymentStatus,
   useUpdateSale,
 } from "@/hooks/useBackend";
 import type { ReturnOrderItem } from "@/hooks/useBackend";
@@ -2780,7 +2780,6 @@ function OrderHistoryPanel({
 }) {
   const [returnSale, setReturnSale] = useState<Sale | null>(null);
   const [paymentSale, setPaymentSale] = useState<Sale | null>(null);
-  const updatePaymentStatus = useUpdatePaymentStatus();
   const { data: profileUsers = [] } = useGetUsersByProfile(profileKey || null);
 
   const sorted = useMemo(
@@ -2800,36 +2799,6 @@ function OrderHistoryPanel({
     }
     return map;
   }, [profileUsers]);
-
-  async function handleQuickStatusUpdate(sale: Sale, newStatus: string) {
-    // Lock paid orders — no change allowed
-    const saleWithStatus = sale as Sale & { payment_status?: string };
-    const currentStatus = String(saleWithStatus.payment_status ?? "");
-    if (currentStatus.toLowerCase() === "paid") {
-      toast.info("Paid orders cannot be changed");
-      return;
-    }
-    try {
-      const s = sale as Sale & {
-        payment_mode?: string;
-        amount_paid?: number;
-      };
-      await updatePaymentStatus.mutateAsync({
-        saleId: sale.id,
-        status: newStatus,
-        paymentMode: s.payment_mode ?? "cash",
-        amountPaid:
-          newStatus === "paid"
-            ? sale.total_revenue
-            : newStatus === "unpaid"
-              ? 0
-              : (s.amount_paid ?? 0),
-      });
-      toast.success("Payment status updated");
-    } catch {
-      toast.error("Failed to update payment status");
-    }
-  }
 
   if (isLoading) {
     return (
@@ -2866,16 +2835,24 @@ function OrderHistoryPanel({
             discount_applied?: number;
             payment_due_date?: string;
             sold_by?: string;
+            order_type?: string;
           };
-          const paymentStatus = saleWithPayment.payment_status ?? "paid";
+          const paymentStatus = String(
+            saleWithPayment.payment_status ?? "paid",
+          ).toLowerCase();
           const paymentMode = saleWithPayment.payment_mode;
           const discountApplied = saleWithPayment.discount_applied ?? 0;
-          const isReturned = (paymentStatus as string) === "returned";
-          const isPaid = (paymentStatus as string) === "paid";
+          const isReturned =
+            paymentStatus === "returned" ||
+            String(saleWithPayment.order_type ?? "").toLowerCase() === "return";
+          const isPaid = paymentStatus === "paid";
           const soldByName = saleWithPayment.sold_by
             ? (userNameMap[saleWithPayment.sold_by] ??
               `${saleWithPayment.sold_by.slice(0, 10)}…`)
             : null;
+
+          // BUG-12: guard null total_revenue
+          const totalRevenue = sale.total_revenue ?? 0;
 
           return (
             <div
@@ -2889,7 +2866,13 @@ function OrderHistoryPanel({
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-sm font-semibold">
                       Order #{sale.id.toString()}
+                      {isReturned && (
+                        <span className="ml-1 text-xs text-muted-foreground">
+                          (Return)
+                        </span>
+                      )}
                     </p>
+                    {/* BUG-11: Payment status shown as read-only badge only — no inline select */}
                     <span
                       className={`text-xs px-2 py-0.5 rounded-full border font-medium ${PAYMENT_STATUS_COLORS[paymentStatus] ?? PAYMENT_STATUS_COLORS.paid}`}
                     >
@@ -2917,16 +2900,18 @@ function OrderHistoryPanel({
                       </span>
                     </p>
                   )}
-                  {saleWithPayment.payment_due_date && !isReturned && (
-                    <p className="text-xs text-destructive mt-0.5 flex items-center gap-1">
-                      <Calendar className="w-3 h-3" /> Due:{" "}
-                      {saleWithPayment.payment_due_date}
-                    </p>
-                  )}
+                  {saleWithPayment.payment_due_date &&
+                    !isReturned &&
+                    !isPaid && (
+                      <p className="text-xs text-destructive mt-0.5 flex items-center gap-1">
+                        <Calendar className="w-3 h-3" /> Due:{" "}
+                        {saleWithPayment.payment_due_date}
+                      </p>
+                    )}
                 </div>
                 <div className="text-right flex-shrink-0 space-y-1">
                   <p className="text-sm font-semibold text-primary">
-                    {formatCurrency(sale.total_revenue ?? 0)}
+                    {formatCurrency(totalRevenue)}
                   </p>
                   {discountApplied > 0 && (
                     <p className="text-xs text-muted-foreground">
@@ -2936,44 +2921,10 @@ function OrderHistoryPanel({
                 </div>
               </div>
 
-              {/* Payment status — read-only badge for paid; quick-update select for unpaid/partial */}
-              {!isReturned && (
-                <div className="mt-2 flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">Status:</span>
-                  {isPaid ? (
-                    <Badge className="text-xs h-6 px-2 bg-primary/10 text-primary border border-primary/30">
-                      Paid
-                    </Badge>
-                  ) : (
-                    <Select
-                      value={paymentStatus}
-                      onValueChange={(v) => handleQuickStatusUpdate(sale, v)}
-                    >
-                      <SelectTrigger
-                        className="h-6 text-xs w-28 px-2"
-                        data-ocid={`sales.history.payment_status_select.${idx + 1}`}
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="paid" className="text-xs">
-                          Paid
-                        </SelectItem>
-                        <SelectItem value="unpaid" className="text-xs">
-                          Unpaid
-                        </SelectItem>
-                        <SelectItem value="partial" className="text-xs">
-                          Partial
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  )}
-                </div>
-              )}
-
+              {/* BUG-11: Action buttons row — Payments always visible (not just for unpaid) */}
               <div className="mt-3 flex justify-end gap-2 flex-wrap">
-                {/* Payments button — shown for unpaid/partial orders */}
-                {!isReturned && !isPaid && (
+                {/* Payments button — always shown for non-returned orders */}
+                {!isReturned && (
                   <Button
                     type="button"
                     size="sm"
@@ -2999,17 +2950,19 @@ function OrderHistoryPanel({
                 </Button>
                 {canEdit && !isReturned ? (
                   <>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-xs gap-1.5"
-                      onClick={() => onEditSale(sale)}
-                      data-ocid={`sales.history.edit_button.${idx + 1}`}
-                    >
-                      <Edit className="w-3 h-3" />
-                      Edit
-                    </Button>
+                    {!isPaid && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs gap-1.5"
+                        onClick={() => onEditSale(sale)}
+                        data-ocid={`sales.history.edit_button.${idx + 1}`}
+                      >
+                        <Edit className="w-3 h-3" />
+                        Edit
+                      </Button>
+                    )}
                     <Button
                       type="button"
                       size="sm"
@@ -3077,11 +3030,26 @@ export function SalesPage({ onNavigate }: SalesPageProps) {
     useGetInventoryLevels();
   const { data: rawCustomers = [], isLoading: loadingCustomers } =
     useGetCustomers();
+
+  // BUG-06: Admin must see ALL orders for their profile — filter by profile_key only, not user_id.
+  // useGetSalesByProfile calls getSalesHistory(profileKey) or falls back to getSales().
   const {
-    data: sales = [],
-    isLoading: loadingSales,
-    error: salesError,
+    data: salesByProfile = [],
+    isLoading: loadingSalesByProfile,
+    error: salesByProfileError,
+  } = useGetSalesByProfile(canEdit ? profileKey || null : null);
+
+  const {
+    data: salesByUser = [],
+    isLoading: loadingSalesByUser,
+    error: salesByUserError,
   } = useGetSales();
+
+  // Admin/SuperAdmin use profile-scoped query; Staff uses standard getSales()
+  const sales = canEdit ? (salesByProfile as Sale[]) : salesByUser;
+  const loadingSales = canEdit ? loadingSalesByProfile : loadingSalesByUser;
+  const salesError = canEdit ? salesByProfileError : salesByUserError;
+
   const createSale = useCreateSale();
 
   const customers: CustomerPublicWithDiscount[] = useMemo(

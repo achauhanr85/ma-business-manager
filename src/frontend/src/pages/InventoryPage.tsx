@@ -22,10 +22,12 @@ import {
 import { useProfile } from "@/contexts/ProfileContext";
 import {
   useGetCategories,
+  useGetDashboardStats,
   useGetInventoryBatches,
   useGetInventoryLevels,
   useGetProducts,
 } from "@/hooks/useBackend";
+import { useTranslation } from "@/translations";
 import type {
   Category,
   InventoryBatchPublic,
@@ -169,7 +171,6 @@ function BatchDetailsRow({
     Number(a.date_received - b.date_received),
   );
 
-  // Check if any batches are loaned — show COGS note
   const hasLoanedBatches = sorted.some((b) => b.is_loaned);
 
   return (
@@ -277,8 +278,6 @@ function ProductRow({
 }: ProductRowProps) {
   const [expanded, setExpanded] = useState(false);
 
-  // When a specific warehouse is selected, compute qty for that warehouse only
-  // Loaned batches are already excluded from total_qty by backend but included in batches[]
   const totalQty = useMemo(() => {
     if (!level) return 0n;
     if (!warehouseFilter || warehouseFilter === "all") return level.total_qty;
@@ -398,11 +397,16 @@ export function InventoryPage({ onNavigate }: InventoryPageProps) {
   const [selectedWarehouse, setSelectedWarehouse] = useState<string>("all");
   const [helpOpen, setHelpOpen] = useState(false);
   const { userProfile } = useProfile();
+  const t = useTranslation();
+
   const { data: rawLevels = [], isLoading: levelsLoading } =
     useGetInventoryLevels();
   const { data: products = [], isLoading: productsLoading } = useGetProducts();
   const { data: categories = [], isLoading: categoriesLoading } =
     useGetCategories();
+
+  // BUG-10: Use getDashboardStats for the authoritative out-of-stock count
+  const { data: dashboardStats } = useGetDashboardStats();
 
   const isLoading = levelsLoading || productsLoading || categoriesLoading;
 
@@ -411,7 +415,6 @@ export function InventoryPage({ onNavigate }: InventoryPageProps) {
   const isAdmin = role === UserRole.admin;
   const userWarehouse = userProfile?.warehouse_name ?? "";
 
-  // All distinct warehouses from inventory (for admin selector)
   const allWarehouses = useMemo(() => {
     const set = new Set<string>();
     for (const l of rawLevels) {
@@ -422,10 +425,8 @@ export function InventoryPage({ onNavigate }: InventoryPageProps) {
     return Array.from(set).sort();
   }, [rawLevels]);
 
-  // Effective warehouse filter: staff always sees their warehouse; admin can select
   const effectiveWarehouse = isStaff ? userWarehouse : selectedWarehouse;
 
-  // Staff only sees their assigned warehouse; Admin/SuperAdmin can filter
   const levels = useMemo<InventoryLevel[]>(() => {
     if (isStaff && userWarehouse) {
       return rawLevels
@@ -440,8 +441,6 @@ export function InventoryPage({ onNavigate }: InventoryPageProps) {
         })
         .filter((level: InventoryLevel) => level.batches.length > 0);
     }
-
-    // Admin with specific warehouse filter
     if (isAdmin && effectiveWarehouse && effectiveWarehouse !== "all") {
       return rawLevels
         .map((level: InventoryLevel) => {
@@ -455,7 +454,6 @@ export function InventoryPage({ onNavigate }: InventoryPageProps) {
         })
         .filter((level: InventoryLevel) => level.batches.length > 0);
     }
-
     return rawLevels;
   }, [rawLevels, isStaff, isAdmin, userWarehouse, effectiveWarehouse]);
 
@@ -484,7 +482,6 @@ export function InventoryPage({ onNavigate }: InventoryPageProps) {
     });
   }, [products, search, categoryMap]);
 
-  // COGS value: exclude loaned batches
   const totalInventoryValue = useMemo(() => {
     return levels.reduce((sum: number, level: InventoryLevel) => {
       const regularBatches = level.batches.filter((b) => !b.is_loaned);
@@ -496,7 +493,6 @@ export function InventoryPage({ onNavigate }: InventoryPageProps) {
     }, 0);
   }, [levels]);
 
-  // Total loaned units across all products
   const totalLoanedUnits = useMemo(() => {
     return rawLevels.reduce((sum: number, level: InventoryLevel) => {
       return (
@@ -517,11 +513,15 @@ export function InventoryPage({ onNavigate }: InventoryPageProps) {
     [levels],
   );
 
-  const outOfStockCount = useMemo(
-    () =>
-      levels.filter((l: InventoryLevel) => Number(l.total_qty) === 0).length,
-    [levels],
-  );
+  // BUG-10 FIX: Use backend's authoritative out-of-stock count from getDashboardStats.
+  // Falls back to computing from levels if dashboard stats not loaded yet.
+  const outOfStockCount = useMemo(() => {
+    if (dashboardStats?.out_of_stock_count !== undefined) {
+      return Number(dashboardStats.out_of_stock_count);
+    }
+    return levels.filter((l: InventoryLevel) => Number(l.total_qty) === 0)
+      .length;
+  }, [levels, dashboardStats]);
 
   if (isLoading) return <InventorySkeleton />;
 
@@ -530,7 +530,7 @@ export function InventoryPage({ onNavigate }: InventoryPageProps) {
       {/* Page header with help */}
       <div className="flex items-center justify-between gap-2">
         <h1 className="text-lg font-display font-semibold text-foreground sr-only">
-          Inventory
+          {t.inventory.title}
         </h1>
         <div className="flex items-center gap-2 ml-auto">
           {totalLoanedUnits > 0 && (
@@ -567,7 +567,7 @@ export function InventoryPage({ onNavigate }: InventoryPageProps) {
             </div>
             <div className="min-w-0">
               <p className="text-xs text-muted-foreground">
-                Total Inventory Value
+                {t.inventory.totalValue}
                 {effectiveWarehouse !== "all" && (
                   <span className="ml-1 text-primary">
                     · {effectiveWarehouse}
@@ -598,7 +598,9 @@ export function InventoryPage({ onNavigate }: InventoryPageProps) {
               <AlertTriangle className="w-4 h-4 text-destructive" />
             </div>
             <div className="min-w-0">
-              <p className="text-xs text-muted-foreground">Low Stock Alerts</p>
+              <p className="text-xs text-muted-foreground">
+                {t.inventory.lowStock}
+              </p>
               <p className="text-xl font-bold font-display text-destructive tabular-nums">
                 {lowStockCount}
                 <span className="text-sm font-normal text-muted-foreground ml-1">
@@ -609,14 +611,28 @@ export function InventoryPage({ onNavigate }: InventoryPageProps) {
           </CardContent>
         </Card>
 
-        <Card className="border-border bg-card">
+        {/* BUG-10 FIX: Out of Stock card now uses authoritative backend count */}
+        <Card
+          className={`border-border bg-card ${outOfStockCount > 0 ? "border-destructive/40" : ""}`}
+          data-ocid="inventory.out_of_stock_card"
+        >
           <CardContent className="p-4 flex items-start gap-3">
-            <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center shrink-0">
-              <Package className="w-4 h-4 text-muted-foreground" />
+            <div
+              className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                outOfStockCount > 0 ? "bg-destructive/15" : "bg-muted"
+              }`}
+            >
+              <Package
+                className={`w-4 h-4 ${outOfStockCount > 0 ? "text-destructive" : "text-muted-foreground"}`}
+              />
             </div>
             <div className="min-w-0">
               <p className="text-xs text-muted-foreground">Out of Stock</p>
-              <p className="text-xl font-bold font-display text-foreground tabular-nums">
+              <p
+                className={`text-xl font-bold font-display tabular-nums ${
+                  outOfStockCount > 0 ? "text-destructive" : "text-foreground"
+                }`}
+              >
                 {outOfStockCount}
                 <span className="text-sm font-normal text-muted-foreground ml-1">
                   products
@@ -639,6 +655,30 @@ export function InventoryPage({ onNavigate }: InventoryPageProps) {
             {lowStockCount > 1 ? "s are" : " is"} running low (below{" "}
             {LOW_STOCK_THRESHOLD} units). Consider restocking.
           </span>
+        </div>
+      )}
+
+      {/* Out of stock alert banner */}
+      {outOfStockCount > 0 && (
+        <div
+          className="flex items-center gap-2 rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2.5 text-sm text-destructive"
+          data-ocid="inventory.out_of_stock_alert"
+        >
+          <Package className="w-4 h-4 shrink-0" />
+          <span>
+            <strong>{outOfStockCount}</strong> product
+            {outOfStockCount > 1 ? "s are" : " is"} out of stock. Create a
+            Purchase Order to restock.
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="ml-auto shrink-0 h-6 text-xs border-destructive/40 text-destructive hover:bg-destructive/10"
+            onClick={() => onNavigate("/purchase-orders")}
+            data-ocid="inventory.create_po_button"
+          >
+            Create PO
+          </Button>
         </div>
       )}
 
@@ -679,10 +719,10 @@ export function InventoryPage({ onNavigate }: InventoryPageProps) {
           <div className="flex flex-col sm:flex-row sm:items-center gap-2">
             <CardTitle className="text-base font-semibold flex-1">
               {isStaff
-                ? `Inventory — ${userWarehouse}`
+                ? `${t.inventory.title} — ${userWarehouse}`
                 : effectiveWarehouse === "all"
-                  ? "All Warehouses"
-                  : `Warehouse: ${effectiveWarehouse}`}
+                  ? t.inventory.allWarehouses
+                  : `${t.inventory.warehouse}: ${effectiveWarehouse}`}
             </CardTitle>
             <div className="flex items-center gap-2 flex-wrap">
               {/* Warehouse selector — Admin only */}
@@ -696,10 +736,12 @@ export function InventoryPage({ onNavigate }: InventoryPageProps) {
                     data-ocid="inventory.warehouse_filter.select"
                   >
                     <Warehouse className="w-3.5 h-3.5 mr-1.5 text-muted-foreground" />
-                    <SelectValue placeholder="All Warehouses" />
+                    <SelectValue placeholder={t.inventory.allWarehouses} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Warehouses</SelectItem>
+                    <SelectItem value="all">
+                      {t.inventory.allWarehouses}
+                    </SelectItem>
                     {allWarehouses.map((w) => (
                       <SelectItem key={w} value={w}>
                         {w}
@@ -733,7 +775,9 @@ export function InventoryPage({ onNavigate }: InventoryPageProps) {
                 <Package className="w-6 h-6 text-muted-foreground" />
               </div>
               <p className="font-medium text-foreground mb-1">
-                {search ? "No products match your search" : "No products yet"}
+                {search
+                  ? "No products match your search"
+                  : t.inventory.noInventory}
               </p>
               <p className="text-sm text-muted-foreground">
                 {search
@@ -750,18 +794,20 @@ export function InventoryPage({ onNavigate }: InventoryPageProps) {
                     <TableHead className="font-semibold">
                       Product Name
                     </TableHead>
-                    <TableHead className="font-semibold">SKU</TableHead>
+                    <TableHead className="font-semibold">
+                      {t.products.sku}
+                    </TableHead>
                     <TableHead className="hidden sm:table-cell font-semibold">
-                      Category
+                      {t.products.category}
                     </TableHead>
                     <TableHead className="text-right font-semibold">
-                      Stock
+                      {t.inventory.quantity}
                     </TableHead>
                     <TableHead className="text-right font-semibold hidden md:table-cell">
-                      Unit Cost
+                      {t.inventory.unitCost}
                     </TableHead>
                     <TableHead className="text-right font-semibold">
-                      Status
+                      {t.common.status}
                     </TableHead>
                   </TableRow>
                 </TableHeader>

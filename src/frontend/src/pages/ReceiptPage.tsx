@@ -579,46 +579,51 @@ export function ReceiptPage({ saleId, onNavigate }: ReceiptPageProps) {
                     </tr>
                   </thead>
                   <tbody>
-                    {saleItems.map((item, idx) => (
-                      <tr
-                        key={`${item.sale_id}-${item.product_id}`}
-                        className="border-b border-border/40"
-                        data-ocid={`receipt.item.${idx + 1}`}
-                      >
-                        <td className="py-1.5 px-1">
-                          <p className="font-medium leading-tight">
-                            {item.product_name_snapshot}
-                          </p>
-                          {item.product_instructions && (
-                            <p className="text-muted-foreground leading-tight mt-0.5 text-xs">
-                              {item.product_instructions}
+                    {saleItems.map((item, idx) => {
+                      // BUG-12: Guard null fields — use stored data only, never re-query inventory
+                      const productName = item.product_name_snapshot ?? "";
+                      const qty = Number(item.quantity ?? 0);
+                      const price = item.actual_sale_price ?? 0;
+                      const lineTotal = qty * price;
+                      return (
+                        <tr
+                          key={`${item.sale_id}-${item.product_id}`}
+                          className="border-b border-border/40"
+                          data-ocid={`receipt.item.${idx + 1}`}
+                        >
+                          <td className="py-1.5 px-1">
+                            <p className="font-medium leading-tight">
+                              {productName}
                             </p>
-                          )}
-                        </td>
-                        <td className="py-1.5 px-1 text-right tabular-nums">
-                          {item.quantity.toString()}
-                        </td>
-                        <td className="py-1.5 px-1 text-right tabular-nums">
-                          ₹{item.actual_sale_price.toFixed(2)}
-                        </td>
-                        <td className="py-1.5 px-1 text-right tabular-nums font-medium">
-                          ₹
-                          {(
-                            Number(item.quantity) * item.actual_sale_price
-                          ).toFixed(2)}
-                        </td>
-                      </tr>
-                    ))}
+                            {item.product_instructions && (
+                              <p className="text-muted-foreground leading-tight mt-0.5 text-xs">
+                                {item.product_instructions}
+                              </p>
+                            )}
+                          </td>
+                          <td className="py-1.5 px-1 text-right tabular-nums">
+                            {qty}
+                          </td>
+                          <td className="py-1.5 px-1 text-right tabular-nums">
+                            ₹{price.toFixed(2)}
+                          </td>
+                          <td className="py-1.5 px-1 text-right tabular-nums font-medium">
+                            ₹{lineTotal.toFixed(2)}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
 
               {/* Totals */}
               <div className="space-y-1" data-ocid="receipt.totals.section">
+                {/* BUG-12: guard all null fields — total_revenue and discount_applied from stored sale data */}
                 <div className="flex justify-between text-xs">
                   <span className="text-muted-foreground">Subtotal</span>
                   <span className="font-medium text-foreground">
-                    ₹{(sale.total_revenue + discountApplied).toFixed(2)}
+                    ₹{((sale.total_revenue ?? 0) + discountApplied).toFixed(2)}
                   </span>
                 </div>
                 {discountApplied > 0 && (
@@ -635,21 +640,22 @@ export function ReceiptPage({ saleId, onNavigate }: ReceiptPageProps) {
                 <div className="flex justify-between text-sm font-bold mt-1 pt-1 border-t border-border">
                   <span>Grand Total</span>
                   <span className="text-primary">
-                    ₹{sale.total_revenue.toFixed(2)}
+                    ₹{(sale.total_revenue ?? 0).toFixed(2)}
                   </span>
                 </div>
-                {sale.amount_paid != null && (
+                {(sale.amount_paid ?? null) != null && (
                   <div className="flex justify-between text-xs">
                     <span className="text-muted-foreground">Amount Paid</span>
-                    <span>₹{sale.amount_paid.toFixed(2)}</span>
+                    <span>₹{(sale.amount_paid as number).toFixed(2)}</span>
                   </div>
                 )}
-                {sale.balance_due != null && sale.balance_due > 0 && (
-                  <div className="flex justify-between text-xs font-medium text-destructive">
-                    <span>Balance Due</span>
-                    <span>₹{sale.balance_due.toFixed(2)}</span>
-                  </div>
-                )}
+                {(sale.balance_due ?? null) != null &&
+                  (sale.balance_due as number) > 0 && (
+                    <div className="flex justify-between text-xs font-medium text-destructive">
+                      <span>Balance Due</span>
+                      <span>₹{(sale.balance_due as number).toFixed(2)}</span>
+                    </div>
+                  )}
               </div>
 
               <Separator />

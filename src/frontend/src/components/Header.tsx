@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { useImpersonation } from "@/contexts/ImpersonationContext";
 import { useProfile } from "@/contexts/ProfileContext";
 import { useGetUserProfile } from "@/hooks/useBackend";
+import { useTranslation } from "@/translations";
 import { ROLES } from "@/types";
 import {
   BookOpen,
@@ -55,6 +56,7 @@ export function Header({
   const { data: userProfileData } = useGetUserProfile();
   const { userProfile } = useProfile();
   const { isImpersonating } = useImpersonation();
+  const t = useTranslation();
 
   // Prefer the freshest data — hook result first, context fallback
   const resolvedProfile = userProfileData ?? userProfile;
@@ -133,23 +135,23 @@ export function Header({
           size="icon"
           className="h-8 w-8"
           onClick={() => nav("/dashboard")}
-          aria-label="Go to Dashboard"
+          aria-label={t.nav.dashboard}
           data-ocid="header.home_button"
-          title="Dashboard"
+          title={t.nav.dashboard}
         >
           <Home className="w-4 h-4" />
         </Button>
 
-        {/* Create Inventory Entry — visible only when user has inventory access */}
+        {/* Inventory — visible only when user has inventory access */}
         {canInventory && (
           <Button
             variant="ghost"
             size="icon"
             className="h-8 w-8"
             onClick={() => nav("/inventory")}
-            aria-label="Go to Inventory"
+            aria-label={t.nav.inventory}
             data-ocid="header.inventory_button"
-            title="Inventory"
+            title={t.nav.inventory}
           >
             <Package className="w-4 h-4" />
           </Button>
@@ -162,9 +164,9 @@ export function Header({
             size="icon"
             className="h-8 w-8"
             onClick={() => nav("/customers")}
-            aria-label="Go to Customers"
+            aria-label={t.customers.addCustomer}
             data-ocid="header.create_customer_button"
-            title="Customers"
+            title={t.customers.addCustomer}
           >
             <UserPlus className="w-4 h-4" />
           </Button>
@@ -177,9 +179,9 @@ export function Header({
             size="icon"
             className="h-8 w-8"
             onClick={() => nav("/purchase-orders")}
-            aria-label="Go to Purchase Orders"
+            aria-label={t.pos.createPO}
             data-ocid="header.create_po_button"
-            title="Purchase Orders"
+            title={t.pos.createPO}
           >
             <ClipboardList className="w-4 h-4" />
           </Button>
@@ -192,9 +194,9 @@ export function Header({
             size="icon"
             className="h-8 w-8"
             onClick={() => nav("/sales")}
-            aria-label="Go to Sales / Cart"
+            aria-label={t.sales.title}
             data-ocid="header.create_so_button"
-            title="Sales / Cart"
+            title={t.sales.title}
           >
             <ShoppingCart className="w-4 h-4" />
           </Button>
@@ -212,9 +214,9 @@ export function Header({
           size="icon"
           className="h-8 w-8"
           onClick={() => onHelpOpen?.()}
-          aria-label="Open help"
+          aria-label={t.nav.help}
           data-ocid="header.help_button"
-          title="Help"
+          title={t.nav.help}
         >
           <BookOpen className="w-4 h-4" />
         </Button>

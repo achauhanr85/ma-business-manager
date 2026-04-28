@@ -22,9 +22,15 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { useProfile } from "@/contexts/ProfileContext";
+import {
+  useCreateGoalMaster,
+  useDeleteGoalMaster,
+  useGetGoalMasterData,
+  useUpdateGoalMaster,
+} from "@/hooks/useBackend";
+import type { GoalMasterPublic } from "@/hooks/useBackend";
 import { ROLES } from "@/types";
 import { useActor } from "@caffeineai/core-infrastructure";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Download,
   Package,
@@ -37,11 +43,6 @@ import {
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { createActor } from "../backend";
-import type {
-  GoalMasterInput,
-  GoalMasterPublic,
-  ProductId,
-} from "../backend.d";
 
 interface CustomerGoalsPageProps {
   onNavigate?: (path: string) => void;
@@ -61,75 +62,31 @@ const EMPTY_FORM: GoalFormState = {
   product_bundle: [],
 };
 
-// ─── Actor helper ─────────────────────────────────────────────────────────────
+// ─── Product list hook (local, direct actor call) ─────────────────────────────
 
 function useBackendActor() {
   return useActor(createActor);
 }
 
-// ─── Hooks ────────────────────────────────────────────────────────────────────
-
-function useListGoals() {
+function useGetProductsLocal() {
   const { actor, isFetching } = useBackendActor();
-  return useQuery<GoalMasterPublic[]>({
-    queryKey: ["goals"],
-    queryFn: async () => {
-      if (!actor) return [];
-      return actor.listGoals();
-    },
-    enabled: !!actor && !isFetching,
-  });
-}
+  const [products, setProducts] = useState<
+    { id: bigint; name: string; mrp?: number }[]
+  >([]);
+  const fetchedRef = useRef(false);
 
-function useGetProducts() {
-  const { actor, isFetching } = useBackendActor();
-  return useQuery({
-    queryKey: ["products"],
-    queryFn: async () => {
-      if (!actor) return [];
-      return actor.getProducts();
-    },
-    enabled: !!actor && !isFetching,
-  });
-}
+  // Fetch on mount / actor ready
+  if (actor && !isFetching && !fetchedRef.current) {
+    fetchedRef.current = true;
+    actor
+      .getProducts()
+      .then((p) =>
+        setProducts(p as { id: bigint; name: string; mrp?: number }[]),
+      )
+      .catch(() => {});
+  }
 
-function useCreateGoal() {
-  const { actor } = useBackendActor();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: GoalMasterInput) => {
-      if (!actor) throw new Error("Actor not ready");
-      return actor.createGoal(input);
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["goals"] }),
-  });
-}
-
-function useUpdateGoal() {
-  const { actor } = useBackendActor();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      id,
-      input,
-    }: { id: bigint; input: GoalMasterInput }) => {
-      if (!actor) throw new Error("Actor not ready");
-      return actor.updateGoal(id, input);
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["goals"] }),
-  });
-}
-
-function useDeleteGoal() {
-  const { actor } = useBackendActor();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: bigint) => {
-      if (!actor) throw new Error("Actor not ready");
-      return actor.deleteGoal(id);
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["goals"] }),
-  });
+  return products;
 }
 
 // ─── Goal Form Dialog ─────────────────────────────────────────────────────────
@@ -137,13 +94,14 @@ function useDeleteGoal() {
 interface GoalDialogProps {
   open: boolean;
   editing: GoalMasterPublic | null;
+  profileKey: string;
   onClose: () => void;
 }
 
-function GoalDialog({ open, editing, onClose }: GoalDialogProps) {
-  const { data: products = [] } = useGetProducts();
-  const createGoal = useCreateGoal();
-  const updateGoal = useUpdateGoal();
+function GoalDialog({ open, editing, profileKey, onClose }: GoalDialogProps) {
+  const products = useGetProductsLocal();
+  const createGoal = useCreateGoalMaster();
+  const updateGoal = useUpdateGoalMaster();
   const [form, setForm] = useState<GoalFormState>(EMPTY_FORM);
   const [productSearch, setProductSearch] = useState("");
   const prevOpenRef = useRef(open);
@@ -189,17 +147,21 @@ function GoalDialog({ open, editing, onClose }: GoalDialogProps) {
       toast.error("Goal name is required");
       return;
     }
-    const input: GoalMasterInput = {
-      name: form.name.trim(),
-      description: form.description,
-      product_bundle: form.product_bundle as ProductId[],
-    };
     try {
       if (editing) {
-        await updateGoal.mutateAsync({ id: editing.id, input });
+        await updateGoal.mutateAsync({
+          id: editing.id,
+          name: form.name.trim(),
+          description: form.description,
+          productBundle: form.product_bundle,
+        });
         toast.success("Goal updated");
       } else {
-        await createGoal.mutateAsync(input);
+        await createGoal.mutateAsync({
+          profileKey,
+          name: form.name.trim(),
+          description: form.description,
+        });
         toast.success("Goal created");
       }
       onClose();
@@ -231,6 +193,7 @@ function GoalDialog({ open, editing, onClose }: GoalDialogProps) {
               onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
               placeholder="e.g. Weight Loss, Muscle Gain"
               required
+              autoFocus
             />
           </div>
           <div className="space-y-1.5">
@@ -298,9 +261,11 @@ function GoalDialog({ open, editing, onClose }: GoalDialogProps) {
                     </div>
                     <Package className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                     <span className="truncate">{p.name}</span>
-                    <span className="ml-auto text-xs text-muted-foreground shrink-0">
-                      ₹{(p.mrp ?? 0).toLocaleString("en-IN")}
-                    </span>
+                    {p.mrp !== undefined && (
+                      <span className="ml-auto text-xs text-muted-foreground shrink-0">
+                        ₹{p.mrp.toLocaleString("en-IN")}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -350,7 +315,7 @@ function exportGoalsCSV(goals: GoalMasterPublic[]) {
 
 function downloadGoalTemplate() {
   const csv =
-    'name,description,product_bundle_ids\n"Weight Loss","Goal for weight reduction",""\n"Muscle Gain","Goal for building muscle","1|2|3"';
+    'name,description,product_bundle_ids\n"Weight Loss","Goal for weight reduction",""\n"Muscle Gain","Goal for building muscle",""';
   const blob = new Blob([csv], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -366,13 +331,25 @@ export function CustomerGoalsPage({
   onNavigate: _onNavigate,
 }: CustomerGoalsPageProps) {
   const { userProfile } = useProfile();
-  const { data: goals = [], isLoading, isError } = useListGoals();
-  const { data: products = [] } = useGetProducts();
-  const deleteGoalMut = useDeleteGoal();
-  const createGoalMut = useCreateGoal();
 
+  // Profile key — Super Admin may not have one; fall back gracefully.
+  const profileKey = userProfile?.profile_key ?? null;
+
+  const {
+    data: goals = [],
+    isLoading,
+    isError,
+  } = useGetGoalMasterData(profileKey);
+  const deleteGoalMut = useDeleteGoalMaster();
+  const createGoalForImport = useCreateGoalMaster();
+
+  // Show CRUD controls for Admin, Staff, and Super Admin (role may be undefined while impersonating)
   const role = userProfile?.role as string | undefined;
-  const canEdit = role === ROLES.ADMIN || role === ROLES.STAFF;
+  const canEdit =
+    role === ROLES.ADMIN ||
+    role === ROLES.STAFF ||
+    role === "superAdmin" ||
+    role === undefined; // super admin impersonating without a profile role
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<GoalMasterPublic | null>(null);
@@ -403,11 +380,11 @@ export function CustomerGoalsPage({
     }
   }
 
-  function getProductName(id: bigint): string {
-    return products.find((p) => p.id === id)?.name ?? `#${id}`;
-  }
-
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+    if (!profileKey) {
+      toast.error("No profile key — cannot import");
+      return;
+    }
     const file = e.target.files?.[0];
     if (!file) return;
     const text = await file.text();
@@ -422,20 +399,12 @@ export function CustomerGoalsPage({
       const cols = line.match(/(".*?"|[^,]+)(?=,|$)/g) ?? [];
       const name = cols[0]?.replace(/^"|"$/g, "").trim();
       const description = (cols[1] ?? "").replace(/^"|"$/g, "").trim();
-      const bundleStr = (cols[2] ?? "").replace(/^"|"$/g, "").trim();
-      const product_bundle: bigint[] = bundleStr
-        ? bundleStr
-            .split("|")
-            .map((s) => s.trim())
-            .filter(Boolean)
-            .map((s) => BigInt(s))
-        : [];
       if (!name) continue;
       try {
-        await createGoalMut.mutateAsync({
+        await createGoalForImport.mutateAsync({
+          profileKey,
           name,
           description,
-          product_bundle: product_bundle as ProductId[],
         });
         created++;
       } catch {
@@ -446,6 +415,29 @@ export function CustomerGoalsPage({
       `Import complete: ${created} created${failed > 0 ? `, ${failed} failed` : ""}`,
     );
     if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  // No profile key yet — show a helpful message instead of an empty broken page
+  if (!profileKey) {
+    return (
+      <div className="space-y-4" data-ocid="customer_goals.page">
+        <div className="flex items-center gap-2">
+          <Target className="w-6 h-6 text-primary" />
+          <h1 className="text-2xl font-display font-semibold tracking-tight">
+            Customer Primary Goals
+          </h1>
+        </div>
+        <div
+          className="flex flex-col items-center gap-3 py-16 text-muted-foreground rounded-lg border border-dashed border-border"
+          data-ocid="customer_goals.empty_state"
+        >
+          <Target className="w-12 h-12 opacity-20" />
+          <p className="text-sm text-muted-foreground">
+            Select a business profile to manage goals.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -461,49 +453,52 @@ export function CustomerGoalsPage({
             Define and manage primary goals to associate with customers
           </p>
         </div>
-        {canEdit && (
-          <div className="flex items-center gap-2 flex-wrap">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => exportGoalsCSV(goals)}
-              disabled={goals.length === 0}
-              data-ocid="customer_goals.export_button"
-            >
-              <Download className="w-3.5 h-3.5 mr-1.5" />
-              Export CSV
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={downloadGoalTemplate}
-              data-ocid="customer_goals.template_button"
-            >
-              <Download className="w-3.5 h-3.5 mr-1.5" />
-              Template
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => fileInputRef.current?.click()}
-              data-ocid="customer_goals.import_button"
-            >
-              <Upload className="w-3.5 h-3.5 mr-1.5" />
-              Import CSV
-            </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".csv"
-              className="hidden"
-              onChange={handleImport}
-            />
-            <Button onClick={openAdd} data-ocid="customer_goals.add_button">
-              <Plus className="w-4 h-4 mr-1.5" />
-              Add Goal
-            </Button>
-          </div>
-        )}
+        {/* Always show action buttons — not gated behind canEdit for visibility */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => exportGoalsCSV(goals)}
+            disabled={goals.length === 0}
+            data-ocid="customer_goals.export_button"
+          >
+            <Download className="w-3.5 h-3.5 mr-1.5" />
+            Export CSV
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={downloadGoalTemplate}
+            data-ocid="customer_goals.template_button"
+          >
+            <Download className="w-3.5 h-3.5 mr-1.5" />
+            Template
+          </Button>
+          {canEdit && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                data-ocid="customer_goals.import_button"
+              >
+                <Upload className="w-3.5 h-3.5 mr-1.5" />
+                Import CSV
+              </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv"
+                className="hidden"
+                onChange={handleImport}
+              />
+              <Button onClick={openAdd} data-ocid="customer_goals.add_button">
+                <Plus className="w-4 h-4 mr-1.5" />
+                Add Goal
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Error state */}
@@ -525,16 +520,14 @@ export function CustomerGoalsPage({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
-                {["Goal Name", "Description", "Product Bundle", "Actions"].map(
-                  (h) => (
-                    <th
-                      key={h}
-                      className="px-4 py-3 text-left font-medium text-muted-foreground"
-                    >
-                      {h}
-                    </th>
-                  ),
-                )}
+                {["Goal Name", "Description", "Actions"].map((h) => (
+                  <th
+                    key={h}
+                    className="px-4 py-3 text-left font-medium text-muted-foreground"
+                  >
+                    {h}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -545,9 +538,6 @@ export function CustomerGoalsPage({
                   </td>
                   <td className="px-4 py-3">
                     <Skeleton className="h-4 w-48" />
-                  </td>
-                  <td className="px-4 py-3">
-                    <Skeleton className="h-4 w-20" />
                   </td>
                   <td className="px-4 py-3">
                     <Skeleton className="h-4 w-16" />
@@ -586,7 +576,7 @@ export function CustomerGoalsPage({
           data-ocid="customer_goals.table"
         >
           <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[560px]">
+            <table className="w-full text-sm min-w-[480px]">
               <thead>
                 <tr className="border-b border-border bg-muted/40">
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">
@@ -594,9 +584,6 @@ export function CustomerGoalsPage({
                   </th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden md:table-cell">
                     Description
-                  </th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                    Product Bundle
                   </th>
                   {canEdit && (
                     <th className="px-4 py-3 text-right font-medium text-muted-foreground">
@@ -617,33 +604,21 @@ export function CustomerGoalsPage({
                         <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                           <Target className="w-3.5 h-3.5 text-primary" />
                         </div>
-                        <span className="font-medium">{goal.name}</span>
+                        <div>
+                          <span className="font-medium">{goal.name}</span>
+                          {goal.product_bundle.length > 0 && (
+                            <Badge variant="secondary" className="ml-2 text-xs">
+                              {goal.product_bundle.length} product
+                              {goal.product_bundle.length !== 1 ? "s" : ""}
+                            </Badge>
+                          )}
+                        </div>
                       </div>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">
                       <span className="line-clamp-2">
                         {goal.description || "—"}
                       </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      {goal.product_bundle.length === 0 ? (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      ) : (
-                        <div className="flex flex-wrap gap-1 items-center">
-                          <Badge variant="secondary" className="text-xs">
-                            {goal.product_bundle.length} product
-                            {goal.product_bundle.length !== 1 ? "s" : ""}
-                          </Badge>
-                          <span className="text-xs text-muted-foreground">
-                            {goal.product_bundle
-                              .slice(0, 2)
-                              .map(getProductName)
-                              .join(", ")}
-                            {goal.product_bundle.length > 2 &&
-                              ` +${goal.product_bundle.length - 2} more`}
-                          </span>
-                        </div>
-                      )}
                     </td>
                     {canEdit && (
                       <td className="px-4 py-3">
@@ -683,6 +658,7 @@ export function CustomerGoalsPage({
       <GoalDialog
         open={dialogOpen}
         editing={editing}
+        profileKey={profileKey}
         onClose={() => {
           setDialogOpen(false);
           setEditing(null);
