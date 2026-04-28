@@ -1,3 +1,32 @@
+/*
+ * mixins/profile-api.mo — Profile and User Management Public API
+ *
+ * WHAT THIS FILE DOES:
+ *   Exposes all public canister functions related to profile and user management:
+ *     - getUserProfile / getRoutingStatus / getUserPreferences / updateUserPreferences
+ *     - getProfile / getProfileByKey / getAllProfilesForAdmin
+ *     - createProfile (→ assigns #admin role) / joinProfile (→ assigns #staff, pending approval)
+ *     - createReferralUser / approveUser / getPendingApprovalUsers
+ *     - approveProfile / rejectProfile / enableProfile / deleteProfile / updateProfileKey
+ *     - setSuperAdminActiveProfile / getSuperAdminActiveProfile (impersonation context)
+ *     - updateUserProfile / updateUserPreferences / getReferralUsers
+ *
+ * WHO USES IT:
+ *   Included in main.mo via "include ProfileApi(...)". All frontend profile/user
+ *   calls arrive at the functions defined here.
+ *
+ * IMPORTANT — Role Assignment:
+ *   createProfile() → caller gets role=#admin (profile creator is the admin)
+ *   joinProfile()   → caller gets role=#staff with approval_status="pending"
+ *   These are enforced in lib/profile.mo, never overridden here.
+ *
+ * IMPORTANT — Super Admin Routing:
+ *   getRoutingStatus() is the FIRST call the frontend makes on login.
+ *   It returns one of: #noprofile / #pending_approval / #profile_pending_super_admin
+ *                      / #active / #superAdmin
+ *   Super Admin always returns #superAdmin — bypasses all approval gates.
+ */
+
 import Runtime "mo:core/Runtime";
 import Common "../types/common";
 import ProfileTypes "../types/profile";

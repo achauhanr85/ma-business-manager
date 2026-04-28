@@ -1,3 +1,36 @@
+/*
+ * lib/customers.mo — Customer Management Business Logic
+ *
+ * WHAT THIS FILE DOES:
+ *   Implements all CRUD and analytics logic for customers:
+ *     - CRUD: getCustomers / getCustomer / createCustomer / updateCustomer / deleteCustomer
+ *     - Notes: addCustomerNote / deleteCustomerNote (embedded on customer record)
+ *     - Body composition: createBodyCompositionEntry / getBodyCompositionHistory / deleteBodyCompositionEntry
+ *     - Duplicate detection: fuzzy name matching (3-char substring overlap)
+ *     - Sale recording: recordSale() updates total_sales, lifetime_revenue, last_purchase_at
+ *       and auto-promotes #lead → #active when a sale is recorded
+ *     - Revenue adjustment: adjustRevenue() for order edits
+ *     - Customer type management: updateCustomerType() used by background job (silent inactivity)
+ *     - Lead → Active transition: lead_to_active_datetime is recorded when status changes
+ *
+ * WHO USES IT:
+ *   mixins/customers-api.mo (public CRUD API)
+ *   mixins/customer-goals-medical-api.mo (addCustomerNote / deleteCustomerNote delegation)
+ *   lib/sales.mo (recordSale, adjustRevenue after sale create/update)
+ *   lib/notifications.mo (checkCustomerInactivity reads customerStore directly)
+ *
+ * IMPORTANT — Notes Storage:
+ *   Notes are stored as an EMBEDDED ARRAY on the Customer record (Customer.notes).
+ *   They are NOT in a separate store. Reading notes = reading the customer.
+ *   addCustomerNote() appends to the array; deleteCustomerNote() filters it out.
+ *   Both functions update last_updated_by and last_update_date on the customer record.
+ *
+ * IMPORTANT — Body Inches vs Body Composition:
+ *   Body COMPOSITION (weight, fat, BMI, etc.) → stored in BodyCompositionStore (this file)
+ *   Body INCHES (chest, biceps, waist, etc.) → stored in BodyInchesStore (customer-goals-medical.mo)
+ *   These are separate stores and separate API calls.
+ */
+
 import Map "mo:core/Map";
 import Time "mo:core/Time";
 import Runtime "mo:core/Runtime";

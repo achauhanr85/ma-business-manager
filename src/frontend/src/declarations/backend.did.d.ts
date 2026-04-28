@@ -630,12 +630,15 @@ export interface _SERVICE {
   'checkAndCreateNotifications' : ActorMethod<[string], bigint>,
   'checkCustomerDuplicate' : ActorMethod<[string], DuplicateCheckResult>,
   /**
-   * / Claim or re-claim superAdmin role.
+   * / Re-claim or confirm Super Admin role. Behaves identically to initSuperAdmin
+   * / but is named separately so the frontend can call it to refresh the user record
+   * / after a preference change or after recovering from a data clear.
    */
   'claimSuperAdmin' : ActorMethod<[], boolean>,
   /**
-   * / Wipe ALL stored data — clears every Map store and resets the super admin principal.
-   * / Use this in preview/development to start with a completely fresh state.
+   * / Wipes ALL stored data — clears every Map store and resets the super admin principal.
+   * / USE IN DEVELOPMENT/PREVIEW ONLY. This is destructive and irreversible.
+   * / After clearing, location master data is re-seeded automatically.
    */
   'clearAllData' : ActorMethod<[], undefined>,
   'closeLead' : ActorMethod<[bigint, [] | [string]], boolean>,
@@ -687,9 +690,9 @@ export interface _SERVICE {
   'deleteProfile' : ActorMethod<[ProfileKey], boolean>,
   'deleteVendor' : ActorMethod<[string], boolean>,
   /**
-   * / Returns true if a Super Admin has already been registered (superAdminPrincipal is set).
-   * / This is a public, unauthenticated query — used by the frontend to decide whether
-   * / a new anonymous user should see the first-time setup screen or the onboarding screen.
+   * / Public unauthenticated query — returns true if a Super Admin has been set up.
+   * / The frontend uses this to decide whether to show the first-time setup screen
+   * / (superAdminPrincipal is null) or the normal onboarding screen (it is set).
    */
   'doesSuperAdminExist' : ActorMethod<[], boolean>,
   'enableProfile' : ActorMethod<[ProfileKey, boolean], boolean>,
@@ -770,15 +773,13 @@ export interface _SERVICE {
   'getSuperAdminStats' : ActorMethod<[], SuperAdminStats>,
   'getUserPreferences' : ActorMethod<[], UserPreferences>,
   'getUserProfile' : ActorMethod<[], [] | [UserProfilePublic]>,
-  /**
-   * / Wipe ALL stored data — clears every Map store and resets the super admin principal.
-   * / Use this in preview/development to start with a completely fresh state.
-   */
   'getUsersByProfile' : ActorMethod<[ProfileKey], Array<UserProfilePublic>>,
   'getVendor' : ActorMethod<[string], [] | [Vendor]>,
   'getVendors' : ActorMethod<[string], Array<Vendor>>,
   /**
-   * / One-time bootstrap: first caller becomes super admin (if not already set).
+   * / One-time bootstrap: the FIRST caller of this function becomes Super Admin.
+   * / If Super Admin is already set, only the same principal can re-confirm (re-run
+   * / after clearAllData). Returns true on success, false if already taken by someone else.
    */
   'initSuperAdmin' : ActorMethod<[], boolean>,
   'joinProfile' : ActorMethod<[ProfileKey, string, WarehouseName], boolean>,

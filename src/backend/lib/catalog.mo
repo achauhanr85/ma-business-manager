@@ -1,3 +1,24 @@
+/*
+ * lib/catalog.mo — Product Category and Product Business Logic
+ *
+ * WHAT THIS FILE DOES:
+ *   Implements CRUD for the product catalog:
+ *     - Categories: group products (e.g. "Protein Supplements", "Vitamins")
+ *     - Products: individual items with SKU, price, category, instructions, serving size
+ *   All data is strictly scoped to the caller's profile via profileKey.
+ *   SKU uniqueness is enforced per profile — two profiles can have the same SKU.
+ *
+ * WHO USES IT:
+ *   mixins/catalog-api.mo (exposes these as public canister functions)
+ *   lib/sales.mo (looks up product details during sale creation for snapshotting)
+ *   lib/profile.mo (cascade delete on deleteProfile)
+ *
+ * IMPORTANT — Product Snapshots:
+ *   When a sale is created, the product name, MRP, and cost are SNAPSHOTTED onto each
+ *   SaleItem. This means changing a product's price later does NOT affect historical
+ *   sales — receipts always show the price at time of sale.
+ */
+
 import Map "mo:core/Map";
 import Time "mo:core/Time";
 import Runtime "mo:core/Runtime";

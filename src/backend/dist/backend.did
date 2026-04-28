@@ -708,10 +708,13 @@ service : {
    ProfileKey) -> (bool);
   checkAndCreateNotifications: (profileKey: text) -> (nat);
   checkCustomerDuplicate: (name: text) -> (DuplicateCheckResult) query;
-  /// Claim or re-claim superAdmin role.
+  /// Re-claim or confirm Super Admin role. Behaves identically to initSuperAdmin
+  /// but is named separately so the frontend can call it to refresh the user record
+  /// after a preference change or after recovering from a data clear.
   claimSuperAdmin: () -> (bool);
-  /// Wipe ALL stored data — clears every Map store and resets the super admin principal.
-  /// Use this in preview/development to start with a completely fresh state.
+  /// Wipes ALL stored data — clears every Map store and resets the super admin principal.
+  /// USE IN DEVELOPMENT/PREVIEW ONLY. This is destructive and irreversible.
+  /// After clearing, location master data is re-seeded automatically.
   clearAllData: () -> ();
   closeLead: (id: nat, profile_link: opt text) -> (bool);
   createBodyCompositionEntry: (customerId: CustomerId, input:
@@ -748,9 +751,9 @@ service : {
   deleteProduct: (id: ProductId) -> (bool);
   deleteProfile: (profile_key: ProfileKey) -> (bool);
   deleteVendor: (vendorId: text) -> (bool);
-  /// Returns true if a Super Admin has already been registered (superAdminPrincipal is set).
-  /// This is a public, unauthenticated query — used by the frontend to decide whether
-  /// a new anonymous user should see the first-time setup screen or the onboarding screen.
+  /// Public unauthenticated query — returns true if a Super Admin has been set up.
+  /// The frontend uses this to decide whether to show the first-time setup screen
+  /// (superAdminPrincipal is null) or the normal onboarding screen (it is set).
   doesSuperAdminExist: () -> (bool) query;
   enableProfile: (profile_key: ProfileKey, enabled: bool) -> (bool);
   getAllProfilesForAdmin: () -> (vec ProfilePublic) query;
@@ -819,13 +822,13 @@ service : {
   getSuperAdminStats: () -> (SuperAdminStats) query;
   getUserPreferences: () -> (UserPreferences) query;
   getUserProfile: () -> (opt UserProfilePublic) query;
-  /// Wipe ALL stored data — clears every Map store and resets the super admin principal.
-  /// Use this in preview/development to start with a completely fresh state.
   getUsersByProfile: (profile_key: ProfileKey) ->
    (vec UserProfilePublic) query;
   getVendor: (vendorId: text) -> (opt Vendor) query;
   getVendors: (profileKey: text) -> (vec Vendor) query;
-  /// One-time bootstrap: first caller becomes super admin (if not already set).
+  /// One-time bootstrap: the FIRST caller of this function becomes Super Admin.
+  /// If Super Admin is already set, only the same principal can re-confirm (re-run
+  /// after clearAllData). Returns true on success, false if already taken by someone else.
   initSuperAdmin: () -> (bool);
   joinProfile: (profile_key: ProfileKey, display_name: text, warehouse_name:
    WarehouseName) -> (bool);

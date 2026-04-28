@@ -16,6 +16,7 @@ export const hi = {
     customerGoals: "ग्राहक लक्ष्य",
     medicalIssues: "चिकित्सा समस्याएं",
     adminTests: "रिग्रेशन टेस्ट",
+    dataInspector: "डेटा इंस्पेक्टर",
     userPreferences: "प्राथमिकताएं",
     vendors: "विक्रेता",
     help: "सहायता",

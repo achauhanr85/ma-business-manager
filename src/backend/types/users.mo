@@ -1,3 +1,30 @@
+/*
+ * types/users.mo — User Profile and Preferences Type Definitions
+ *
+ * WHAT THIS FILE DOES:
+ *   Defines the data shapes for user records in the system:
+ *     - UserProfile: full internal record for a user (includes who-columns)
+ *     - UserProfileInput: what the frontend sends when updating a user
+ *     - UserProfilePublic: what gets returned to the frontend (no who-columns)
+ *     - UserPreferences: fast pre-render query result for language/theme/format settings
+ *     - ApprovalStatus: typed variant for pending/approved/rejected states
+ *
+ * WHO USES IT:
+ *   lib/profile.mo, mixins/profile-api.mo, and many other modules that look up
+ *   the caller's role or profile_key.
+ *
+ * IMPORTANT — Language Loading:
+ *   getUserPreferences() (in lib/profile.mo) returns the stored language BEFORE
+ *   the app renders anything. The frontend must call this on login to avoid
+ *   the "flash to English" bug where the default "en" shows briefly before the
+ *   saved preference loads.
+ *
+ * IMPORTANT — Approval:
+ *   New Staff and Referral Users start with approval_status = "pending".
+ *   They are blocked from accessing the app until Admin approves them.
+ *   The blocking is done in lib/profile.mo getRoutingStatus() → returns #pending_approval.
+ */
+
 import Common "common";
 
 module {

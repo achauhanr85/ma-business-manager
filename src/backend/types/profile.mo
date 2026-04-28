@@ -1,3 +1,28 @@
+/*
+ * types/profile.mo — Business Profile Type Definitions
+ *
+ * WHAT THIS FILE DOES:
+ *   Defines the data shapes for business profile records:
+ *     - Profile: full internal record (includes who-columns, governance fields)
+ *     - ProfileInput: what the frontend sends when creating/updating a profile
+ *     - ProfilePublic: what gets returned to the frontend (no who-columns)
+ *     - ProfileStatus: governance snapshot (is_enabled, approval status, window)
+ *     - ProfileApprovalStatus: variant for pending/approved/suspended
+ *     - ProfileAccessError: errors from checkProfileAccess() (used as gate before transactions)
+ *
+ * WHO USES IT:
+ *   lib/profile.mo (all profile write logic)
+ *   mixins/profile-api.mo (public API)
+ *   lib/sales.mo, lib/purchases.mo (check profile access before creating orders)
+ *
+ * GOVERNANCE MODEL:
+ *   New profiles start as #pending_super_admin_approval.
+ *   Super Admin must approve → #approved before the profile can transact.
+ *   Super Admin can also suspend (#suspended) or re-approve at any time.
+ *   is_enabled / start_date / end_date provide a secondary governance window
+ *   that Super Admin can use to time-limit a profile's activity.
+ */
+
 import Common "common";
 
 module {

@@ -16,6 +16,7 @@ export const en = {
     customerGoals: "Customer Goals",
     medicalIssues: "Medical Issues",
     adminTests: "Regression Tests",
+    dataInspector: "Data Inspector",
     userPreferences: "Preferences",
     vendors: "Vendors",
     help: "Help",

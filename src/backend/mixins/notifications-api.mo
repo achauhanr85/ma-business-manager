@@ -1,3 +1,33 @@
+/*
+ * mixins/notifications-api.mo — Notifications Public API
+ *
+ * WHAT THIS FILE DOES:
+ *   Exposes public canister functions for the notification system:
+ *     - getNotifications(profileKey, targetRole) — merged panel query
+ *       For Super Admin: also includes system-level "superAdmin" notifications
+ *       For regular users: also includes personal "user:<principal>" notifications
+ *     - getNotificationsForUser() — personal notifications only (welcome, etc.)
+ *     - markNotificationRead(notificationId) — marks a single notification as read
+ *     - checkAndCreateNotifications(profileKey) — manual trigger by Admin
+ *     - runBackgroundChecks() — runs ALL checks for ALL profiles (Super Admin or timer)
+ *
+ * WHO USES IT:
+ *   Included in main.mo. The Notification Panel in the frontend calls getNotifications()
+ *   to populate the bell icon panel.
+ *
+ * IMPORTANT — Super Admin Notifications:
+ *   Super Admin calls getNotifications() with any profileKey and targetRole="superAdmin".
+ *   This function always appends the system-level Super Admin notifications
+ *   (stored with profile_key="superadmin", target_role="superAdmin") regardless of
+ *   the profileKey parameter. This is the fix that ensures Super Admin always sees
+ *   "New profile pending approval" notifications in their panel.
+ *
+ * BACKGROUND CHECKS:
+ *   runBackgroundChecks() is safe to call manually by Super Admin from the dashboard.
+ *   It runs the same logic as the 6-hour recurring timer in main.mo.
+ *   Anonymous callers (from the timer context) are also allowed.
+ */
+
 import Map "mo:core/Map";
 import Runtime "mo:core/Runtime";
 import NotificationsLib "../lib/notifications";

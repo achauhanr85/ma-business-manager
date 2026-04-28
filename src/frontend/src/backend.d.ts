@@ -650,12 +650,15 @@ export interface backendInterface {
     checkAndCreateNotifications(profileKey: string): Promise<bigint>;
     checkCustomerDuplicate(name: string): Promise<DuplicateCheckResult>;
     /**
-     * / Claim or re-claim superAdmin role.
+     * / Re-claim or confirm Super Admin role. Behaves identically to initSuperAdmin
+     * / but is named separately so the frontend can call it to refresh the user record
+     * / after a preference change or after recovering from a data clear.
      */
     claimSuperAdmin(): Promise<boolean>;
     /**
-     * / Wipe ALL stored data — clears every Map store and resets the super admin principal.
-     * / Use this in preview/development to start with a completely fresh state.
+     * / Wipes ALL stored data — clears every Map store and resets the super admin principal.
+     * / USE IN DEVELOPMENT/PREVIEW ONLY. This is destructive and irreversible.
+     * / After clearing, location master data is re-seeded automatically.
      */
     clearAllData(): Promise<void>;
     closeLead(id: bigint, profile_link: string | null): Promise<boolean>;
@@ -689,9 +692,9 @@ export interface backendInterface {
     deleteProfile(profile_key: ProfileKey): Promise<boolean>;
     deleteVendor(vendorId: string): Promise<boolean>;
     /**
-     * / Returns true if a Super Admin has already been registered (superAdminPrincipal is set).
-     * / This is a public, unauthenticated query — used by the frontend to decide whether
-     * / a new anonymous user should see the first-time setup screen or the onboarding screen.
+     * / Public unauthenticated query — returns true if a Super Admin has been set up.
+     * / The frontend uses this to decide whether to show the first-time setup screen
+     * / (superAdminPrincipal is null) or the normal onboarding screen (it is set).
      */
     doesSuperAdminExist(): Promise<boolean>;
     enableProfile(profile_key: ProfileKey, enabled: boolean): Promise<boolean>;
@@ -749,15 +752,13 @@ export interface backendInterface {
     getSuperAdminStats(): Promise<SuperAdminStats>;
     getUserPreferences(): Promise<UserPreferences>;
     getUserProfile(): Promise<UserProfilePublic | null>;
-    /**
-     * / Wipe ALL stored data — clears every Map store and resets the super admin principal.
-     * / Use this in preview/development to start with a completely fresh state.
-     */
     getUsersByProfile(profile_key: ProfileKey): Promise<Array<UserProfilePublic>>;
     getVendor(vendorId: string): Promise<Vendor | null>;
     getVendors(profileKey: string): Promise<Array<Vendor>>;
     /**
-     * / One-time bootstrap: first caller becomes super admin (if not already set).
+     * / One-time bootstrap: the FIRST caller of this function becomes Super Admin.
+     * / If Super Admin is already set, only the same principal can re-confirm (re-run
+     * / after clearAllData). Returns true on success, false if already taken by someone else.
      */
     initSuperAdmin(): Promise<boolean>;
     joinProfile(profile_key: ProfileKey, display_name: string, warehouse_name: WarehouseName): Promise<boolean>;

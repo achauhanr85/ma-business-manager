@@ -1,3 +1,42 @@
+/*
+ * lib/notifications.mo — Notification Business Logic
+ *
+ * WHAT THIS FILE DOES:
+ *   Manages all notification creation, retrieval, and background job checks:
+ *     - Creating notifications (any type, targeted to a role or specific user)
+ *     - Reading notifications per profile+role, or for a specific user principal
+ *     - Marking notifications as read
+ *     - Welcome notification on first login (user-targeted)
+ *     - LoanedItemSold notification for Admin when a loaned item is sold
+ *     - Background checks: overdue payments, 20-day customer follow-up,
+ *       pending profile approvals (Super Admin), lead follow-up dates
+ *     - Silent 3-month customer inactivity update (no notification, just marks #inactive)
+ *
+ * WHO USES IT:
+ *   - mixins/notifications-api.mo (getNotifications, markRead, manual trigger)
+ *   - lib/profile.mo (notification on createProfile, joinProfile, createReferralUser)
+ *   - lib/sales.mo (notification on loaned item sold)
+ *   - main.mo background timer (runs runChecksForProfile etc. every 6 hours)
+ *
+ * SUPER ADMIN NOTIFICATION DESIGN:
+ *   Super Admin notifications (e.g. new profile registered) are stored with:
+ *     profile_key = "superadmin"   ← sentinel value, not a real profile key
+ *     target_role = "superAdmin"
+ *   They are queried via getSuperAdminNotifications() which filters by target_role only
+ *   (no profileKey filter). This means they ALWAYS appear in the Super Admin panel
+ *   regardless of which profile the Super Admin is currently viewing.
+ *
+ * USER-TARGETED NOTIFICATIONS (welcome, personal):
+ *   Stored with target_role = "user:<principalText>"
+ *   Queried via getNotificationsForUser() using the caller's principal text.
+ *   The welcome notification uses this path.
+ *
+ * DEDUPLICATION:
+ *   notificationExists() prevents duplicate notifications from background jobs.
+ *   A new check is skipped if an UNREAD notification of the same type + relatedId
+ *   already exists for that profile.
+ */
+
 import Map "mo:core/Map";
 import Time "mo:core/Time";
 import Common "../types/common";

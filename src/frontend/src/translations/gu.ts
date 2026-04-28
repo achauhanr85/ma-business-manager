@@ -16,6 +16,7 @@ export const gu = {
     customerGoals: "ગ્રાહક ધ્યેય",
     medicalIssues: "આરોગ્ય સમસ્યા",
     adminTests: "રિગ્રેશન ટેસ્ટ",
+    dataInspector: "ડેટા ઇન્સ્પેક્ટર",
     userPreferences: "પ્રાધાન્ય",
     vendors: "વેન્ડર્સ",
     help: "મદદ",

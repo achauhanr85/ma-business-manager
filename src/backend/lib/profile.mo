@@ -1,3 +1,30 @@
+/*
+ * lib/profile.mo — Profile and User Management Business Logic
+ *
+ * WHAT THIS FILE DOES:
+ *   Handles all the domain logic for:
+ *     - Creating and managing business profiles (multi-tenant isolation key)
+ *     - User registration flows: createProfile (→ Admin), joinProfile (→ Staff),
+ *       createReferralUser (→ ReferralUser)
+ *     - Profile approval by Super Admin and user approval by Admin
+ *     - User preferences (language, theme, date format, receipt language)
+ *     - Profile key updates with cascading user migration
+ *     - Profile deletion with full cascade (users, products, customers, sales, POs)
+ *     - Routing status logic — tells the frontend which screen to show on login
+ *
+ * WHO USES IT:
+ *   mixins/profile-api.mo (delegates all public functions here)
+ *
+ * KEY DESIGN DECISIONS:
+ *   - Profile creator always gets role=#admin (not #staff) — enforced in createProfile()
+ *   - joinProfile() always assigns role=#staff with approval_status="pending"
+ *   - Super Admin bypasses all approval gates (checked in checkProfileAccess and getRoutingStatus)
+ *   - Super Admin notifications use profile_key="superadmin" with NO profileKey filter
+ *     so they appear in the Super Admin panel regardless of which profile is selected
+ *   - Language preference is loaded via getUserPreferences() BEFORE first render
+ *     to prevent the "flash to English" bug
+ */
+
 import Map "mo:core/Map";
 import Time "mo:core/Time";
 import Runtime "mo:core/Runtime";
@@ -12,6 +39,7 @@ import CustomerTypes "../types/customers";
 import NotificationsLib "notifications";
 
 module {
+  // Store type aliases — these are the Map types declared in main.mo
   public type Store = Map.Map<Common.ProfileKey, ProfileTypes.Profile>;
   public type UserStore = Map.Map<Common.UserId, UserTypes.UserProfile>;
 

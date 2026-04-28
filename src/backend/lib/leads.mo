@@ -1,3 +1,24 @@
+/*
+ * lib/leads.mo — Marketing Lead Business Logic
+ *
+ * WHAT THIS FILE DOES:
+ *   Manages demo/contact request leads submitted from the public marketing Index page:
+ *     - createLead: no auth required — anyone can submit a lead from the Index page
+ *     - getLeads / getLead: Super Admin only — view all submitted leads
+ *     - closeLead: Super Admin marks a lead as closed and optionally sets a profile_link
+ *                  (an onboarding URL the Super Admin can share via WhatsApp)
+ *     - deleteLead: Super Admin permanently removes a lead
+ *
+ * WHO USES IT:
+ *   mixins/leads-api.mo (public API layer)
+ *
+ * HOW IT FITS INTO THE FLOW:
+ *   1. Visitor fills demo request form on the Index page → createLead() called (no login)
+ *   2. Super Admin sees the lead in their dashboard → calls getLeads()
+ *   3. Super Admin contacts the lead via WhatsApp (frontend formats the number/message)
+ *   4. Super Admin closes the lead and provides a profile creation link via closeLead()
+ */
+
 import Map "mo:core/Map";
 import Time "mo:core/Time";
 import Runtime "mo:core/Runtime";

@@ -472,6 +472,7 @@ actor {
   stable var nextLegacyMedicalIssueId : Nat;
   stable var nextMedicalIssueId : Nat;
   stable var nextMovementId : Nat;
+  stable var nextNoteId : Nat;
   stable var nextPOBatchId : Nat;
   stable var nextPOId : Nat;
   stable var nextProductId : Nat;

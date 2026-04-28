@@ -1,3 +1,36 @@
+/*
+ * lib/sales.mo — Sales Order Business Logic
+ *
+ * WHAT THIS FILE DOES:
+ *   Implements all business logic for sales orders and related operations:
+ *     - createSale: builds cart items, deducts FIFO inventory, applies customer
+ *       discount, records payment, notifies for loaned items, updates customer stats
+ *     - updateSale: reverses original inventory, re-deducts for new items (Admin only)
+ *     - createReturnOrder: validates 20-day window, validates items were in original order,
+ *       creates new linked #return_ order, stages usable items to Stage Inventory
+ *     - getSales / getSalesByCustomer / getSale / getSaleItems / getSaleWithItems
+ *     - getLastSaleForCustomer: finds latest sale (used for "copy from previous order")
+ *     - getCustomerOrders: all orders for a customer (history tab)
+ *     - addPaymentEntry: appends a payment to the history array and recalculates status
+ *     - getPaymentHistory: returns payment entries sorted by date
+ *
+ * WHO USES IT:
+ *   mixins/sales-api.mo (public API layer)
+ *
+ * KEY DESIGN DECISIONS:
+ *   - Product name, MRP, cost are SNAPSHOTTED on each SaleItem at sale time
+ *     (no live inventory lookup needed for receipts or history)
+ *   - Payment status is DERIVED from payment history total vs order total
+ *     (not stored as a raw editable field after first payment entry)
+ *   - Once a sale is marked #Paid, addPaymentEntry returns false (immutable)
+ *   - Return orders create a NEW sale record linked to the original (return_of_sale_id)
+ *   - Usable return items go to Stage Inventory (warehouse_name="Stage") for review
+ *
+ * FIFO:
+ *   InventoryLib.deductFIFO() removes stock from the oldest batch first.
+ *   If stock is insufficient for any line item, the entire sale is rolled back.
+ */
+
 import Map "mo:core/Map";
 import Time "mo:core/Time";
 import Runtime "mo:core/Runtime";

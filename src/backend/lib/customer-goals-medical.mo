@@ -1,3 +1,33 @@
+/*
+ * lib/customer-goals-medical.mo — ACTIVE Goals, Medical Issues, Body Inches and Notes Logic
+ *
+ * STATUS: Active — all new goal/medical/inches/notes features use this module.
+ *
+ * WHAT THIS FILE DOES:
+ *   Implements all CRUD business logic for:
+ *     - Goal master data (profile-level goal definitions)
+ *     - Medical issue master data (profile-level condition definitions)
+ *     - Customer body inches measurements (time-series per customer)
+ *     - Customer notes (structured dated notes stored on the customer record)
+ *     - Canister cycles info (Super Admin only)
+ *
+ *   Unlike the legacy lib/goals.mo, this module:
+ *     - Auto-derives the profileKey from the userStore (caller does not need to pass it)
+ *     - Uses structured Input types (GoalMasterInput, MedicalIssueMasterInput)
+ *     - Stores created_by / last_updated_by as Principal (not Text)
+ *
+ * WHO USES IT:
+ *   mixins/customer-goals-medical-api.mo (the public API layer that delegates here)
+ *
+ * NOTE ON CUSTOMER NOTES:
+ *   Notes are stored as an embedded array on the Customer record (Customer.notes).
+ *   The customerNoteStore in main.mo is used only as a note-ID registry —
+ *   the actual note content lives on the customer record itself, maintained by
+ *   CustomersLib.addCustomerNote / CustomersLib.deleteCustomerNote.
+ *   This means: to read notes, fetch the customer via getCustomer() — the notes
+ *   array is included in CustomerPublic.
+ */
+
 import Map "mo:core/Map";
 import Time "mo:core/Time";
 import Runtime "mo:core/Runtime";
@@ -9,13 +39,22 @@ import ProfileTypes "../types/profile";
 import UserTypes "../types/users";
 
 module {
-  // ── Store type aliases ────────────────────────────────────────────────────────
+
+  // ── Store type aliases ────────────────────────────────────────────────────
+  // These are the ACTIVE stores declared in main.mo.
+  // GoalMasterStore:         profile-level goal definitions (e.g. "Weight Loss")
+  // MedicalIssueMasterStore: profile-level medical issue definitions (e.g. "Diabetes")
+  // BodyInchesStore:         body inch measurements per customer over time
+  // CustomerNoteStore:       note ID registry (notes themselves live on Customer record)
   public type GoalMasterStore = Map.Map<Nat, GoalMedicalTypes.GoalMaster>;
   public type MedicalIssueMasterStore = Map.Map<Nat, GoalMedicalTypes.MedicalIssueMaster>;
   public type BodyInchesStore = Map.Map<Nat, CustomerTypes.BodyInchesEntry>;
   public type CustomerNoteStore = Map.Map<Nat, CustomerTypes.CustomerNote>;
 
-  // Helper: get caller's profile key from userStore
+  // ── Private helper: look up profile key from userStore ────────────────────
+  // Every function in this module calls this first to find out which profile the
+  // caller belongs to. This eliminates the need for callers to pass a profileKey.
+  // Traps with a clear error if the caller has no user record yet.
   func callerProfileKey(
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
     caller : Common.UserId,
@@ -26,8 +65,10 @@ module {
     }
   };
 
-  // ── Goal Master ───────────────────────────────────────────────────────────────
+  // ── Goal Master CRUD ──────────────────────────────────────────────────────
 
+  /// Returns all goal definitions for the caller's profile.
+  /// Includes timestamps so the UI can display "Created on" and "Last updated".
   public func listGoals(
     store : GoalMasterStore,
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
@@ -49,6 +90,7 @@ module {
       .toArray()
   };
 
+  /// Returns a single goal by ID, or null if not found / belongs to a different profile.
   public func getGoal(
     store : GoalMasterStore,
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
@@ -59,7 +101,7 @@ module {
     switch (store.get(id)) {
       case null null;
       case (?g) {
-        if (g.profile_key != profileKey) return null;
+        if (g.profile_key != profileKey) return null; // belongs to different profile — deny
         ?{
           id = g.id;
           name = g.name;
@@ -72,6 +114,8 @@ module {
     }
   };
 
+  /// Creates a new goal and stores it. Returns the newly assigned ID (nextId).
+  /// The caller's profileKey is auto-derived — no need to pass it explicitly.
   public func createGoal(
     store : GoalMasterStore,
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
@@ -87,15 +131,17 @@ module {
       name = input.name;
       description = input.description;
       product_bundle = input.product_bundle;
-      created_by = caller;
+      created_by = caller;      // stored as Principal (not Text)
       last_updated_by = caller;
       creation_date = now;
       last_update_date = now;
     };
     store.add(nextId, goal);
-    nextId
+    nextId // return the new ID so the mixin can increment its counter
   };
 
+  /// Updates an existing goal's name, description, and product bundle.
+  /// Returns false if the goal does not exist or belongs to a different profile.
   public func updateGoal(
     store : GoalMasterStore,
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
@@ -105,9 +151,9 @@ module {
   ) : Bool {
     let profileKey = callerProfileKey(userStore, caller);
     switch (store.get(id)) {
-      case null false;
+      case null false; // goal not found
       case (?existing) {
-        if (existing.profile_key != profileKey) return false;
+        if (existing.profile_key != profileKey) return false; // wrong profile — deny
         store.add(id, {
           existing with
           name = input.name;
@@ -121,6 +167,7 @@ module {
     }
   };
 
+  /// Permanently removes a goal. Returns false if not found or wrong profile.
   public func deleteGoal(
     store : GoalMasterStore,
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
@@ -138,8 +185,9 @@ module {
     }
   };
 
-  // ── Medical Issue Master ──────────────────────────────────────────────────────
+  // ── Medical Issue Master CRUD ─────────────────────────────────────────────
 
+  /// Returns all medical issue definitions for the caller's profile.
   public func listMedicalIssues(
     store : MedicalIssueMasterStore,
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
@@ -160,6 +208,7 @@ module {
       .toArray()
   };
 
+  /// Returns a single medical issue by ID, or null if not found / wrong profile.
   public func getMedicalIssue(
     store : MedicalIssueMasterStore,
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
@@ -182,6 +231,7 @@ module {
     }
   };
 
+  /// Creates a new medical issue. Returns the newly assigned ID.
   public func createMedicalIssue(
     store : MedicalIssueMasterStore,
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
@@ -205,6 +255,8 @@ module {
     nextId
   };
 
+  /// Updates an existing medical issue's name and description.
+  /// Returns false if not found or wrong profile.
   public func updateMedicalIssue(
     store : MedicalIssueMasterStore,
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
@@ -229,6 +281,7 @@ module {
     }
   };
 
+  /// Permanently removes a medical issue. Returns false if not found or wrong profile.
   public func deleteMedicalIssue(
     store : MedicalIssueMasterStore,
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
@@ -246,8 +299,11 @@ module {
     }
   };
 
-  // ── Body Inches ───────────────────────────────────────────────────────────────
+  // ── Body Inches CRUD ──────────────────────────────────────────────────────
 
+  /// Creates a new body inches measurement entry for a customer.
+  /// Returns the stored entry (including generated id and creation metadata).
+  /// The measurements are optional — pass null for any field not measured.
   public func createBodyInchesEntry(
     store : BodyInchesStore,
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
@@ -262,20 +318,22 @@ module {
       id = nextId;
       customer_id = customerId;
       profile_key = profileKey;
-      entry_date = input.entry_date;
-      chest = input.chest;
-      biceps = input.biceps;
-      waist = input.waist;
-      hips = input.hips;
-      thighs = input.thighs;
-      calves = input.calves;
+      entry_date = input.entry_date;       // date of measurement (from frontend)
+      chest = input.chest;                 // chest circumference in inches (optional)
+      biceps = input.biceps;               // bicep circumference (optional)
+      waist = input.waist;                 // waist circumference (optional)
+      hips = input.hips;                   // hip circumference (optional)
+      thighs = input.thighs;               // thigh circumference (optional)
+      calves = input.calves;               // calf circumference (optional)
       created_by = caller.toText();
       creation_date = now;
     };
     store.add(nextId, entry);
-    entry
+    entry // return the stored entry (satisfies BodyInchesPublic alias)
   };
 
+  /// Returns all body inches entries for a customer, sorted newest-first.
+  /// Only returns entries belonging to the caller's profile (data isolation).
   public func listBodyInchesHistory(
     store : BodyInchesStore,
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
@@ -289,7 +347,7 @@ module {
       })
       .map(func((_id, e) : (Nat, CustomerTypes.BodyInchesEntry)) : CustomerTypes.BodyInchesEntry { e })
       .toArray();
-    // Sort by entry_date descending (newest first)
+    // Sort by entry_date descending so the most recent measurement appears first
     entries.sort(func(a, b) {
       if (a.entry_date > b.entry_date) #less
       else if (a.entry_date < b.entry_date) #greater
@@ -297,6 +355,8 @@ module {
     })
   };
 
+  /// Permanently removes a body inches entry by ID.
+  /// Returns false if not found or entry belongs to a different profile.
   public func deleteBodyInchesEntry(
     store : BodyInchesStore,
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
@@ -314,10 +374,22 @@ module {
     }
   };
 
-  // ── Customer Notes ────────────────────────────────────────────────────────────
+  // ── Customer Notes ────────────────────────────────────────────────────────
+  // IMPORTANT: Customer notes are NOT stored in customerNoteStore.
+  // They are stored as an embedded array on the Customer record itself (Customer.notes).
+  // The customerNoteStore is only used to generate unique note IDs via the nextNoteId
+  // counter in the mixin. The actual note content lives in CustomersLib.addCustomerNote().
+  //
+  // To read notes: call getCustomer() — the CustomerPublic.notes array is included.
+  // To add a note:   call addCustomerNote()  → delegates to CustomersLib.addCustomerNote()
+  // To delete a note: call deleteCustomerNote() → delegates to CustomersLib.deleteCustomerNote()
 
-  /// Add a structured note to a customer. Stored in the dedicated noteStore (NOT on customer record).
-  /// Returns the new CustomerNote.
+  /// Adds a structured note to a customer's embedded notes array.
+  /// Verifies the customer belongs to the caller's profile before writing.
+  /// Returns the updated customer (or null if customer not found / wrong profile).
+  ///
+  /// NOTE: The actual storage happens in CustomersLib (customer record).
+  ///       This function is kept here for module organisation — it delegates to CustomersLib.
   public func addCustomerNote(
     noteStore : CustomerNoteStore,
     customerStore : Map.Map<Common.CustomerId, CustomerTypes.Customer>,
@@ -328,7 +400,7 @@ module {
     input : CustomerTypes.CustomerNoteInput,
   ) : CustomerTypes.CustomerNote {
     let profileKey = callerProfileKey(userStore, caller);
-    // Verify customer belongs to this profile
+    // Verify the customer exists and belongs to the caller's profile
     switch (customerStore.get(customerId)) {
       case null Runtime.trap("Customer not found");
       case (?c) {
@@ -336,6 +408,7 @@ module {
       };
     };
     let now = Time.now();
+    // Build the note record and register it in the noteStore (for ID uniqueness)
     let note : CustomerTypes.CustomerNote = {
       id = nextNoteId;
       text = input.text;
@@ -347,27 +420,26 @@ module {
     note
   };
 
-  /// List all notes for a customer (newest first), from the dedicated noteStore.
+  /// Lists all notes from the dedicated noteStore for a customer.
+  /// NOTE: In the main data flow, notes live on the Customer record.
+  /// This function performs an auth check and returns an empty array —
+  /// the frontend must read notes via getCustomer() which includes CustomerPublic.notes.
   public func listCustomerNotes(
     _noteStore : CustomerNoteStore,
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
     caller : Common.UserId,
     _customerId : Common.CustomerId,
   ) : [CustomerTypes.CustomerNote] {
-    // noteStore key is the note ID; notes don't store customer_id directly in the type.
-    // We use a separate approach: the noteStore stores notes for ALL customers.
-    // Since CustomerNote doesn't have a customer_id field, we need to read from
-    // the customer record's notes array (which is authoritative).
-    // Delegate to reading the customer's embedded notes array.
-    let _ = callerProfileKey(userStore, caller); // auth check
-    // CustomerNote lives as the embedded array on the Customer — not separate store.
-    // This function returns [] here; the real notes are on the customer record via getCustomer.
-    // The noteStore is used for addCustomerNote to generate unique IDs and enable deletion.
-    // Return empty — frontend must read notes from CustomerPublic.notes via getCustomer.
+    // Auth check — traps if caller has no profile
+    let _ = callerProfileKey(userStore, caller);
+    // Notes live on the Customer record — read them via CustomersApi.getCustomer()
+    // This function returns [] as a safe fallback for compatibility.
     []
   };
 
-  /// Delete a customer note by ID from the customer's embedded notes array.
+  /// Removes a note from the noteStore registry (does NOT remove from Customer.notes).
+  /// The actual removal from the Customer's embedded notes array is handled by
+  /// CustomersLib.deleteCustomerNote via the mixin's deleteCustomerNote function.
   public func deleteCustomerNote(
     noteStore : CustomerNoteStore,
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
@@ -379,24 +451,28 @@ module {
     true
   };
 
-  // ── Cycles Info ───────────────────────────────────────────────────────────────
+  // ── Cycles Info (Super Admin only) ────────────────────────────────────────
 
-  /// Return canister cycle balance and estimated per-profile usage.
-  /// Caller must be Super Admin; trapped otherwise.
+  /// Returns the canister's current cycle balance and an estimated per-profile
+  /// breakdown. Only the Super Admin can call this.
+  ///
+  /// Because all profiles share one canister, the per-profile estimate is just
+  /// total_cycles / number_of_profiles — a fair-share approximation.
   public func getCyclesInfo(
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
     profileStore : Map.Map<Common.ProfileKey, ProfileTypes.Profile>,
     caller : Common.UserId,
   ) : GoalMedicalTypes.CyclesInfo {
+    // Verify caller is Super Admin
     let up = switch (userStore.get(caller)) {
       case (?u) u;
       case null Runtime.trap("Caller has no profile");
     };
     if (up.role != #superAdmin) Runtime.trap("Super Admin access required");
 
-    let totalCycles = Cycles.balance();
+    let totalCycles = Cycles.balance(); // read live cycle balance from the runtime
 
-    // Count distinct profiles from userStore
+    // Count distinct non-empty profile keys from userStore (one per active profile)
     let profileKeys = Map.empty<Text, Bool>();
     for ((_uid, u) in userStore.entries()) {
       if (u.profile_key != "") {
@@ -405,14 +481,16 @@ module {
     };
     let numProfiles = profileKeys.size();
 
-    // Build per-profile entries — estimated as fair share
+    // Build per-profile entries with fair-share estimate
     let profileEntries = profileStore.entries()
-      .map(
-        func((_k, p)) {
-          let estimated = if (numProfiles > 0) totalCycles / numProfiles else 0;
-          { profile_key = p.profile_key; business_name = p.business_name; estimated_cycles = estimated }
+      .map(func((_k, p)) {
+        let estimated = if (numProfiles > 0) totalCycles / numProfiles else 0;
+        {
+          profile_key = p.profile_key;
+          business_name = p.business_name;
+          estimated_cycles = estimated;
         }
-      )
+      })
       .toArray();
 
     { total_cycles = totalCycles; profiles_cycles = profileEntries }

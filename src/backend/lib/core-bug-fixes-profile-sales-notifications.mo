@@ -1,20 +1,55 @@
+/*
+ * lib/core-bug-fixes-profile-sales-notifications.mo — ARCHIVED Implementation
+ *
+ * STATUS: *** ARCHIVED — Functions here are NOT wired into main.mo ***
+ *
+ * WHAT THIS FILE DID:
+ *   This module was created during a targeted bug-fix build to provide:
+ *     1. An alternative Goal/MedicalIssue CRUD implementation (with is_active flag)
+ *     2. Stub/reference body-inches functions (returning empty/minimal results)
+ *     3. A customer-note add/delete implementation (now superseded by CustomersLib)
+ *     4. A getCanisterCyclesInfo stub (superseded by GoalMedicalLib.getCyclesInfo)
+ *     5. A guardedSaleWithItems helper (superseded by the live sales query guards in SalesLib)
+ *
+ * WHY IT IS ARCHIVED:
+ *   None of these functions are imported or called from any active mixin or main.mo.
+ *   The active implementations live in:
+ *     - lib/customer-goals-medical.mo   (goals, medical, body inches, notes, cycles)
+ *     - lib/customers.mo               (addCustomerNote, deleteCustomerNote)
+ *     - lib/sales.mo                   (getSaleWithItems — null-safe internally)
+ *
+ * WHY WE KEEP THIS FILE:
+ *   It is not imported anywhere currently but is retained to avoid regressions from
+ *   accidental re-imports. The file compiles cleanly and does not affect runtime.
+ *   The comment block at the top clearly marks it as archived.
+ *
+ * SAFE TO DELETE WHEN:
+ *   This file has had zero imports for two consecutive builds and all team members
+ *   have confirmed no frontend or backend module references it.
+ */
+
 import Map "mo:core/Map";
 import Time "mo:core/Time";
 import Cycles "mo:core/Cycles";
 import Common "../types/common";
+// Imports types from the archived type file (same status — see types/core-bug-fixes...)
 import DomainTypes "../types/core-bug-fixes-profile-sales-notifications";
 import CustomerTypes "../types/customers";
 import SalesTypes "../types/sales";
 import CatalogTypes "../types/catalog";
 
 module {
-  // ── Store type aliases ────────────────────────────────────────────────────────
+
+  // ── Store type aliases (archived) ─────────────────────────────────────────
+  // These store types use the archived DomainTypes (with is_active flag).
+  // They are NOT used by any active mixin or main.mo.
   public type GoalStore = Map.Map<Nat, DomainTypes.GoalMaster>;
   public type MedicalIssueStore = Map.Map<Nat, DomainTypes.MedicalIssueMaster>;
 
-  // ── Goal Master ───────────────────────────────────────────────────────────────
+  // ── Archived: Goal Master ─────────────────────────────────────────────────
 
-  /// Returns all goals for a given profile.
+  /// ARCHIVED — Returns all goals for a profile.
+  /// Active replacement: GoalMedicalLib.listGoals (lib/customer-goals-medical.mo)
   public func getGoalMasterData(
     store : GoalStore,
     profileKey : Common.ProfileKey,
@@ -34,7 +69,8 @@ module {
       .toArray()
   };
 
-  /// Creates a new goal in a profile. Returns the new GoalMasterPublic.
+  /// ARCHIVED — Creates a new goal.
+  /// Active replacement: GoalMedicalLib.createGoal (lib/customer-goals-medical.mo)
   public func createGoalMaster(
     store : GoalStore,
     nextId : Nat,
@@ -48,7 +84,7 @@ module {
       profile_key = profileKey;
       name = input.name;
       description = input.description;
-      product_bundle_ids = [];
+      product_bundle_ids = [];    // starts empty — product bundle assigned separately
       is_active = input.is_active;
       created_by = caller;
       last_updated_by = caller;
@@ -66,7 +102,8 @@ module {
     }
   };
 
-  /// Updates an existing goal. Returns the updated GoalMasterPublic or null if not found.
+  /// ARCHIVED — Updates an existing goal.
+  /// Active replacement: GoalMedicalLib.updateGoal
   public func updateGoalMaster(
     store : GoalStore,
     id : Nat,
@@ -97,7 +134,8 @@ module {
     }
   };
 
-  /// Deletes a goal. Returns true if deleted, false if not found.
+  /// ARCHIVED — Deletes a goal.
+  /// Active replacement: GoalMedicalLib.deleteGoal
   public func deleteGoalMaster(
     store : GoalStore,
     id : Nat,
@@ -112,7 +150,8 @@ module {
     }
   };
 
-  /// Associates a list of product IDs as a bundle for a given goal.
+  /// ARCHIVED — Associates product IDs as a bundle for a goal.
+  /// Active replacement: GoalMedicalLib.updateGoal with input.product_bundle
   public func updateGoalProductBundle(
     store : GoalStore,
     goalId : Nat,
@@ -133,9 +172,10 @@ module {
     }
   };
 
-  // ── Medical Issue Master ──────────────────────────────────────────────────────
+  // ── Archived: Medical Issue Master ────────────────────────────────────────
 
-  /// Returns all medical issues for a given profile.
+  /// ARCHIVED — Returns all medical issues for a profile.
+  /// Active replacement: GoalMedicalLib.listMedicalIssues
   public func getMedicalIssueMasterData(
     store : MedicalIssueStore,
     profileKey : Common.ProfileKey,
@@ -154,7 +194,8 @@ module {
       .toArray()
   };
 
-  /// Creates a new medical issue in a profile.
+  /// ARCHIVED — Creates a new medical issue.
+  /// Active replacement: GoalMedicalLib.createMedicalIssue
   public func createMedicalIssueMaster(
     store : MedicalIssueStore,
     nextId : Nat,
@@ -184,7 +225,8 @@ module {
     }
   };
 
-  /// Updates an existing medical issue.
+  /// ARCHIVED — Updates an existing medical issue.
+  /// Active replacement: GoalMedicalLib.updateMedicalIssue
   public func updateMedicalIssueMaster(
     store : MedicalIssueStore,
     id : Nat,
@@ -214,7 +256,8 @@ module {
     }
   };
 
-  /// Deletes a medical issue.
+  /// ARCHIVED — Deletes a medical issue.
+  /// Active replacement: GoalMedicalLib.deleteMedicalIssue
   public func deleteMedicalIssueMaster(
     store : MedicalIssueStore,
     id : Nat,
@@ -229,28 +272,22 @@ module {
     }
   };
 
-  // ── Body Inches ───────────────────────────────────────────────────────────────
-  // Body inches are stored in the dedicated BodyInchesStore in customer-goals-medical.mo,
-  // NOT inline on the Customer record. This module delegates to stored data via the
-  // customerStore approach — returns history from customer.notes pattern (empty array
-  // since body inches live in a separate store not passed here).
+  // ── Archived: Body Inches (stub) ──────────────────────────────────────────
+  // These functions are stubs that do not have access to the BodyInchesStore.
+  // The actual implementation lives in lib/customer-goals-medical.mo.
 
-  /// Returns all body inches history entries for a customer, sorted latest first.
-  /// Note: in the main architecture, body inches are stored in a separate BodyInchesStore
-  /// via lib/customer-goals-medical.mo. This function returns an empty array since the
-  /// store is not passed here — use GoalMedicalLib.listBodyInchesHistory instead.
+  /// ARCHIVED STUB — returns empty array (no BodyInchesStore available here).
+  /// Active replacement: GoalMedicalLib.listBodyInchesHistory
   public func getBodyInchesHistory(
     _customerStore : Map.Map<Common.CustomerId, CustomerTypes.Customer>,
     _customerId : Common.CustomerId,
     _profileKey : Common.ProfileKey,
   ) : [CustomerTypes.BodyInchesPublic] {
-    []
+    [] // stub — body inches live in a separate BodyInchesStore not passed here
   };
 
-  /// Creates a new body inches entry for a customer.
-  /// Note: in the main architecture, body inches are stored in a separate BodyInchesStore
-  /// via lib/customer-goals-medical.mo. This stub returns a minimal entry since the
-  /// store is not passed here — use GoalMedicalLib.createBodyInchesEntry instead.
+  /// ARCHIVED STUB — builds and returns a minimal entry but does NOT persist it.
+  /// Active replacement: GoalMedicalLib.createBodyInchesEntry
   public func createBodyInchesEntry(
     _customerStore : Map.Map<Common.CustomerId, CustomerTypes.Customer>,
     nextId : Nat,
@@ -260,6 +297,7 @@ module {
     caller : Common.UserId,
   ) : CustomerTypes.BodyInchesPublic {
     let now = Time.now();
+    // Minimal in-memory construction — NOT stored anywhere in this archived path
     {
       id = nextId;
       customer_id = customerId;
@@ -276,10 +314,11 @@ module {
     }
   };
 
-  // ── Customer Notes (multi-note with date) ─────────────────────────────────────
+  // ── Archived: Customer Notes ──────────────────────────────────────────────
+  // Active replacement: CustomersLib.addCustomerNote / CustomersLib.deleteCustomerNote
 
-  /// Appends a dated note to a customer's notes list.
-  /// Returns the updated CustomerPublic or null if the customer is not found.
+  /// ARCHIVED — Appends a dated note to a customer's notes list.
+  /// Active replacement: CustomersLib.addCustomerNote (lib/customers.mo)
   public func addCustomerNote(
     customerStore : Map.Map<Common.CustomerId, CustomerTypes.Customer>,
     nextNoteId : Nat,
@@ -345,8 +384,8 @@ module {
     }
   };
 
-  /// Deletes a specific note from a customer's notes list.
-  /// Returns the updated CustomerPublic or null if customer/note is not found.
+  /// ARCHIVED — Removes a note from a customer's notes list.
+  /// Active replacement: CustomersLib.deleteCustomerNote (lib/customers.mo)
   public func deleteCustomerNote(
     customerStore : Map.Map<Common.CustomerId, CustomerTypes.Customer>,
     customerId : Common.CustomerId,
@@ -405,28 +444,29 @@ module {
     }
   };
 
-  // ── Canister Cycles ───────────────────────────────────────────────────────────
+  // ── Archived: Canister Cycles ─────────────────────────────────────────────
 
-  /// Returns current canister cycle balance.
-  /// Per-profile cycles are 0 since all profiles share a single canister.
+  /// ARCHIVED — Returns current canister cycle balance (per-profile always 0).
+  /// Active replacement: GoalMedicalLib.getCyclesInfo (lib/customer-goals-medical.mo)
   public func getCanisterCyclesInfo(
     _profileKeys : [Common.ProfileKey],
   ) : DomainTypes.CyclesInfo {
     let total = Cycles.balance();
-    { total_cycles = total; per_profile_cycles = [] }
+    { total_cycles = total; per_profile_cycles = [] } // always empty (single canister)
   };
 
-  // ── Sales crash guard ─────────────────────────────────────────────────────────
+  // ── Archived: Sales crash guard ───────────────────────────────────────────
 
-  /// Null-guarded projection of a SaleItem's product snapshot.
-  /// Returns the CustomerOrderDetail built from stored order data — no live inventory lookup.
+  /// ARCHIVED — Null-guarded sale projection. Returns the CustomerOrderDetail
+  /// built from stored order data only — no live inventory lookup.
+  /// Active replacement: SalesLib.getSaleWithItems (lib/sales.mo) is null-safe internally.
   public func guardedSaleWithItems(
     sale : SalesTypes.Sale,
     items : [SalesTypes.SaleItem],
     _productStore : Map.Map<Common.ProductId, CatalogTypes.Product>,
   ) : SalesTypes.CustomerOrderDetail {
-    // All product info is already snapshotted on SaleItem at sale time.
-    // No live inventory lookup needed — use stored snapshots directly.
+    // Product info is already snapshotted on each SaleItem at sale time.
+    // No live inventory lookup is needed — use stored snapshots.
     { sale; items }
   };
 };
