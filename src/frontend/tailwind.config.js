@@ -79,6 +79,9 @@ export default {
       },
       boxShadow: {
         xs: "0 1px 2px 0 rgba(0,0,0,0.05)",
+        "theme-sm": "0 2px 4px var(--theme-color-ring)",
+        "theme-md": "0 4px 12px var(--theme-color-ring)",
+        "theme-lg": "0 12px 24px var(--theme-color-ring)",
       },
       keyframes: {
         "accordion-down": {
@@ -97,12 +100,22 @@ export default {
           from: { opacity: "0" },
           to: { opacity: "1" },
         },
+        "spin-theme": {
+          from: { transform: "rotate(0deg)" },
+          to: { transform: "rotate(360deg)" },
+        },
+        "pulse-theme": {
+          "0%, 100%": { opacity: "1" },
+          "50%": { opacity: "0.7" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
         "slide-in-from-bottom": "slide-in-from-bottom 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
         "fade-in": "fade-in 0.3s ease-out",
+        "spin-theme": "spin-theme 0.8s linear infinite",
+        "pulse-theme": "pulse-theme 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
       },
     },
   },

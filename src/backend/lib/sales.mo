@@ -7,6 +7,7 @@ import CatalogTypes "../types/catalog";
 import InventoryTypes "../types/inventory";
 import CustomerTypes "../types/customers";
 import UserTypes "../types/users";
+import NotificationsLib "notifications";
 import InventoryLib "inventory";
 import CustomersLib "customers";
 
@@ -62,6 +63,7 @@ module {
       totalRevenue += lineRevenue;
       totalVP += lineVP;
       totalProfit += lineProfit;
+      let isLoanedItem = switch (item.is_loaned_item) { case (?v) v; case null false };
       let saleItem : SalesTypes.SaleItem = {
         sale_id = saleId;
         product_id = item.product_id;
@@ -71,6 +73,8 @@ module {
         volume_points_snapshot = product.volume_points;
         quantity = item.quantity;
         actual_sale_price = item.actual_sale_price;
+        product_instructions = item.product_instructions;
+        is_loaned_item = isLoanedItem;
         // Who-columns for each line item
         created_by = caller;
         last_updated_by = caller;
@@ -108,6 +112,7 @@ module {
     productStore : Map.Map<Common.ProductId, CatalogTypes.Product>,
     customerStore : Map.Map<Common.CustomerId, CustomerTypes.Customer>,
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
+    notificationsStore : NotificationsLib.Store,
     caller : Common.UserId,
     nextId : Nat,
     input : SalesTypes.SaleInput,
@@ -162,6 +167,14 @@ module {
       payment_status = input.payment_status;
       amount_paid = input.amount_paid;
       balance_due = ?balanceDue;
+      payment_due_date = input.payment_due_date;
+      // Per-sale note
+      sale_note = input.sale_note;
+      // Payment history — starts empty; entries added via addPaymentEntry
+      payment_history = [];
+      // Order type — default to #standard when not specified
+      order_type = switch (input.order_type) { case (?ot) ?ot; case null ?#standard };
+      return_of_sale_id = input.return_of_sale_id;
       // Who-columns
       created_by = caller;
       last_updated_by = caller;
@@ -173,6 +186,21 @@ module {
 
     // Update customer stats with the post-discount revenue
     CustomersLib.recordSale(customerStore, input.customer_id, finalRevenue, now);
+
+    // Notify admin for any loaned items sold
+    let sellerName = up.display_name;
+    for (item in saleItems.values()) {
+      if (item.is_loaned_item) {
+        NotificationsLib.notifyLoanedItemSold(
+          notificationsStore,
+          up.profile_key,
+          item.product_name_snapshot,
+          item.quantity,
+          sellerName,
+          nextId,
+        );
+      };
+    };
 
     ?nextId
   };
@@ -256,6 +284,9 @@ module {
       payment_status = input.payment_status;
       amount_paid = input.amount_paid;
       balance_due = ?balanceDue;
+      payment_due_date = input.payment_due_date;
+      sale_note = input.sale_note;
+      // payment_history is preserved from existingSale (not touched on edit)
       // Who-columns: last_updated_by and last_update_date reflect this edit
       last_updated_by = caller;
       last_update_date = now;
@@ -326,6 +357,71 @@ module {
     }
   };
 
+  /// Return the full CustomerOrderDetail (sale + items) for a single sale_id.
+  /// Returns null if the sale does not exist or does not belong to the caller's profile.
+  public func getSaleWithItems(
+    saleStore : SaleStore,
+    saleItemStore : SaleItemStore,
+    userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
+    caller : Common.UserId,
+    sale_id : Common.SaleId,
+  ) : ?SalesTypes.CustomerOrderDetail {
+    let up = switch (userStore.get(caller)) {
+      case (?u) u;
+      case null Runtime.trap("Caller has no profile");
+    };
+    switch (saleStore.get(sale_id)) {
+      case null null;
+      case (?sale) {
+        if (sale.profile_key != up.profile_key) return null;
+        let items = switch (saleItemStore.get(sale_id)) {
+          case (?arr) arr;
+          case null [];
+        };
+        ?{ sale; items }
+      };
+    }
+  };
+
+  /// Return the most recent sale (with its items) for a given customer in the caller's profile.
+  /// Finds the sale with the highest timestamp; returns null if no sales exist for that customer.
+  public func getLastSaleForCustomer(
+    saleStore : SaleStore,
+    saleItemStore : SaleItemStore,
+    userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
+    caller : Common.UserId,
+    customer_id : Common.CustomerId,
+  ) : ?SalesTypes.CustomerOrderDetail {
+    let up = switch (userStore.get(caller)) {
+      case (?u) u;
+      case null Runtime.trap("Caller has no profile");
+    };
+    // Find the sale with the latest timestamp for this customer in this profile
+    var bestSale : ?SalesTypes.Sale = null;
+    for ((_id, sale) in saleStore.entries()) {
+      if (sale.profile_key == up.profile_key and sale.customer_id == customer_id) {
+        switch (bestSale) {
+          case null { bestSale := ?sale };
+          case (?prev) {
+            if (sale.timestamp > prev.timestamp) {
+              bestSale := ?sale;
+            };
+          };
+        };
+      };
+    };
+    switch (bestSale) {
+      case null null;
+      case (?sale) {
+        let items = switch (saleItemStore.get(sale.id)) {
+          case (?arr) arr;
+          case null [];
+        };
+        ?{ sale; items }
+      };
+    }
+  };
+
   /// Fetch all orders for a customer with full detail (for History tab)
   public func getCustomerOrders(
     saleStore : SaleStore,
@@ -348,5 +444,210 @@ module {
         { sale = s; items }
       })
       .toArray()
+  };
+
+  /// Create a return order linked to an original sale.
+  /// Validates: original sale is within 20 days; each return item was part of the original order.
+  /// Usable items are staged in Stage Inventory. Non-usable items are only recorded.
+  /// Returns a ReturnOrderResult with success flag, new order ID, and error message if any.
+  public func createReturnOrder(
+    saleStore : SaleStore,
+    saleItemStore : SaleItemStore,
+    batchStore : Map.Map<Common.BatchId, InventoryTypes.InventoryBatch>,
+    customerStore : Map.Map<Common.CustomerId, CustomerTypes.Customer>,
+    userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
+    notificationsStore : NotificationsLib.Store,
+    caller : Common.UserId,
+    nextSaleId : Nat,
+    nextBatchId : Nat,
+    originalSaleId : Common.SaleId,
+    returnItems : [SalesTypes.ReturnItem],
+  ) : (SalesTypes.ReturnOrderResult, Nat) {
+    let up = switch (userStore.get(caller)) {
+      case (?u) u;
+      case null return ({ success = false; return_order_id = null; error = ?"Caller has no profile" }, nextBatchId);
+    };
+
+    // Fetch the original sale
+    let originalSale = switch (saleStore.get(originalSaleId)) {
+      case (?s) s;
+      case null return ({ success = false; return_order_id = null; error = ?"Original sale not found" }, nextBatchId);
+    };
+    if (originalSale.profile_key != up.profile_key) {
+      return ({ success = false; return_order_id = null; error = ?"Sale not in caller's profile" }, nextBatchId);
+    };
+
+    // Validate: sale must be within 20 days (20 * 24 * 3600 * 1_000_000_000 nanoseconds)
+    let now = Time.now();
+    let twentyDaysNs : Int = 20 * 24 * 3600 * 1_000_000_000;
+    if (now - originalSale.timestamp > twentyDaysNs) {
+      return ({ success = false; return_order_id = null; error = ?"Return period of 20 days has expired" }, nextBatchId);
+    };
+
+    // Fetch original items
+    let originalItems = switch (saleItemStore.get(originalSaleId)) {
+      case (?items) items;
+      case null [];
+    };
+
+    // Validate each return item was part of the original sale
+    for (ri in returnItems.values()) {
+      let found = originalItems.find(func(si : SalesTypes.SaleItem) : Bool { si.product_id == ri.product_id });
+      if (found == null) {
+        return ({ success = false; return_order_id = null; error = ?("Product not in original sale: " # ri.product_id.toText()) }, nextBatchId);
+      };
+    };
+
+    // Build return sale items
+    var returnSaleItems : [SalesTypes.SaleItem] = [];
+    var totalRevenue : Float = 0.0;
+    for (ri in returnItems.values()) {
+      let si : SalesTypes.SaleItem = {
+        sale_id = nextSaleId;
+        product_id = ri.product_id;
+        product_name_snapshot = switch (originalItems.find(func(o : SalesTypes.SaleItem) : Bool { o.product_id == ri.product_id })) {
+          case (?o) o.product_name_snapshot;
+          case null "";
+        };
+        unit_cost_snapshot = ri.unit_price;
+        mrp_snapshot = ri.unit_price;
+        volume_points_snapshot = 0.0;
+        quantity = ri.qty;
+        actual_sale_price = ri.unit_price;
+        product_instructions = null;
+        is_loaned_item = false;
+        created_by = caller;
+        last_updated_by = caller;
+        creation_date = now;
+        last_update_date = now;
+      };
+      returnSaleItems := returnSaleItems.concat([si]);
+      totalRevenue += ri.unit_price * ri.qty.toFloat();
+    };
+
+    // Persist return order record
+    let returnSale : SalesTypes.Sale = {
+      id = nextSaleId;
+      profile_key = up.profile_key;
+      timestamp = now;
+      total_revenue = totalRevenue;
+      total_volume_points = 0.0;
+      total_profit = 0.0;
+      customer_id = originalSale.customer_id;
+      customer_name = originalSale.customer_name;
+      sold_by = caller;
+      owner = caller;
+      original_subtotal = ?totalRevenue;
+      discount_type = null;
+      discount_applied = ?0.0;
+      payment_mode = null;
+      payment_status = ?#Paid;    // Returns are considered settled
+      amount_paid = ?totalRevenue;
+      balance_due = ?0.0;
+      payment_due_date = null;
+      sale_note = ?("Return for order #" # originalSaleId.toText());
+      payment_history = [];
+      order_type = ?#return_;
+      return_of_sale_id = ?originalSaleId;
+      created_by = caller;
+      last_updated_by = caller;
+      creation_date = now;
+      last_update_date = now;
+    };
+    saleStore.add(nextSaleId, returnSale);
+    saleItemStore.add(nextSaleId, returnSaleItems);
+
+    // Move usable items to Stage Inventory
+    var currentBatchId = nextBatchId;
+    for (ri in returnItems.values()) {
+      if (ri.is_usable) {
+        let _ = InventoryLib.moveToStageInventory(
+          batchStore, caller, up.profile_key,
+          ri.product_id, ri.qty, ri.unit_price,
+          currentBatchId, nextSaleId,
+        );
+        currentBatchId += 1;
+      };
+    };
+
+    ({ success = true; return_order_id = ?nextSaleId; error = null }, currentBatchId)
+  };
+
+  /// Append a payment entry to a sale and recalculate payment_status.
+  /// payment_status is DERIVED: #unpaid (0 paid), #partial (partial), #paid (full).
+  /// Returns false if the sale is already fully paid.
+  public func addPaymentEntry(
+    saleStore : SaleStore,
+    userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
+    caller : Common.UserId,
+    saleId : Common.SaleId,
+    amount : Float,
+    paymentMethod : Text,
+  ) : Bool {
+    let up = switch (userStore.get(caller)) {
+      case (?u) u;
+      case null Runtime.trap("Caller has no profile");
+    };
+    switch (saleStore.get(saleId)) {
+      case null false;
+      case (?sale) {
+        if (sale.profile_key != up.profile_key) return false;
+        // Block adding payments to already-paid orders
+        switch (sale.payment_status) {
+          case (?#Paid) return false;
+          case _ {};
+        };
+        let now = Time.now();
+        let newEntry : SalesTypes.PaymentEntry = {
+          id = saleId.toText() # "_pmt_" # sale.payment_history.size().toText();
+          payment_date = now;
+          amount;
+          payment_method = paymentMethod;
+          recorded_by = up.display_name;
+        };
+        let updatedHistory = sale.payment_history.concat([newEntry]);
+        // Recalculate totals from full history
+        let totalPaid = updatedHistory.foldLeft(0.0, func(acc : Float, e : SalesTypes.PaymentEntry) : Float { acc + e.amount });
+        let revenue = sale.total_revenue;
+        let balanceDue = revenue - totalPaid;
+        let newStatus : Common.PaymentStatus = if (totalPaid <= 0.0) #Unpaid
+          else if (totalPaid >= revenue) #Paid
+          else #Partial;
+        saleStore.add(saleId, {
+          sale with
+          payment_history = updatedHistory;
+          amount_paid = ?totalPaid;
+          balance_due = ?balanceDue;
+          payment_status = ?newStatus;
+          last_updated_by = caller;
+          last_update_date = now;
+        });
+        true
+      };
+    }
+  };
+
+  /// Returns all payment entries for a sale, sorted by payment_date ascending.
+  public func getPaymentHistory(
+    saleStore : SaleStore,
+    userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
+    caller : Common.UserId,
+    saleId : Common.SaleId,
+  ) : [SalesTypes.PaymentEntry] {
+    let up = switch (userStore.get(caller)) {
+      case (?u) u;
+      case null Runtime.trap("Caller has no profile");
+    };
+    switch (saleStore.get(saleId)) {
+      case null [];
+      case (?sale) {
+        if (sale.profile_key != up.profile_key) return [];
+        sale.payment_history.sort(func(a, b) {
+          if (a.payment_date < b.payment_date) #less
+          else if (a.payment_date > b.payment_date) #greater
+          else #equal
+        })
+      };
+    }
   };
 };

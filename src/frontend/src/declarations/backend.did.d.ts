@@ -38,8 +38,33 @@ export interface BodyCompositionInput {
   'body_fat' : [] | [number],
   'trunk_fat' : [] | [number],
 }
+export interface BodyInchesInput {
+  'hips' : [] | [number],
+  'chest' : [] | [number],
+  'entry_date' : Timestamp,
+  'thighs' : [] | [number],
+  'calves' : [] | [number],
+  'waist' : [] | [number],
+  'biceps' : [] | [number],
+}
+export interface BodyInchesPublic {
+  'id' : bigint,
+  'hips' : [] | [number],
+  'chest' : [] | [number],
+  'entry_date' : Timestamp,
+  'created_by' : string,
+  'customer_id' : bigint,
+  'thighs' : [] | [number],
+  'calves' : [] | [number],
+  'waist' : [] | [number],
+  'biceps' : [] | [number],
+  'profile_key' : ProfileKey,
+  'creation_date' : Timestamp,
+}
 export interface CartItem {
+  'is_loaned_item' : [] | [boolean],
   'product_id' : ProductId,
+  'product_instructions' : [] | [string],
   'quantity' : bigint,
   'actual_sale_price' : number,
 }
@@ -58,40 +83,97 @@ export type CategoryId = bigint;
 export interface CategoryInput { 'name' : string, 'description' : string }
 export type CustomerId = bigint;
 export interface CustomerInput {
+  'age' : [] | [bigint],
+  'height' : [] | [string],
+  'pin_code' : [] | [string],
+  'medical_issue_ids' : [] | [Array<bigint>],
+  'body_composition' : [] | [Array<BodyCompositionInput>],
+  'country' : [] | [string],
+  'address_line1' : [] | [string],
+  'address_line2' : [] | [string],
+  'referral_commission_amount' : [] | [number],
+  'city' : [] | [string],
   'name' : string,
   'note' : [] | [string],
+  'referred_by' : [] | [string],
   'discount_value' : [] | [number],
+  'lead_follow_up_date' : [] | [bigint],
   'email' : string,
   'discount_applicable' : [] | [DiscountType],
+  'state' : [] | [string],
+  'lead_to_active_datetime' : [] | [Timestamp],
   'address' : string,
   'gender' : [] | [string],
+  'notes' : [] | [Array<CustomerNoteInput>],
   'date_of_birth' : [] | [string],
   'phone' : string,
+  'primary_goal_ids' : [] | [Array<bigint>],
+  'customer_type' : [] | [
+    { 'active' : null } |
+      { 'lead' : null } |
+      { 'inactive' : null }
+  ],
+  'lead_notes' : [] | [string],
+  'customer_created_by' : [] | [UserId],
 }
+export interface CustomerNote {
+  'id' : bigint,
+  'text' : string,
+  'created_by' : string,
+  'note_date' : Timestamp,
+  'creation_date' : Timestamp,
+}
+export interface CustomerNoteInput { 'text' : string, 'note_date' : Timestamp }
 export interface CustomerOrderDetail {
   'sale' : Sale,
   'items' : Array<SaleItem>,
 }
 export interface CustomerPublic {
   'id' : CustomerId,
+  'age' : [] | [bigint],
+  'height' : [] | [string],
+  'pin_code' : [] | [string],
   'total_sales' : bigint,
+  'medical_issue_ids' : Array<bigint>,
+  'country' : [] | [string],
+  'address_line1' : [] | [string],
+  'address_line2' : [] | [string],
+  'referral_commission_amount' : [] | [number],
+  'city' : [] | [string],
   'name' : string,
   'lifetime_revenue' : number,
+  'referred_by' : [] | [string],
   'discount_value' : [] | [number],
   'last_purchase_at' : Timestamp,
   'created_at' : Timestamp,
+  'lead_follow_up_date' : [] | [bigint],
   'email' : string,
   'discount_applicable' : [] | [DiscountType],
+  'state' : [] | [string],
+  'lead_to_active_datetime' : [] | [Timestamp],
   'address' : string,
   'gender' : [] | [string],
-  'notes' : Array<string>,
+  'notes' : Array<CustomerNote>,
   'date_of_birth' : [] | [string],
   'phone' : string,
+  'primary_goal_ids' : Array<bigint>,
+  'customer_type' : { 'active' : null } |
+    { 'lead' : null } |
+    { 'inactive' : null },
+  'lead_notes' : [] | [string],
   'profile_key' : ProfileKey,
+  'customer_created_by' : [] | [UserId],
+}
+export interface CyclesInfo {
+  'profiles_cycles' : Array<ProfileCyclesEntry>,
+  'total_cycles' : bigint,
 }
 export interface DashboardStats {
   'monthly_profit' : number,
+  'inactive_count' : bigint,
   'total_inventory_value' : number,
+  'active_count' : bigint,
+  'lead_count' : bigint,
   'recent_sales' : Array<Sale>,
   'monthly_volume_points' : number,
 }
@@ -101,14 +183,38 @@ export interface DuplicateCheckResult {
   'similar_customers' : Array<CustomerPublic>,
   'has_similar' : boolean,
 }
+export interface GoalMasterInput {
+  'name' : string,
+  'description' : string,
+  'product_bundle' : Array<ProductId>,
+}
+export interface GoalMasterPublic {
+  'id' : bigint,
+  'last_update_date' : Timestamp,
+  'name' : string,
+  'description' : string,
+  'product_bundle' : Array<ProductId>,
+  'creation_date' : Timestamp,
+}
+export interface GoalMasterPublic__1 {
+  'id' : bigint,
+  'name' : string,
+  'description' : string,
+  'product_bundle' : Array<ProductId>,
+}
 export interface InventoryBatchPublic {
   'id' : BatchId,
   'quantity_remaining' : bigint,
   'product_id' : ProductId,
+  'staged_status' : [] | [StagedBatchStatus],
   'unit_cost' : number,
+  'loaned_status' : [] | [LoanedItemStatus],
+  'loaned_source' : [] | [string],
   'date_received' : Timestamp,
   'warehouse_name' : WarehouseName,
+  'return_order_id' : [] | [SaleId],
   'profile_key' : ProfileKey,
+  'is_loaned' : boolean,
 }
 export interface InventoryLevel {
   'product_id' : ProductId,
@@ -119,6 +225,7 @@ export interface InventoryMovement {
   'id' : MovementId,
   'from_warehouse' : WarehouseName,
   'product_id' : ProductId,
+  'is_loaned_move' : boolean,
   'last_update_date' : Timestamp,
   'created_by' : UserId,
   'last_updated_by' : UserId,
@@ -132,8 +239,34 @@ export interface InventoryMovement {
 export interface InventoryMovementInput {
   'from_warehouse' : WarehouseName,
   'product_id' : ProductId,
+  'is_loaned_move' : [] | [boolean],
+  'loaned_source' : [] | [string],
   'quantity' : bigint,
   'to_warehouse' : WarehouseName,
+}
+export type LoanedItemStatus = { 'active' : null } |
+  { 'archived' : null };
+export interface LocationMasterEntry {
+  'id' : string,
+  'name' : string,
+  'entry_type' : string,
+  'parent_id' : [] | [string],
+}
+export interface MedicalIssueMasterInput {
+  'name' : string,
+  'description' : string,
+}
+export interface MedicalIssueMasterPublic {
+  'id' : bigint,
+  'last_update_date' : Timestamp,
+  'name' : string,
+  'description' : string,
+  'creation_date' : Timestamp,
+}
+export interface MedicalIssueMasterPublic__1 {
+  'id' : bigint,
+  'name' : string,
+  'description' : string,
 }
 export interface MonthlySalesTrend {
   'month_label' : string,
@@ -141,8 +274,27 @@ export interface MonthlySalesTrend {
   'total_volume_points' : number,
 }
 export type MovementId = bigint;
+export interface Notification {
+  'id' : string,
+  'is_read' : boolean,
+  'created_at' : Timestamp,
+  'notification_type' : string,
+  'related_id' : [] | [string],
+  'message' : string,
+  'profile_key' : string,
+  'target_role' : string,
+}
+export type OrderType = { 'return' : null } |
+  { 'standard' : null };
 export type POStatus = { 'Received' : null } |
   { 'Pending' : null };
+export interface PaymentEntry {
+  'id' : string,
+  'payment_date' : Timestamp,
+  'payment_method' : string,
+  'recorded_by' : string,
+  'amount' : number,
+}
 export type PaymentMode = { 'Card' : null } |
   { 'Cash' : null } |
   { 'BankTransfer' : null } |
@@ -160,8 +312,10 @@ export interface Product {
   'name' : string,
   'earn_base' : number,
   'created_by' : UserId,
+  'instructions' : [] | [string],
   'last_updated_by' : UserId,
   'volume_points' : number,
+  'serving_size' : [] | [string],
   'hsn_code' : string,
   'profile_key' : ProfileKey,
   'category_id' : CategoryId,
@@ -173,15 +327,26 @@ export interface ProductInput {
   'sku' : string,
   'name' : string,
   'earn_base' : number,
+  'instructions' : [] | [string],
   'volume_points' : number,
+  'serving_size' : [] | [string],
   'hsn_code' : string,
   'category_id' : CategoryId,
+}
+export type ProfileApprovalStatus = { 'approved' : null } |
+  { 'suspended' : null } |
+  { 'pending_super_admin_approval' : null };
+export interface ProfileCyclesEntry {
+  'business_name' : string,
+  'estimated_cycles' : bigint,
+  'profile_key' : ProfileKey,
 }
 export interface ProfileInput {
   'business_name' : string,
   'email' : string,
   'business_address' : string,
   'logo_url' : string,
+  'instagram_handle' : string,
   'receipt_notes' : string,
   'phone_number' : string,
   'theme_color' : string,
@@ -200,6 +365,8 @@ export interface ProfilePublic {
   'business_address' : string,
   'start_date' : [] | [Timestamp],
   'logo_url' : string,
+  'instagram_handle' : string,
+  'profile_approval_status' : ProfileApprovalStatus,
   'receipt_notes' : string,
   'phone_number' : string,
   'theme_color' : string,
@@ -223,10 +390,12 @@ export interface ProfileStatus {
   'end_date' : [] | [Timestamp],
   'start_date' : [] | [Timestamp],
   'is_within_window' : boolean,
+  'profile_approval_status' : ProfileApprovalStatus,
 }
 export interface PurchaseOrder {
   'id' : PurchaseOrderId,
   'status' : POStatus,
+  'po_number' : [] | [string],
   'owner' : UserId,
   'last_update_date' : Timestamp,
   'created_by' : UserId,
@@ -234,14 +403,19 @@ export interface PurchaseOrder {
   'last_updated_by' : UserId,
   'timestamp' : Timestamp,
   'warehouse_name' : WarehouseName,
+  'vendor_name' : [] | [string],
+  'vendor_id' : [] | [string],
   'profile_key' : ProfileKey,
   'creation_date' : Timestamp,
 }
 export type PurchaseOrderId = bigint;
 export interface PurchaseOrderInput {
+  'po_number' : [] | [string],
   'vendor' : string,
   'items' : Array<PurchaseOrderItemInput>,
   'warehouse_name' : WarehouseName,
+  'vendor_name' : [] | [string],
+  'vendor_id' : [] | [string],
 }
 export interface PurchaseOrderItem {
   'product_id' : ProductId,
@@ -258,22 +432,51 @@ export interface PurchaseOrderItemInput {
   'unit_cost' : number,
   'quantity' : bigint,
 }
+export interface ReferralCommissionEntry {
+  'month' : string,
+  'total_commission' : number,
+  'customer_count' : bigint,
+  'referral_user_principal' : UserId,
+  'referral_user_display_name' : string,
+  'profile_key' : ProfileKey,
+}
+export interface ReturnItem {
+  'qty' : bigint,
+  'product_id' : ProductId,
+  'unit_price' : number,
+  'is_usable' : boolean,
+}
+export interface ReturnOrderResult {
+  'error' : [] | [string],
+  'success' : boolean,
+  'return_order_id' : [] | [SaleId],
+}
+export type RoutingStatus = { 'active' : null } |
+  { 'pending_approval' : null } |
+  { 'noprofile' : null } |
+  { 'superAdmin' : null } |
+  { 'profile_pending_super_admin' : null };
 export interface Sale {
   'id' : SaleId,
+  'return_of_sale_id' : [] | [SaleId],
   'payment_mode' : [] | [PaymentMode],
   'owner' : UserId,
   'last_update_date' : Timestamp,
   'discount_type' : [] | [DiscountType],
+  'sale_note' : [] | [string],
   'created_by' : UserId,
   'payment_status' : [] | [PaymentStatus],
   'customer_id' : CustomerId,
   'discount_applied' : [] | [number],
   'sold_by' : UserId,
   'amount_paid' : [] | [number],
+  'payment_history' : Array<PaymentEntry>,
   'last_updated_by' : UserId,
+  'order_type' : [] | [OrderType],
   'timestamp' : Timestamp,
   'total_revenue' : number,
   'balance_due' : [] | [number],
+  'payment_due_date' : [] | [string],
   'customer_name' : string,
   'total_volume_points' : number,
   'profile_key' : ProfileKey,
@@ -283,16 +486,22 @@ export interface Sale {
 }
 export type SaleId = bigint;
 export interface SaleInput {
+  'return_of_sale_id' : [] | [SaleId],
   'payment_mode' : [] | [PaymentMode],
+  'sale_note' : [] | [string],
   'cart_items' : Array<CartItem>,
   'payment_status' : [] | [PaymentStatus],
   'customer_id' : CustomerId,
   'amount_paid' : [] | [number],
+  'order_type' : [] | [OrderType],
+  'payment_due_date' : [] | [string],
 }
 export interface SaleItem {
   'unit_cost_snapshot' : number,
+  'is_loaned_item' : boolean,
   'product_id' : ProductId,
   'last_update_date' : Timestamp,
+  'product_instructions' : [] | [string],
   'product_name_snapshot' : string,
   'created_by' : UserId,
   'volume_points_snapshot' : number,
@@ -303,6 +512,9 @@ export interface SaleItem {
   'mrp_snapshot' : number,
   'creation_date' : Timestamp,
 }
+export type StagedBatchStatus = { 'pending' : null } |
+  { 'rejected' : null } |
+  { 'accepted' : null };
 export interface SuperAdminStats {
   'total_users' : bigint,
   'total_profiles' : bigint,
@@ -311,31 +523,89 @@ export interface SuperAdminStats {
 export type Timestamp = bigint;
 export interface UpdateSaleInput {
   'payment_mode' : [] | [PaymentMode],
+  'sale_note' : [] | [string],
   'payment_status' : [] | [PaymentStatus],
   'amount_paid' : [] | [number],
+  'payment_due_date' : [] | [string],
   'items' : Array<CartItem>,
   'sale_id' : SaleId,
 }
 export type UserId = Principal;
+export interface UserPreferences {
+  'defaultReceiptLanguage' : string,
+  'language' : string,
+  'whatsappNumber' : string,
+  'dateFormat' : string,
+}
 export interface UserProfileInput {
+  'default_receipt_language' : [] | [string],
+  'email' : [] | [string],
+  'approval_status' : [] | [string],
   'display_name' : string,
+  'module_access' : [] | [string],
+  'language_preference' : [] | [string],
+  'date_format' : [] | [string],
   'warehouse_name' : WarehouseName,
   'profile_key' : ProfileKey,
 }
 export interface UserProfilePublic {
   'principal' : UserId,
+  'default_receipt_language' : string,
   'role' : UserRole,
+  'email' : [] | [string],
+  'approval_status' : [] | [string],
   'display_name' : string,
+  'module_access' : [] | [string],
   'joined_at' : Timestamp,
+  'language_preference' : string,
+  'date_format' : string,
   'warehouse_name' : WarehouseName,
   'profile_key' : ProfileKey,
 }
 export type UserRole = { 'admin' : null } |
+  { 'referralUser' : null } |
+  { 'regularUser' : null } |
   { 'superAdmin' : null } |
   { 'staff' : null };
+export interface Vendor {
+  'id' : string,
+  'last_update_date' : Timestamp,
+  'name' : string,
+  'created_by' : UserId,
+  'email' : [] | [string],
+  'is_default' : boolean,
+  'address' : [] | [string],
+  'last_updated_by' : UserId,
+  'contact_name' : [] | [string],
+  'phone' : [] | [string],
+  'profile_key' : string,
+  'creation_date' : Timestamp,
+}
+export interface VendorInput {
+  'name' : string,
+  'email' : [] | [string],
+  'is_default' : boolean,
+  'address' : [] | [string],
+  'contact_name' : [] | [string],
+  'phone' : [] | [string],
+}
 export type WarehouseName = string;
 export interface _SERVICE {
+  'addCustomerNote' : ActorMethod<
+    [CustomerId, CustomerNoteInput],
+    [] | [CustomerNote]
+  >,
+  'addLoanerBatch' : ActorMethod<
+    [ProductId, bigint, number, string],
+    [] | [BatchId]
+  >,
+  'addLocationEntry' : ActorMethod<[LocationMasterEntry], boolean>,
+  'addPaymentEntry' : ActorMethod<[SaleId, number, string], boolean>,
+  'approveProfile' : ActorMethod<[ProfileKey], boolean>,
+  'approveUser' : ActorMethod<[UserId, boolean], boolean>,
+  'archiveLoanedBatch' : ActorMethod<[BatchId], boolean>,
   'assignUserRole' : ActorMethod<[UserId, UserRole, ProfileKey], boolean>,
+  'checkAndCreateNotifications' : ActorMethod<[string], bigint>,
   'checkCustomerDuplicate' : ActorMethod<[string], DuplicateCheckResult>,
   /**
    * / Claim or re-claim superAdmin role.
@@ -350,20 +620,54 @@ export interface _SERVICE {
     [CustomerId, BodyCompositionInput],
     [] | [BodyCompositionEntry]
   >,
+  'createBodyInchesEntry' : ActorMethod<
+    [CustomerId, BodyInchesInput],
+    BodyInchesPublic
+  >,
   'createCategory' : ActorMethod<[CategoryInput], CategoryId>,
   'createCustomer' : ActorMethod<[CustomerInput], CustomerId>,
+  'createCustomerFromSales' : ActorMethod<[CustomerInput], CustomerId>,
+  'createGoal' : ActorMethod<[GoalMasterInput], bigint>,
+  'createGoalMaster' : ActorMethod<
+    [ProfileKey, string, string],
+    GoalMasterPublic__1
+  >,
+  'createMedicalIssue' : ActorMethod<[MedicalIssueMasterInput], bigint>,
+  'createMedicalIssueMaster' : ActorMethod<
+    [ProfileKey, string, string],
+    MedicalIssueMasterPublic__1
+  >,
   'createProduct' : ActorMethod<[ProductInput], [] | [ProductId]>,
   'createProfile' : ActorMethod<[ProfileInput], boolean>,
   'createPurchaseOrder' : ActorMethod<
     [PurchaseOrderInput],
     [] | [PurchaseOrderId]
   >,
+  'createReferralUser' : ActorMethod<[ProfileKey, string], boolean>,
+  'createReturnOrder' : ActorMethod<
+    [SaleId, Array<ReturnItem>],
+    ReturnOrderResult
+  >,
   'createSale' : ActorMethod<[SaleInput], [] | [SaleId]>,
+  'createVendor' : ActorMethod<[VendorInput, string], [] | [Vendor]>,
   'deleteBodyCompositionEntry' : ActorMethod<[string], boolean>,
+  'deleteBodyInchesEntry' : ActorMethod<[bigint], boolean>,
   'deleteCategory' : ActorMethod<[CategoryId], boolean>,
   'deleteCustomer' : ActorMethod<[CustomerId], boolean>,
+  'deleteCustomerNote' : ActorMethod<[bigint, CustomerId], boolean>,
+  'deleteGoal' : ActorMethod<[bigint], boolean>,
+  'deleteGoalMaster' : ActorMethod<[bigint], boolean>,
+  'deleteMedicalIssue' : ActorMethod<[bigint], boolean>,
+  'deleteMedicalIssueMaster' : ActorMethod<[bigint], boolean>,
   'deleteProduct' : ActorMethod<[ProductId], boolean>,
   'deleteProfile' : ActorMethod<[ProfileKey], boolean>,
+  'deleteVendor' : ActorMethod<[string], boolean>,
+  /**
+   * / Returns true if a Super Admin has already been registered (superAdminPrincipal is set).
+   * / This is a public, unauthenticated query — used by the frontend to decide whether
+   * / a new anonymous user should see the first-time setup screen or the onboarding screen.
+   */
+  'doesSuperAdminExist' : ActorMethod<[], boolean>,
   'enableProfile' : ActorMethod<[ProfileKey, boolean], boolean>,
   'getAllProfilesForAdmin' : ActorMethod<[], Array<ProfilePublic>>,
   'getAllUsersForAdmin' : ActorMethod<[], Array<UserProfilePublic>>,
@@ -371,15 +675,49 @@ export interface _SERVICE {
     [CustomerId],
     Array<BodyCompositionEntry>
   >,
+  'getCanisterCyclesInfo' : ActorMethod<
+    [],
+    {
+      'per_profile_info' : Array<
+        {
+          'business_name' : string,
+          'cycles_note' : string,
+          'profile_key' : string,
+        }
+      >,
+      'total_cycles' : bigint,
+    }
+  >,
   'getCategories' : ActorMethod<[], Array<Category>>,
+  'getCitiesByState' : ActorMethod<[string], Array<LocationMasterEntry>>,
+  'getCountries' : ActorMethod<[], Array<LocationMasterEntry>>,
   'getCustomer' : ActorMethod<[CustomerId], [] | [CustomerPublic]>,
   'getCustomerOrders' : ActorMethod<[CustomerId], Array<CustomerOrderDetail>>,
   'getCustomers' : ActorMethod<[], Array<CustomerPublic>>,
+  'getCyclesInfo' : ActorMethod<[], CyclesInfo>,
   'getDashboardStats' : ActorMethod<[], DashboardStats>,
+  'getGoal' : ActorMethod<[bigint], [] | [GoalMasterPublic]>,
+  'getGoalMasterData' : ActorMethod<[ProfileKey], Array<GoalMasterPublic__1>>,
   'getInventoryBatches' : ActorMethod<[ProductId], Array<InventoryBatchPublic>>,
   'getInventoryLevels' : ActorMethod<[], Array<InventoryLevel>>,
   'getInventoryMovements' : ActorMethod<[], Array<InventoryMovement>>,
+  'getLastSaleForCustomer' : ActorMethod<
+    [CustomerId],
+    [] | [CustomerOrderDetail]
+  >,
+  'getMedicalIssue' : ActorMethod<[bigint], [] | [MedicalIssueMasterPublic]>,
+  'getMedicalIssueMasterData' : ActorMethod<
+    [ProfileKey],
+    Array<MedicalIssueMasterPublic__1>
+  >,
   'getMonthlySalesTrend' : ActorMethod<[], Array<MonthlySalesTrend>>,
+  'getNotifications' : ActorMethod<[string, string], Array<Notification>>,
+  'getNotificationsForUser' : ActorMethod<[], Array<Notification>>,
+  'getPaymentHistory' : ActorMethod<[SaleId], Array<PaymentEntry>>,
+  'getPendingApprovalUsers' : ActorMethod<
+    [ProfileKey],
+    Array<UserProfilePublic>
+  >,
   'getProducts' : ActorMethod<[], Array<Product>>,
   'getProfile' : ActorMethod<[], [] | [ProfilePublic]>,
   'getProfileByKey' : ActorMethod<[ProfileKey], [] | [ProfilePublic]>,
@@ -389,34 +727,80 @@ export interface _SERVICE {
     Array<PurchaseOrderItem>
   >,
   'getPurchaseOrders' : ActorMethod<[], Array<PurchaseOrder>>,
+  'getReferralCommissionByMonth' : ActorMethod<
+    [],
+    Array<ReferralCommissionEntry>
+  >,
+  'getReferralUsers' : ActorMethod<[ProfileKey], Array<UserProfilePublic>>,
+  'getRoutingStatus' : ActorMethod<[], RoutingStatus>,
   'getSale' : ActorMethod<[SaleId], [] | [Sale]>,
-  /**
-   * / Helper: upsert userStore entry with #superAdmin role for the given principal.
-   */
   'getSaleItems' : ActorMethod<[SaleId], Array<SaleItem>>,
+  'getSaleWithItems' : ActorMethod<[SaleId], [] | [CustomerOrderDetail]>,
   'getSales' : ActorMethod<[], Array<Sale>>,
   'getSalesByCustomer' : ActorMethod<[CustomerId], Array<Sale>>,
+  'getStagedInventory' : ActorMethod<[], Array<InventoryBatchPublic>>,
+  'getStates' : ActorMethod<[], Array<LocationMasterEntry>>,
+  'getSuperAdminActiveProfile' : ActorMethod<[], [] | [ProfileKey]>,
   'getSuperAdminStats' : ActorMethod<[], SuperAdminStats>,
+  'getUserPreferences' : ActorMethod<[], UserPreferences>,
   'getUserProfile' : ActorMethod<[], [] | [UserProfilePublic]>,
   'getUsersByProfile' : ActorMethod<[ProfileKey], Array<UserProfilePublic>>,
+  'getVendor' : ActorMethod<[string], [] | [Vendor]>,
+  'getVendors' : ActorMethod<[string], Array<Vendor>>,
   /**
    * / One-time bootstrap: first caller becomes super admin (if not already set).
    */
   'initSuperAdmin' : ActorMethod<[], boolean>,
   'joinProfile' : ActorMethod<[ProfileKey, string, WarehouseName], boolean>,
+  'listBodyInchesHistory' : ActorMethod<[CustomerId], Array<BodyInchesPublic>>,
+  'listCustomerNotes' : ActorMethod<[CustomerId], Array<CustomerNote>>,
+  'listGoals' : ActorMethod<[], Array<GoalMasterPublic>>,
+  'listMedicalIssues' : ActorMethod<[], Array<MedicalIssueMasterPublic>>,
+  'markNotificationRead' : ActorMethod<[string], boolean>,
   'markPurchaseOrderReceived' : ActorMethod<[PurchaseOrderId], boolean>,
   'moveInventory' : ActorMethod<[InventoryMovementInput], [] | [MovementId]>,
+  'moveLoanerToStaff' : ActorMethod<
+    [ProductId, bigint, WarehouseName],
+    [] | [MovementId]
+  >,
+  'rejectProfile' : ActorMethod<[ProfileKey], boolean>,
+  'returnToSource' : ActorMethod<[BatchId, bigint], [] | [MovementId]>,
+  'reviewStagedItem' : ActorMethod<
+    [BatchId, { 'reject' : null } | { 'accept' : null }],
+    boolean
+  >,
+  'runBackgroundChecks' : ActorMethod<[], bigint>,
   'setProfileWindow' : ActorMethod<
     [ProfileKey, [] | [Timestamp], [] | [Timestamp]],
     boolean
   >,
+  'setSuperAdminActiveProfile' : ActorMethod<[ProfileKey], boolean>,
   'updateCategory' : ActorMethod<[CategoryId, CategoryInput], boolean>,
   'updateCustomer' : ActorMethod<[CustomerId, CustomerInput], boolean>,
+  'updateGoal' : ActorMethod<[bigint, GoalMasterInput], boolean>,
+  'updateGoalMaster' : ActorMethod<
+    [bigint, string, string, Array<ProductId>],
+    boolean
+  >,
+  'updateMedicalIssue' : ActorMethod<
+    [bigint, MedicalIssueMasterInput],
+    boolean
+  >,
+  'updateMedicalIssueMaster' : ActorMethod<[bigint, string, string], boolean>,
+  'updatePaymentStatus' : ActorMethod<
+    [SaleId, PaymentStatus, [] | [number], [] | [string]],
+    boolean
+  >,
   'updateProduct' : ActorMethod<[ProductId, ProductInput], boolean>,
   'updateProfile' : ActorMethod<[ProfileInput], boolean>,
   'updateProfileKey' : ActorMethod<[ProfileKey, ProfileKey], boolean>,
   'updateSale' : ActorMethod<[UpdateSaleInput], boolean>,
+  'updateUserPreferences' : ActorMethod<
+    [string, string, string, string],
+    boolean
+  >,
   'updateUserProfile' : ActorMethod<[UserProfileInput], boolean>,
+  'updateVendor' : ActorMethod<[string, VendorInput], boolean>,
 }
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];

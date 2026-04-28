@@ -1,11 +1,27 @@
 import Common "common";
 
 module {
+  // ── PaymentEntry — individual payment record against a sale ──────────────────
+  // Each time a payment is made (full or partial), a PaymentEntry is appended.
+  // payment_status on the Sale record is DERIVED from these entries, never manually set.
+  public type PaymentEntry = {
+    id : Text;                           // Unique ID: saleId # "_pmt_" # index
+    payment_date : Common.Timestamp;
+    amount : Float;
+    payment_method : Text;               // "Cash" | "Card" | "Check" | "BankTransfer" | "Other"
+    recorded_by : Text;                  // Caller display name or principal text
+  };
+
   // ── CartItem — client input for each line in a new sale ──────────────────────
   public type CartItem = {
     product_id : Common.ProductId;
     quantity : Nat;
     actual_sale_price : Float;
+    product_instructions : ?Text;        // Snapshot of product instructions at cart time
+
+    // Temporary/loaned stock flag — Staff can toggle this during sale entry
+    // to indicate the item originated from Friend/Loaner Inventory.
+    is_loaned_item : ?Bool;
   };
 
   // ── SaleItem — persisted snapshot at sale time ───────────────────────────────
@@ -19,6 +35,11 @@ module {
     volume_points_snapshot : Float;
     quantity : Nat;
     actual_sale_price : Float;
+    product_instructions : ?Text;        // Snapshot of product instructions at time of sale
+
+    // Loaned stock flag — true when this line item originated from Friend/Loaner Inventory.
+    // Triggers an Admin notification that payout/replacement is owed to the source.
+    is_loaned_item : Bool;
 
     // Who-columns
     created_by : Common.UserId;
@@ -39,6 +60,10 @@ module {
   //   payment_status  = Paid / Unpaid / Partial
   //   amount_paid     = amount received so far
   //   balance_due     = total_revenue - amount_paid
+  //
+  // Order type:
+  //   order_type      = #standard (default) or #return
+  //   return_of_sale_id = for return orders, the ID of the original sale being returned
   //
   // Dry-run: Order Edit Collision
   //   Editing a Placed order with a $100 item added:
@@ -69,6 +94,18 @@ module {
     payment_status : ?Common.PaymentStatus;
     amount_paid : ?Float;
     balance_due : ?Float;
+    payment_due_date : ?Text;            // ISO date string for future payment due date
+
+    // Per-sale note — printed on receipt
+    sale_note : ?Text;
+
+    // Payment history — append-only log; payment_status is DERIVED from this
+    payment_history : [PaymentEntry];
+
+    // Order type — #standard (default) or #return
+    // For return orders, return_of_sale_id links back to the original sale.
+    order_type : ?OrderType;
+    return_of_sale_id : ?Common.SaleId;  // Populated for return orders only
 
     // Who-columns
     created_by : Common.UserId;
@@ -76,6 +113,9 @@ module {
     creation_date : Common.Timestamp;
     last_update_date : Common.Timestamp;
   };
+
+  // ── OrderType — Standard sale or Return order ────────────────────────────────
+  public type OrderType = { #standard; #return_ };
 
   // ── SaleInput — client input for creating a new sale ────────────────────────
   // Does NOT include who-columns or computed fields.
@@ -85,6 +125,10 @@ module {
     payment_mode : ?Common.PaymentMode;
     payment_status : ?Common.PaymentStatus;
     amount_paid : ?Float;
+    sale_note : ?Text;                   // Optional per-sale note printed on receipt
+    payment_due_date : ?Text;            // ISO date string for future payment due date
+    order_type : ?OrderType;             // Defaults to #standard if null
+    return_of_sale_id : ?Common.SaleId; // Required when order_type = #return_
   };
 
   // ── UpdateSaleInput — client input for editing a Placed order ────────────────
@@ -98,11 +142,29 @@ module {
     payment_mode : ?Common.PaymentMode;
     payment_status : ?Common.PaymentStatus;
     amount_paid : ?Float;
+    sale_note : ?Text;                   // Optional per-sale note
+    payment_due_date : ?Text;            // ISO date string for future payment due date
   };
 
   // ── CustomerOrderDetail — full order with items for History tab ──────────────
+  // Also returned by getLastSaleForCustomer for cart auto-fill and return validation.
   public type CustomerOrderDetail = {
     sale : Sale;
     items : [SaleItem];
+  };
+
+  // ── ReturnItem — each item being returned in a return order ──────────────────
+  public type ReturnItem = {
+    product_id : Common.ProductId;
+    qty : Nat;
+    unit_price : Float;
+    is_usable : Bool;                    // true = goes to Stage Inventory; false = discard
+  };
+
+  // ── ReturnOrderResult — returned by createReturnOrder ────────────────────────
+  public type ReturnOrderResult = {
+    success : Bool;
+    return_order_id : ?Common.SaleId;
+    error : ?Text;
   };
 };

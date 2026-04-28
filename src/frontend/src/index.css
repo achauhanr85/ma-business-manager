@@ -48,6 +48,40 @@
     --sidebar-accent-foreground: 0.28 0 0;
     --sidebar-border: 0.88 0.02 120;
     --sidebar-ring: 0.55 0.15 142;
+
+    /* Dynamic theme color support for profile branding (set via JS) */
+    --theme-color-h: 142;
+    --theme-color-c: 0.15;
+    --theme-color-l: 0.55;
+    --theme-color: oklch(
+      var(--theme-color-l) var(--theme-color-c) var(--theme-color-h)
+    );
+    --theme-color-hover: oklch(
+      calc(var(--theme-color-l) - 0.08) var(--theme-color-c)
+        var(--theme-color-h)
+    );
+    --theme-color-dark: oklch(
+      var(--theme-color-l) calc(var(--theme-color-c) + 0.02)
+        var(--theme-color-h)
+    );
+    --theme-color-light: oklch(
+      calc(var(--theme-color-l) + 0.12) var(--theme-color-c)
+        var(--theme-color-h)
+    );
+    --theme-color-bg: oklch(
+      calc(var(--theme-color-l) + 0.35) var(--theme-color-c)
+        var(--theme-color-h) /
+      0.1
+    );
+    --theme-color-border: oklch(
+      calc(var(--theme-color-l) + 0.25) var(--theme-color-c)
+        var(--theme-color-h) /
+      0.3
+    );
+    --theme-color-ring: oklch(
+      var(--theme-color-l) var(--theme-color-c) var(--theme-color-h) /
+      0.2
+    );
   }
 
   .dark {
@@ -90,6 +124,32 @@
     --sidebar-accent-foreground: 0.85 0 0;
     --sidebar-border: 0.3 0.02 140;
     --sidebar-ring: 0.7 0.18 140;
+
+    /* Dark mode theme color adjustments */
+    --theme-color-l: 0.7;
+    --theme-color-hover: oklch(
+      calc(var(--theme-color-l) - 0.1) var(--theme-color-c) var(--theme-color-h)
+    );
+    --theme-color-dark: oklch(
+      calc(var(--theme-color-l) - 0.15) var(--theme-color-c)
+        var(--theme-color-h)
+    );
+    --theme-color-light: oklch(
+      calc(var(--theme-color-l) + 0.08) var(--theme-color-c)
+        var(--theme-color-h)
+    );
+    --theme-color-bg: oklch(
+      var(--theme-color-l) var(--theme-color-c) var(--theme-color-h) /
+      0.15
+    );
+    --theme-color-border: oklch(
+      var(--theme-color-l) var(--theme-color-c) var(--theme-color-h) /
+      0.25
+    );
+    --theme-color-ring: oklch(
+      var(--theme-color-l) var(--theme-color-c) var(--theme-color-h) /
+      0.3
+    );
   }
 
   * {
@@ -122,6 +182,231 @@
 }
 
 @layer utilities {
+  /* ============================================
+     THEME COLOR UTILITIES - Profile Branding
+     ============================================ */
+
+  /* Primary theme button - consistent across all states */
+  .btn-theme {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md font-medium transition-smooth;
+    background-color: var(--theme-color);
+    color: white;
+  }
+
+  .btn-theme:hover {
+    background-color: var(--theme-color-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  }
+
+  .btn-theme:active {
+    background-color: var(--theme-color-dark);
+    transform: translateY(0);
+  }
+
+  .btn-theme:focus-visible {
+    outline: 2px solid var(--theme-color);
+    outline-offset: 2px;
+  }
+
+  /* Theme color with outline style */
+  .btn-theme-outline {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md font-medium border-2 transition-smooth;
+    border-color: var(--theme-color);
+    color: var(--theme-color);
+    background-color: transparent;
+  }
+
+  .btn-theme-outline:hover {
+    background-color: var(--theme-color-bg);
+    border-color: var(--theme-color-hover);
+    color: var(--theme-color-hover);
+  }
+
+  /* Theme color with ghost/text style */
+  .btn-theme-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md font-medium transition-smooth;
+    color: var(--theme-color);
+    background-color: transparent;
+  }
+
+  .btn-theme-ghost:hover {
+    background-color: var(--theme-color-bg);
+    color: var(--theme-color-dark);
+  }
+
+  /* Focus ring using theme color — applied to all interactive elements */
+  .focus-theme {
+    @apply transition-smooth;
+  }
+
+  .focus-theme:focus-visible {
+    outline: 2px solid var(--theme-color);
+    outline-offset: 2px;
+  }
+
+  /* Global focus ring: all buttons and interactive elements use theme color */
+  button:focus-visible,
+  [role="button"]:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid var(--theme-color);
+    outline-offset: 2px;
+  }
+
+  /* Link with theme color underline */
+  .link-theme {
+    @apply relative font-medium transition-smooth;
+    color: var(--theme-color);
+  }
+
+  .link-theme::after {
+    content: "";
+    @apply absolute bottom-0 left-0 h-0.5 bg-current transition-smooth;
+    width: 0;
+  }
+
+  .link-theme:hover::after {
+    width: 100%;
+  }
+
+  /* Badge using theme color */
+  .badge-theme {
+    @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium transition-smooth;
+    background-color: var(--theme-color-bg);
+    color: var(--theme-color);
+    border: 1px solid var(--theme-color-border);
+  }
+
+  .badge-theme:hover {
+    background-color: var(--theme-color-bg);
+    border-color: var(--theme-color);
+  }
+
+  /* Progress bar with theme color */
+  .progress-theme {
+    @apply h-2 w-full bg-secondary rounded-full overflow-hidden;
+  }
+
+  .progress-theme-fill {
+    @apply h-full transition-all duration-500 ease-out;
+    background-color: var(--theme-color);
+  }
+
+  /* Loading spinner with theme color — use this instead of hardcoded colors */
+  .spinner-theme {
+    @apply w-6 h-6 border-4 border-secondary rounded-full;
+    border-top-color: var(--theme-color);
+    animation: spin-theme 0.8s linear infinite;
+  }
+
+  /* Small variant of the loading spinner */
+  .spinner-theme-sm {
+    @apply w-4 h-4 border-2 border-secondary rounded-full;
+    border-top-color: var(--theme-color);
+    animation: spin-theme 0.8s linear infinite;
+  }
+
+  @keyframes spin-theme {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  /* Animated underline for active navigation items */
+  .nav-link-theme {
+    @apply relative px-3 py-2 font-medium transition-smooth;
+    color: var(--sidebar-accent-foreground);
+  }
+
+  .nav-link-theme.active {
+    color: var(--theme-color);
+    background-color: var(--theme-color-bg);
+  }
+
+  .nav-link-theme.active::before {
+    content: "";
+    @apply absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 rounded-r;
+    background-color: var(--theme-color);
+  }
+
+  /* Border accent using theme color */
+  .border-theme {
+    border-color: var(--theme-color-border);
+    border-left-color: var(--theme-color);
+  }
+
+  /* Card highlight using theme color */
+  .card-theme-accent {
+    @apply rounded-lg border transition-smooth;
+    border-color: var(--theme-color-border);
+    background-color: var(--theme-color-bg);
+  }
+
+  .card-theme-accent:hover {
+    border-color: var(--theme-color);
+    background-color: var(--theme-color-bg);
+    box-shadow: 0 4px 12px var(--theme-color-ring);
+  }
+
+  /* Input with theme color focus state */
+  .input-theme {
+    @apply px-3 py-2 rounded-md border transition-smooth;
+    border-color: var(--border);
+    background-color: var(--input);
+  }
+
+  .input-theme:focus {
+    border-color: var(--theme-color);
+    outline: none;
+    box-shadow: 0 0 0 3px var(--theme-color-ring);
+  }
+
+  .input-theme:focus-visible {
+    border-color: var(--theme-color);
+    outline: none;
+  }
+
+  /* Theme color background wash for sections */
+  .bg-theme-wash {
+    background-color: var(--theme-color-bg);
+  }
+
+  /* Success animation with theme color pulse */
+  .pulse-theme {
+    animation: pulse-theme 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  @keyframes pulse-theme {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.7;
+    }
+  }
+
+  /* Gradient line using theme color (accent only, not full gradient) */
+  .line-theme {
+    @apply h-0.5 my-4;
+    background: linear-gradient(
+      to right,
+      var(--theme-color),
+      var(--theme-color-light),
+      transparent
+    );
+  }
+
+  /* ============================================
+     EXISTING UTILITIES - PRESERVED
+     ============================================ */
+
   .transition-smooth {
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
@@ -134,17 +419,14 @@
     text-wrap: balance;
   }
 
-  /* Dynamic theme color support for profile branding */
   .theme-color-preview {
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
-  /* Form input focus state with smooth transition */
   .input-focus {
     @apply focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-smooth;
   }
 
-  /* Badge utility for warehouse locations and status tags */
   .badge-location {
     @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-secondary text-secondary-foreground;
   }
@@ -153,12 +435,10 @@
     @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-accent text-accent-foreground;
   }
 
-  /* Form section background with subtle sage wash */
   .form-section {
     @apply p-4 rounded-lg bg-secondary/10 border border-border;
   }
 
-  /* Stagger animation for list items */
   @keyframes stagger-fade-in {
     from {
       opacity: 0;

@@ -1,6 +1,15 @@
+import { HelpPanel } from "@/components/HelpPanel";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -28,8 +37,11 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
+  HelpCircle,
+  Info,
   Package,
   Search,
+  Tag,
   Warehouse,
 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -94,7 +106,31 @@ function StockStatusBadge({ qty }: { qty: bigint }) {
   );
 }
 
-function BatchDetailsRow({ productId }: { productId: bigint }) {
+/** Amber "Loaned" badge shown on batches from Friend/Loaner Inventory */
+function LoanedBadge({ source }: { source?: string }) {
+  return (
+    <span
+      title={
+        source ? `Loaned from: ${source}` : "Loaned item — excluded from COGS"
+      }
+      className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-300 px-1.5 py-0.5 text-[10px] font-semibold cursor-default"
+    >
+      <Tag className="w-2.5 h-2.5" />
+      Loaned
+      {source && (
+        <span className="hidden sm:inline ml-0.5 opacity-80">· {source}</span>
+      )}
+    </span>
+  );
+}
+
+function BatchDetailsRow({
+  productId,
+  warehouseFilter,
+}: {
+  productId: bigint;
+  warehouseFilter: string;
+}) {
   const { data: batches = [], isLoading } = useGetInventoryBatches(productId);
 
   if (isLoading) {
@@ -110,7 +146,12 @@ function BatchDetailsRow({ productId }: { productId: bigint }) {
     );
   }
 
-  if (batches.length === 0) {
+  const filtered =
+    warehouseFilter && warehouseFilter !== "all"
+      ? batches.filter((b) => b.warehouse_name === warehouseFilter)
+      : batches;
+
+  if (filtered.length === 0) {
     return (
       <TableRow>
         <TableCell
@@ -118,28 +159,46 @@ function BatchDetailsRow({ productId }: { productId: bigint }) {
           className="bg-muted/30 py-3 text-center text-muted-foreground text-sm"
         >
           No batches found
+          {warehouseFilter !== "all" ? ` in ${warehouseFilter}` : ""}
         </TableCell>
       </TableRow>
     );
   }
 
-  const sorted = [...batches].sort((a, b) =>
+  const sorted = [...filtered].sort((a, b) =>
     Number(a.date_received - b.date_received),
   );
+
+  // Check if any batches are loaned — show COGS note
+  const hasLoanedBatches = sorted.some((b) => b.is_loaned);
 
   return (
     <TableRow>
       <TableCell colSpan={7} className="p-0 bg-muted/20">
         <div className="px-4 py-3">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1">
-            <Package className="w-3.5 h-3.5" />
-            FIFO Batch Details (oldest first)
-          </p>
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+              <Package className="w-3.5 h-3.5" />
+              FIFO Batch Details (oldest first)
+            </p>
+            {hasLoanedBatches && (
+              <span
+                title="Loaned batches are excluded from inventory valuation (COGS)"
+                className="inline-flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5 cursor-default"
+              >
+                <Info className="w-2.5 h-2.5" />
+                Loaned stock excluded from COGS
+              </span>
+            )}
+          </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[380px]">
+            <table className="w-full text-sm min-w-[440px]">
               <thead>
                 <tr className="text-xs text-muted-foreground border-b border-border">
                   <th className="text-left py-1.5 pr-4 font-medium">Batch #</th>
+                  <th className="text-left py-1.5 pr-4 font-medium">
+                    Warehouse
+                  </th>
                   <th className="text-left py-1.5 pr-4 font-medium">
                     Date Received
                   </th>
@@ -153,16 +212,27 @@ function BatchDetailsRow({ productId }: { productId: bigint }) {
                 {sorted.map((batch: InventoryBatchPublic, idx: number) => (
                   <tr
                     key={batch.id.toString()}
-                    className="border-b border-border/40 last:border-0"
+                    className={`border-b border-border/40 last:border-0 ${batch.is_loaned ? "bg-amber-50/60" : ""}`}
                     data-ocid={`inventory.batch.${idx + 1}`}
                   >
                     <td className="py-1.5 pr-4 text-muted-foreground">
-                      #{(idx + 1).toString().padStart(2, "0")}
-                      {idx === 0 && (
-                        <span className="ml-1.5 text-xs text-primary font-medium">
-                          (next)
-                        </span>
-                      )}
+                      <span className="flex items-center gap-1.5 flex-wrap">
+                        #{(idx + 1).toString().padStart(2, "0")}
+                        {idx === 0 && !batch.is_loaned && (
+                          <span className="text-xs text-primary font-medium">
+                            (next)
+                          </span>
+                        )}
+                        {batch.is_loaned && (
+                          <LoanedBadge source={batch.loaned_source} />
+                        )}
+                      </span>
+                    </td>
+                    <td className="py-1.5 pr-4">
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Warehouse className="w-3 h-3" />
+                        {batch.warehouse_name}
+                      </span>
                     </td>
                     <td className="py-1.5 pr-4">
                       {formatDate(batch.date_received)}
@@ -171,7 +241,13 @@ function BatchDetailsRow({ productId }: { productId: bigint }) {
                       {Number(batch.quantity_remaining).toLocaleString("en-IN")}
                     </td>
                     <td className="py-1.5 text-right tabular-nums">
-                      {formatCurrency(batch.unit_cost)}
+                      {batch.is_loaned ? (
+                        <span className="text-muted-foreground text-xs italic">
+                          excl. COGS
+                        </span>
+                      ) : (
+                        formatCurrency(batch.unit_cost)
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -189,15 +265,49 @@ interface ProductRowProps {
   level: InventoryLevel | undefined;
   categoryName: string;
   index: number;
+  warehouseFilter: string;
 }
 
-function ProductRow({ product, level, categoryName, index }: ProductRowProps) {
+function ProductRow({
+  product,
+  level,
+  categoryName,
+  index,
+  warehouseFilter,
+}: ProductRowProps) {
   const [expanded, setExpanded] = useState(false);
-  const totalQty = level?.total_qty ?? 0n;
+
+  // When a specific warehouse is selected, compute qty for that warehouse only
+  // Loaned batches are already excluded from total_qty by backend but included in batches[]
+  const totalQty = useMemo(() => {
+    if (!level) return 0n;
+    if (!warehouseFilter || warehouseFilter === "all") return level.total_qty;
+    return level.batches
+      .filter((b) => b.warehouse_name === warehouseFilter && !b.is_loaned)
+      .reduce((sum, b) => sum + b.quantity_remaining, 0n);
+  }, [level, warehouseFilter]);
+
+  const loanedCount = useMemo(() => {
+    if (!level) return 0n;
+    const batchFilter =
+      warehouseFilter && warehouseFilter !== "all"
+        ? level.batches.filter((b) => b.warehouse_name === warehouseFilter)
+        : level.batches;
+    return batchFilter
+      .filter((b) => b.is_loaned)
+      .reduce((sum, b) => sum + b.quantity_remaining, 0n);
+  }, [level, warehouseFilter]);
+
   const oldestBatch = level?.batches
-    ? [...level.batches].sort((a, b) =>
-        Number(a.date_received - b.date_received),
-      )[0]
+    ? [...level.batches]
+        .filter(
+          (b) =>
+            !b.is_loaned &&
+            (!warehouseFilter ||
+              warehouseFilter === "all" ||
+              b.warehouse_name === warehouseFilter),
+        )
+        .sort((a, b) => Number(a.date_received - b.date_received))[0]
     : undefined;
 
   return (
@@ -226,7 +336,15 @@ function ProductRow({ product, level, categoryName, index }: ProductRowProps) {
           {categoryName}
         </TableCell>
         <TableCell className="text-right tabular-nums font-semibold whitespace-nowrap">
-          {Number(totalQty).toLocaleString("en-IN")}
+          <span>{Number(totalQty).toLocaleString("en-IN")}</span>
+          {loanedCount > 0n && (
+            <span
+              className="ml-1.5 text-[10px] font-normal text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-1.5 py-0.5 cursor-default"
+              title={`${loanedCount} units on loan (not counted in stock or COGS)`}
+            >
+              +{Number(loanedCount)} loaned
+            </span>
+          )}
         </TableCell>
         <TableCell className="text-right tabular-nums text-sm whitespace-nowrap hidden md:table-cell">
           {oldestBatch ? formatCurrency(oldestBatch.unit_cost) : "—"}
@@ -235,7 +353,12 @@ function ProductRow({ product, level, categoryName, index }: ProductRowProps) {
           <StockStatusBadge qty={totalQty} />
         </TableCell>
       </TableRow>
-      {expanded && <BatchDetailsRow productId={product.id} />}
+      {expanded && (
+        <BatchDetailsRow
+          productId={product.id}
+          warehouseFilter={warehouseFilter}
+        />
+      )}
     </>
   );
 }
@@ -270,8 +393,10 @@ function InventorySkeleton() {
   );
 }
 
-export function InventoryPage({ onNavigate: _onNavigate }: InventoryPageProps) {
+export function InventoryPage({ onNavigate }: InventoryPageProps) {
   const [search, setSearch] = useState("");
+  const [selectedWarehouse, setSelectedWarehouse] = useState<string>("all");
+  const [helpOpen, setHelpOpen] = useState(false);
   const { userProfile } = useProfile();
   const { data: rawLevels = [], isLoading: levelsLoading } =
     useGetInventoryLevels();
@@ -283,28 +408,60 @@ export function InventoryPage({ onNavigate: _onNavigate }: InventoryPageProps) {
 
   const role = userProfile?.role;
   const isStaff = role === UserRole.staff;
+  const isAdmin = role === UserRole.admin;
   const userWarehouse = userProfile?.warehouse_name ?? "";
 
-  // Staff only sees their assigned warehouse; Admin/SuperAdmin see all
-  const levels = useMemo(() => {
-    if (!isStaff || !userWarehouse) return rawLevels;
-    return rawLevels
-      .map((level: InventoryLevel) => {
-        const filteredBatches = level.batches.filter(
-          (b) => b.warehouse_name === userWarehouse,
-        );
-        const filteredQty = filteredBatches.reduce(
-          (sum, b) => sum + b.quantity_remaining,
-          0n,
-        );
-        return { ...level, batches: filteredBatches, total_qty: filteredQty };
-      })
-      .filter((level: InventoryLevel) => level.batches.length > 0);
-  }, [rawLevels, isStaff, userWarehouse]);
+  // All distinct warehouses from inventory (for admin selector)
+  const allWarehouses = useMemo(() => {
+    const set = new Set<string>();
+    for (const l of rawLevels) {
+      for (const b of l.batches) {
+        if (b.warehouse_name) set.add(b.warehouse_name);
+      }
+    }
+    return Array.from(set).sort();
+  }, [rawLevels]);
+
+  // Effective warehouse filter: staff always sees their warehouse; admin can select
+  const effectiveWarehouse = isStaff ? userWarehouse : selectedWarehouse;
+
+  // Staff only sees their assigned warehouse; Admin/SuperAdmin can filter
+  const levels = useMemo<InventoryLevel[]>(() => {
+    if (isStaff && userWarehouse) {
+      return rawLevels
+        .map((level: InventoryLevel) => {
+          const filteredBatches = level.batches.filter(
+            (b) => b.warehouse_name === userWarehouse,
+          );
+          const filteredQty = filteredBatches
+            .filter((b) => !b.is_loaned)
+            .reduce((sum, b) => sum + b.quantity_remaining, 0n);
+          return { ...level, batches: filteredBatches, total_qty: filteredQty };
+        })
+        .filter((level: InventoryLevel) => level.batches.length > 0);
+    }
+
+    // Admin with specific warehouse filter
+    if (isAdmin && effectiveWarehouse && effectiveWarehouse !== "all") {
+      return rawLevels
+        .map((level: InventoryLevel) => {
+          const filteredBatches = level.batches.filter(
+            (b) => b.warehouse_name === effectiveWarehouse,
+          );
+          const filteredQty = filteredBatches
+            .filter((b) => !b.is_loaned)
+            .reduce((sum, b) => sum + b.quantity_remaining, 0n);
+          return { ...level, batches: filteredBatches, total_qty: filteredQty };
+        })
+        .filter((level: InventoryLevel) => level.batches.length > 0);
+    }
+
+    return rawLevels;
+  }, [rawLevels, isStaff, isAdmin, userWarehouse, effectiveWarehouse]);
 
   const categoryMap = useMemo(() => {
     const m = new Map<bigint, string>();
-    for (const c of categories) m.set(c.id, c.name);
+    for (const c of categories as Category[]) m.set(c.id, c.name);
     return m;
   }, [categories]);
 
@@ -327,15 +484,29 @@ export function InventoryPage({ onNavigate: _onNavigate }: InventoryPageProps) {
     });
   }, [products, search, categoryMap]);
 
+  // COGS value: exclude loaned batches
   const totalInventoryValue = useMemo(() => {
     return levels.reduce((sum: number, level: InventoryLevel) => {
-      const oldestBatch = [...level.batches].sort((a, b) =>
+      const regularBatches = level.batches.filter((b) => !b.is_loaned);
+      const oldestBatch = [...regularBatches].sort((a, b) =>
         Number(a.date_received - b.date_received),
       )[0];
       if (!oldestBatch) return sum;
       return sum + oldestBatch.unit_cost * Number(level.total_qty);
     }, 0);
   }, [levels]);
+
+  // Total loaned units across all products
+  const totalLoanedUnits = useMemo(() => {
+    return rawLevels.reduce((sum: number, level: InventoryLevel) => {
+      return (
+        sum +
+        level.batches
+          .filter((b) => b.is_loaned)
+          .reduce((s, b) => s + Number(b.quantity_remaining), 0)
+      );
+    }, 0);
+  }, [rawLevels]);
 
   const lowStockCount = useMemo(
     () =>
@@ -356,6 +527,37 @@ export function InventoryPage({ onNavigate: _onNavigate }: InventoryPageProps) {
 
   return (
     <div className="space-y-4" data-ocid="inventory.page">
+      {/* Page header with help */}
+      <div className="flex items-center justify-between gap-2">
+        <h1 className="text-lg font-display font-semibold text-foreground sr-only">
+          Inventory
+        </h1>
+        <div className="flex items-center gap-2 ml-auto">
+          {totalLoanedUnits > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onNavigate("/loaner-inventory")}
+              className="h-8 text-xs gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50"
+              data-ocid="inventory.loaner_nav_button"
+            >
+              <Tag className="w-3.5 h-3.5" />
+              {totalLoanedUnits} Loaned Items
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+            onClick={() => setHelpOpen(true)}
+            aria-label="Help"
+            data-ocid="inventory.help_button"
+          >
+            <HelpCircle className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Card className="border-border bg-card">
@@ -366,10 +568,26 @@ export function InventoryPage({ onNavigate: _onNavigate }: InventoryPageProps) {
             <div className="min-w-0">
               <p className="text-xs text-muted-foreground">
                 Total Inventory Value
+                {effectiveWarehouse !== "all" && (
+                  <span className="ml-1 text-primary">
+                    · {effectiveWarehouse}
+                  </span>
+                )}
+                <span
+                  className="ml-1 inline-flex items-center cursor-default"
+                  title="Loaned items are excluded from this valuation"
+                >
+                  <Info className="w-3 h-3 text-muted-foreground/60" />
+                </span>
               </p>
               <p className="text-xl font-bold font-display text-foreground tabular-nums truncate">
                 {formatCurrency(totalInventoryValue)}
               </p>
+              {totalLoanedUnits > 0 && (
+                <p className="text-[10px] text-amber-600 mt-0.5">
+                  +{totalLoanedUnits} loaned units excluded
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -424,21 +642,84 @@ export function InventoryPage({ onNavigate: _onNavigate }: InventoryPageProps) {
         </div>
       )}
 
+      {/* Loaner inventory callout — always visible to Admin */}
+      {(isAdmin || isStaff) && (
+        <div
+          className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2.5"
+          data-ocid="inventory.loaner_callout"
+        >
+          <div className="flex items-center gap-2 text-sm text-amber-700">
+            <Tag className="w-4 h-4 shrink-0" />
+            <span>
+              <strong>Friend/Loaner Inventory</strong> — Manage third-party
+              borrowed stock without affecting COGS or inventory valuation.
+              {totalLoanedUnits > 0 && (
+                <span className="ml-1 font-medium">
+                  {totalLoanedUnits} unit{totalLoanedUnits !== 1 ? "s" : ""}{" "}
+                  currently on loan.
+                </span>
+              )}
+            </span>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => onNavigate("/loaner-inventory")}
+            className="shrink-0 text-xs h-7 border-amber-300 text-amber-700 hover:bg-amber-100"
+            data-ocid="inventory.go_loaner_button"
+          >
+            View Loaner Inventory
+          </Button>
+        </div>
+      )}
+
       {/* Main table card */}
       <Card className="border-border bg-card" data-ocid="inventory.table">
-        <CardHeader className="pb-3 flex flex-col sm:flex-row sm:items-center gap-2">
-          <CardTitle className="text-base font-semibold flex-1">
-            All Products
-          </CardTitle>
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-            <Input
-              placeholder="Search name, SKU, category…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-8 h-8 text-sm"
-              data-ocid="inventory.search_input"
-            />
+        <CardHeader className="pb-3">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <CardTitle className="text-base font-semibold flex-1">
+              {isStaff
+                ? `Inventory — ${userWarehouse}`
+                : effectiveWarehouse === "all"
+                  ? "All Warehouses"
+                  : `Warehouse: ${effectiveWarehouse}`}
+            </CardTitle>
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Warehouse selector — Admin only */}
+              {isAdmin && allWarehouses.length > 0 && (
+                <Select
+                  value={selectedWarehouse}
+                  onValueChange={setSelectedWarehouse}
+                >
+                  <SelectTrigger
+                    className="h-8 text-sm w-44"
+                    data-ocid="inventory.warehouse_filter.select"
+                  >
+                    <Warehouse className="w-3.5 h-3.5 mr-1.5 text-muted-foreground" />
+                    <SelectValue placeholder="All Warehouses" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Warehouses</SelectItem>
+                    {allWarehouses.map((w) => (
+                      <SelectItem key={w} value={w}>
+                        {w}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              {/* Search */}
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                <Input
+                  placeholder="Search name, SKU, category…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-8 h-8 text-sm"
+                  data-ocid="inventory.search_input"
+                />
+              </div>
+            </div>
           </div>
         </CardHeader>
 
@@ -494,6 +775,7 @@ export function InventoryPage({ onNavigate: _onNavigate }: InventoryPageProps) {
                         categoryMap.get(product.category_id) ?? "Uncategorized"
                       }
                       index={idx + 1}
+                      warehouseFilter={effectiveWarehouse}
                     />
                   ))}
                 </TableBody>
@@ -502,6 +784,12 @@ export function InventoryPage({ onNavigate: _onNavigate }: InventoryPageProps) {
           )}
         </CardContent>
       </Card>
+
+      <HelpPanel
+        isOpen={helpOpen}
+        onClose={() => setHelpOpen(false)}
+        currentPage="inventory"
+      />
     </div>
   );
 }

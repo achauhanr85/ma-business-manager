@@ -1,3 +1,6 @@
+import { ProfilePendingApprovalGate } from "@/App";
+import { createActor } from "@/backend";
+import { RoutingStatus } from "@/backend";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,19 +17,26 @@ import { useProfile } from "@/contexts/ProfileContext";
 import {
   useCreateProfile,
   useGetProfileByKey,
+  useGetUserProfile,
   useInitSuperAdmin,
   useJoinProfile,
 } from "@/hooks/useBackend";
+import { hexToOklch } from "@/lib/color";
+import { useActor } from "@caffeineai/core-infrastructure";
 import {
   AlertCircle,
   CheckCircle2,
+  Clock,
+  Eye,
   Info,
   Leaf,
   LogIn,
+  Palette,
   Plus,
   Sprout,
+  Upload,
 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -40,6 +50,8 @@ interface CreateForm {
   business_address: string;
   fssai_number: string;
   email: string;
+  logo_url: string;
+  theme_color: string;
 }
 
 interface JoinForm {
@@ -51,6 +63,10 @@ interface JoinForm {
 type TabMode = "create" | "join";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function isValidHex(hex: string): boolean {
+  return /^#[0-9A-Fa-f]{6}$/.test(hex);
+}
 
 function FieldError({ message }: { message?: string }) {
   if (!message) return null;
@@ -151,9 +167,213 @@ function FormField({
   );
 }
 
+// ─── Logo Upload for Onboarding ───────────────────────────────────────────────
+
+function OnboardingLogoUpload({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (url: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleFile = (file: File) => {
+    setError(null);
+    if (!file.type.startsWith("image/")) {
+      setError("Please select an image file (PNG, JPG, WEBP)");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setError("Image must be under 2 MB");
+      return;
+    }
+    setUploading(true);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      onChange(dataUrl);
+      setUploading(false);
+    };
+    reader.onerror = () => {
+      setError("Failed to read file. Please try again.");
+      setUploading(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div className="space-y-2" data-ocid="onboarding.logo_upload">
+      <div className="flex items-center gap-3">
+        <div className="w-12 h-12 rounded-lg border border-border bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
+          {value ? (
+            <img
+              src={value}
+              alt="Logo preview"
+              className="w-full h-full object-contain"
+            />
+          ) : (
+            <Leaf className="w-5 h-5 text-muted-foreground" />
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs text-muted-foreground">
+            {value ? "Logo ready" : "Optional · PNG, JPG · max 2 MB"}
+          </p>
+          {uploading && (
+            <div className="flex items-center gap-1.5 mt-1">
+              <span className="w-3 h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+              <span className="text-xs text-muted-foreground">Processing…</span>
+            </div>
+          )}
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => inputRef.current?.click()}
+          disabled={uploading}
+          data-ocid="onboarding.logo.upload_button"
+        >
+          <Upload className="w-3.5 h-3.5 mr-1.5" />
+          {value ? "Change" : "Upload"}
+        </Button>
+      </div>
+      {error && <FieldError message={error} />}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="sr-only"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) handleFile(file);
+          e.target.value = "";
+        }}
+      />
+    </div>
+  );
+}
+
+// ─── Theme Color Picker for Onboarding ───────────────────────────────────────
+
+function OnboardingThemePicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (color: string) => void;
+}) {
+  const [hexInput, setHexInput] = useState(value);
+  const previewColor = isValidHex(value) ? value : "#16a34a";
+
+  const applyLivePreview = (color: string) => {
+    if (isValidHex(color)) {
+      try {
+        const oklch = hexToOklch(color);
+        document.documentElement.style.setProperty("--primary", oklch);
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const handleColorPicker = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const color = e.target.value;
+    setHexInput(color);
+    onChange(color);
+    applyLivePreview(color);
+  };
+
+  const handleHexChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    setHexInput(raw);
+    if (/^#[0-9A-Fa-f]{6}$/.test(raw)) {
+      onChange(raw);
+      applyLivePreview(raw);
+    }
+  };
+
+  return (
+    <div className="space-y-2" data-ocid="onboarding.theme_color">
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={isValidHex(hexInput) ? hexInput : "#16a34a"}
+          onChange={handleColorPicker}
+          className="w-9 h-9 rounded-lg border border-border cursor-pointer p-0.5 bg-transparent"
+          aria-label="Pick brand color"
+          data-ocid="onboarding.theme_color.select"
+        />
+        <Input
+          value={hexInput}
+          onChange={handleHexChange}
+          placeholder="#16a34a"
+          maxLength={7}
+          className="font-mono text-sm uppercase"
+          data-ocid="onboarding.theme_color.input"
+        />
+      </div>
+      {/* Live preview */}
+      <div className="rounded-lg border border-border bg-muted/30 p-2.5 flex items-center gap-2">
+        <Eye className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+        <span className="text-xs text-muted-foreground">Preview:</span>
+        <span
+          className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium text-white"
+          style={{ backgroundColor: previewColor }}
+        >
+          <Palette className="w-3 h-3 mr-1" />
+          {previewColor}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Pending Approval Screen ──────────────────────────────────────────────────
+
+function PendingApprovalScreen() {
+  return (
+    <div
+      className="min-h-screen bg-background flex flex-col items-center justify-center px-4 py-8 gap-6"
+      data-ocid="onboarding.pending_approval_screen"
+    >
+      <div className="w-16 h-16 rounded-2xl bg-amber-500/10 flex items-center justify-center">
+        <Clock className="w-8 h-8 text-amber-600" />
+      </div>
+      <div className="text-center space-y-2 max-w-sm">
+        <h2 className="text-xl font-display font-bold text-foreground">
+          Waiting for Approval
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          Your account is pending approval from the profile Admin. You will gain
+          access to the app once your request is approved.
+        </p>
+      </div>
+      <div className="rounded-lg border border-amber-300/50 bg-amber-50/50 dark:bg-amber-950/20 dark:border-amber-800/30 px-4 py-3 max-w-sm w-full">
+        <p className="text-xs text-amber-700 dark:text-amber-400 text-center">
+          Please contact your Admin to approve your account access.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ─── Create Tab ───────────────────────────────────────────────────────────────
 
-function CreateTab({ onSuccess }: { onSuccess: () => Promise<void> }) {
+/**
+ * BUG-14 fix:
+ * createProfile() on the backend assigns the caller as Admin.
+ * joinProfile() by the profile creator must preserve Admin role (not downgrade to Staff).
+ * After success, we check getRoutingStatus() to handle profile_pending_super_admin correctly.
+ */
+function CreateTab({
+  onSuccess,
+}: {
+  onSuccess: (routingStatus?: RoutingStatus) => Promise<void>;
+}) {
   const [form, setForm] = useState<CreateForm>({
     business_name: "",
     profile_key: "",
@@ -163,13 +383,18 @@ function CreateTab({ onSuccess }: { onSuccess: () => Promise<void> }) {
     business_address: "",
     fssai_number: "",
     email: "",
+    logo_url: "",
+    theme_color: "#16a34a",
   });
-  const [errors, setErrors] = useState<Partial<CreateForm>>({});
+  const [errors, setErrors] = useState<
+    Partial<Record<keyof CreateForm, string>>
+  >({});
   const [keyBlurred, setKeyBlurred] = useState(false);
 
   const initSuperAdmin = useInitSuperAdmin();
   const createProfile = useCreateProfile();
   const joinProfile = useJoinProfile();
+  const { actor } = useActor(createActor);
 
   const { data: keyCheck, isFetching: checkingKey } = useGetProfileByKey(
     keyBlurred && form.profile_key.length > 2 ? form.profile_key : null,
@@ -188,7 +413,7 @@ function CreateTab({ onSuccess }: { onSuccess: () => Promise<void> }) {
   };
 
   const validate = (): boolean => {
-    const newErrors: Partial<CreateForm> = {};
+    const newErrors: Partial<Record<keyof CreateForm, string>> = {};
     if (!form.business_name.trim())
       newErrors.business_name = "Business name is required";
     if (!form.profile_key.trim())
@@ -213,7 +438,10 @@ function CreateTab({ onSuccess }: { onSuccess: () => Promise<void> }) {
     }
 
     try {
+      // Step 1: init super admin (no-op if already set)
       await initSuperAdmin.mutateAsync();
+
+      // Step 2: Create the business profile (backend assigns caller as Admin)
       const ok = await createProfile.mutateAsync({
         business_name: form.business_name,
         profile_key: form.profile_key,
@@ -221,9 +449,10 @@ function CreateTab({ onSuccess }: { onSuccess: () => Promise<void> }) {
         business_address: form.business_address,
         fssai_number: form.fssai_number,
         email: form.email,
-        logo_url: "",
+        logo_url: form.logo_url,
         receipt_notes: "",
-        theme_color: "#16a34a",
+        theme_color: form.theme_color || "#16a34a",
+        instagram_handle: "",
       });
 
       if (!ok) {
@@ -231,14 +460,34 @@ function CreateTab({ onSuccess }: { onSuccess: () => Promise<void> }) {
         return;
       }
 
+      // Step 3: Register the user's display name + warehouse in the profile.
+      // The backend must detect that the caller is the profile creator and
+      // preserve/set Admin role — NOT downgrade to Staff (BUG-14 root cause).
       await joinProfile.mutateAsync({
         profileKey: form.profile_key,
         displayName: form.display_name,
         warehouseName: form.warehouse_name,
       });
 
-      toast.success("Business profile created! Welcome aboard 🌿");
-      await onSuccess();
+      // Step 4: Check routing to determine next screen
+      let rs: RoutingStatus | undefined;
+      if (actor) {
+        try {
+          rs = await actor.getRoutingStatus();
+        } catch {
+          // non-fatal
+        }
+      }
+
+      if (rs === RoutingStatus.profile_pending_super_admin) {
+        toast.success(
+          "Business profile created! Awaiting Super Admin approval.",
+        );
+      } else {
+        toast.success("Business profile created! Welcome aboard 🌿");
+      }
+
+      await onSuccess(rs);
     } catch {
       toast.error("Something went wrong. Please try again.");
     }
@@ -401,6 +650,32 @@ function CreateTab({ onSuccess }: { onSuccess: () => Promise<void> }) {
             onChange={(e) => set("business_address", e.target.value)}
             className={errors.business_address ? "border-destructive" : ""}
             data-ocid="onboarding.create_address.input"
+          />
+        </FormField>
+      </div>
+
+      {/* Branding */}
+      <div className="rounded-xl bg-muted/30 border border-border p-4 space-y-4">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          Branding{" "}
+          <span className="font-normal normal-case opacity-70">(optional)</span>
+        </p>
+
+        <FormField id="create_logo" label="Company Logo">
+          <OnboardingLogoUpload
+            value={form.logo_url}
+            onChange={(url) => set("logo_url", url)}
+          />
+        </FormField>
+
+        <FormField
+          id="create_theme_color"
+          label="Brand Color"
+          hint="Used as your app accent color — can be changed later"
+        >
+          <OnboardingThemePicker
+            value={form.theme_color}
+            onChange={(color) => set("theme_color", color)}
           />
         </FormField>
       </div>
@@ -644,14 +919,35 @@ function TabSwitcher({
 
 export function OnboardingPage() {
   const { refetchProfile } = useProfile();
+  const { data: userProfile } = useGetUserProfile();
   const [mode, setMode] = useState<TabMode>("create");
+  // After CreateTab succeeds with profile_pending_super_admin, show that screen
+  const [showProfilePending, setShowProfilePending] = useState(false);
+
+  // Staff pending approval gate — show waiting screen if staff is pending
+  if (userProfile?.profile_key && userProfile.approval_status === "pending") {
+    return <PendingApprovalScreen />;
+  }
+
+  // Show profile-pending-super-admin gate after profile creation (BUG-14 flow)
+  if (showProfilePending) {
+    return <ProfilePendingApprovalGate />;
+  }
+
+  const handleCreateSuccess = async (routingStatus?: RoutingStatus) => {
+    if (routingStatus === RoutingStatus.profile_pending_super_admin) {
+      setShowProfilePending(true);
+      return;
+    }
+    await refetchProfile();
+  };
 
   return (
     <div
       className="min-h-screen bg-background flex flex-col"
       data-ocid="onboarding.page"
     >
-      {/* Decorative background — fixed, behind everything */}
+      {/* Decorative background */}
       <div
         className="fixed inset-0 pointer-events-none z-0"
         aria-hidden="true"
@@ -667,7 +963,7 @@ export function OnboardingPage() {
           <Leaf className="w-4 h-4 text-primary-foreground" />
         </div>
         <span className="font-display font-semibold text-foreground text-sm">
-          MA Herb Business Manager
+          Indi Negocio Livre
         </span>
       </header>
 
@@ -681,7 +977,7 @@ export function OnboardingPage() {
             </div>
             <div>
               <h1 className="text-2xl font-display font-bold text-foreground">
-                Welcome to MA Herb
+                Welcome to Indi Negocio
               </h1>
               <p className="text-muted-foreground text-sm mt-1 max-w-xs mx-auto">
                 Set up your workspace to start managing your herbal business.
@@ -705,7 +1001,7 @@ export function OnboardingPage() {
 
               {/* Tab content — only one shown at a time */}
               {mode === "create" ? (
-                <CreateTab onSuccess={refetchProfile} />
+                <CreateTab onSuccess={handleCreateSuccess} />
               ) : (
                 <JoinTab onSuccess={refetchProfile} />
               )}
@@ -719,9 +1015,9 @@ export function OnboardingPage() {
               <strong className="text-foreground">First user</strong> to create
               a profile becomes the{" "}
               <strong className="text-foreground">Admin</strong>. Team members
-              who join are assigned as{" "}
-              <strong className="text-foreground">Sub-Admins</strong>, each
-              managing their own warehouse.
+              who join using the profile key are assigned as{" "}
+              <strong className="text-foreground">Staff</strong>, each managing
+              their own warehouse.
             </p>
           </div>
 

@@ -108,6 +108,7 @@ interface TransferFormProps {
   levels: InventoryLevel[];
   userWarehouse: string;
   isStaff: boolean;
+  isAdmin: boolean;
 }
 
 function TransferForm({
@@ -115,6 +116,7 @@ function TransferForm({
   levels,
   userWarehouse,
   isStaff,
+  isAdmin,
 }: TransferFormProps) {
   const MAIN_WAREHOUSE = "Main Warehouse";
   const [selectedProductId, setSelectedProductId] = useState<string>("");
@@ -146,8 +148,8 @@ function TransferForm({
       .reduce((sum, b) => sum + Number(b.quantity_remaining), 0);
   }, [selectedLevel, fromWarehouse]);
 
-  // All distinct warehouses from inventory for Admin from-warehouse dropdown
-  const warehouseOptions = useMemo(() => {
+  // All distinct warehouses from inventory
+  const allWarehouses = useMemo(() => {
     const set = new Set<string>();
     for (const l of levels) {
       for (const b of l.batches) {
@@ -156,6 +158,12 @@ function TransferForm({
     }
     return Array.from(set).sort();
   }, [levels]);
+
+  // For staff: possible destination warehouses = all except fromWarehouse
+  // (Staff can move to any warehouse they are associated with or shared warehouses)
+  const staffDestinationOptions = useMemo(() => {
+    return allWarehouses.filter((w) => w !== fromWarehouse);
+  }, [allWarehouses, fromWarehouse]);
 
   // Products that have stock in the selected source warehouse
   const selectableProducts = useMemo(() => {
@@ -205,9 +213,14 @@ function TransferForm({
       });
       setSelectedProductId("");
       setQuantity("");
-      if (!isStaff) {
+      if (isAdmin) {
         setFromWarehouse("");
         setToWarehouse("");
+      }
+      // Staff: reset to default source/dest
+      if (isStaff) {
+        setFromWarehouse(MAIN_WAREHOUSE);
+        setToWarehouse(userWarehouse);
       }
     } else {
       toast.error("Transfer failed", {
@@ -234,6 +247,7 @@ function TransferForm({
         <form onSubmit={handleSubmit} className="space-y-5">
           {/* From / To row */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* From Warehouse */}
             <div className="space-y-1.5">
               <Label htmlFor="from-warehouse" className="text-sm font-medium">
                 From Warehouse
@@ -248,7 +262,7 @@ function TransferForm({
                     variant="secondary"
                     className="ml-auto text-xs shrink-0"
                   >
-                    Main Warehouse
+                    Source
                   </Badge>
                 </div>
               ) : (
@@ -257,6 +271,7 @@ function TransferForm({
                   onValueChange={(v) => {
                     setFromWarehouse(v);
                     setSelectedProductId("");
+                    setToWarehouse("");
                   }}
                 >
                   <SelectTrigger
@@ -266,7 +281,7 @@ function TransferForm({
                     <SelectValue placeholder="Select source warehouse" />
                   </SelectTrigger>
                   <SelectContent>
-                    {warehouseOptions.map((w) => (
+                    {allWarehouses.map((w) => (
                       <SelectItem key={w} value={w}>
                         {w}
                       </SelectItem>
@@ -276,31 +291,98 @@ function TransferForm({
               )}
             </div>
 
+            {/* To Warehouse */}
             <div className="space-y-1.5">
               <Label htmlFor="to-warehouse" className="text-sm font-medium">
                 To Warehouse
               </Label>
               {isStaff ? (
-                <div className="flex items-center gap-2 h-9 px-3 rounded-md border border-border bg-muted/50">
-                  <Warehouse className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                  <span className="text-sm font-medium text-foreground truncate">
-                    {userWarehouse}
-                  </span>
-                  <Badge
-                    variant="secondary"
-                    className="ml-auto text-xs shrink-0"
-                  >
-                    Your warehouse
-                  </Badge>
-                </div>
+                // Staff can select any destination warehouse (shared inventory support)
+                staffDestinationOptions.length > 1 ? (
+                  <Select value={toWarehouse} onValueChange={setToWarehouse}>
+                    <SelectTrigger
+                      id="to-warehouse"
+                      data-ocid="inventory_movement.to_warehouse.select"
+                    >
+                      <SelectValue placeholder="Select destination" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {staffDestinationOptions.map((w) => (
+                        <SelectItem key={w} value={w}>
+                          <span className="flex items-center gap-1.5">
+                            {w}
+                            {w === userWarehouse && (
+                              <Badge
+                                variant="secondary"
+                                className="text-[10px] px-1.5 py-0 h-4 ml-1"
+                              >
+                                Your warehouse
+                              </Badge>
+                            )}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="flex items-center gap-2 h-9 px-3 rounded-md border border-border bg-muted/50">
+                    <Warehouse className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    <span className="text-sm font-medium text-foreground truncate">
+                      {userWarehouse}
+                    </span>
+                    <Badge
+                      variant="secondary"
+                      className="ml-auto text-xs shrink-0"
+                    >
+                      Your warehouse
+                    </Badge>
+                  </div>
+                )
               ) : (
-                <Input
-                  id="to-warehouse"
-                  placeholder="Enter destination warehouse"
+                // Admin: select from all warehouses (excluding source)
+                <Select
                   value={toWarehouse}
-                  onChange={(e) => setToWarehouse(e.target.value)}
-                  data-ocid="inventory_movement.to_warehouse.input"
-                />
+                  onValueChange={setToWarehouse}
+                  disabled={!fromWarehouse}
+                >
+                  <SelectTrigger
+                    id="to-warehouse"
+                    data-ocid="inventory_movement.to_warehouse.select"
+                  >
+                    <SelectValue
+                      placeholder={
+                        fromWarehouse
+                          ? "Select destination warehouse"
+                          : "Select source first"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {allWarehouses
+                      .filter((w) => w !== fromWarehouse)
+                      .map((w) => (
+                        <SelectItem key={w} value={w}>
+                          {w}
+                        </SelectItem>
+                      ))}
+                    {/* Allow entering a new warehouse name */}
+                    <div className="px-2 py-1.5 border-t border-border mt-1">
+                      <p className="text-xs text-muted-foreground mb-1">
+                        Or type a new warehouse name:
+                      </p>
+                      <Input
+                        placeholder="New warehouse name…"
+                        value={
+                          allWarehouses.includes(toWarehouse) ? "" : toWarehouse
+                        }
+                        onChange={(e) => setToWarehouse(e.target.value)}
+                        className="h-7 text-xs"
+                        data-ocid="inventory_movement.to_warehouse_new.input"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
+                  </SelectContent>
+                </Select>
               )}
               {isSameWarehouse && (
                 <p
@@ -557,7 +639,6 @@ export function InventoryMovementPage({
     return m;
   }, [products]);
 
-  // Sort movements newest first
   const sortedMovements = useMemo(
     () => [...movements].sort((a, b) => Number(b.moved_at - a.moved_at)),
     [movements],
@@ -577,7 +658,6 @@ export function InventoryMovementPage({
   const isAdmin = role === UserRole.admin;
   const isStaff = role === UserRole.staff;
 
-  // Only admin and staff may access; redirect superAdmin and unauthenticated
   if (!userProfile || isSuperAdmin) {
     return <AccessDenied onNavigate={onNavigate} />;
   }
@@ -598,7 +678,7 @@ export function InventoryMovementPage({
           </h1>
           <p className="text-sm text-muted-foreground">
             {isStaff
-              ? `Transfer stock from Main Warehouse to your warehouse (${userWarehouse})`
+              ? `Transfer stock to your warehouse (${userWarehouse}) or shared locations`
               : "Transfer stock between warehouses and track movement history"}
           </p>
         </div>
@@ -647,6 +727,7 @@ export function InventoryMovementPage({
           levels={levels}
           userWarehouse={userWarehouse}
           isStaff={isStaff}
+          isAdmin={isAdmin}
         />
       )}
 

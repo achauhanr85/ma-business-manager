@@ -1,26 +1,27 @@
 {
-  "overview": "MA Herb Business Manager is a multi-tenant, mobile-first business management tool for herbal product distributors. It provides a complete operations suite including sales with discount engine, inventory with FIFO tracking, purchase orders with stock sync, customer management with history, and a Super Admin governance layer for managing multiple business profiles.",
+  "overview": "Indi Negocio Libre is a comprehensive, multi-tenant business management platform for herbal product distributors. It supports inventory management, sales, purchase orders, customer tracking with health metrics, role-based access, multi-lingual UI, and a Super Admin oversight dashboard.",
   "features": [
-    "Super Admin governance dashboard with profile enable/disable and usage metrics",
-    "Profile activity windows with date-based transaction restriction",
-    "Customer discount engine (percentage or fixed) applied to sales",
-    "Discount and payment tracking stored on orders for auditing",
-    "PO-to-inventory sync: receiving a PO increments stock immediately",
-    "Order editing with automatic FIFO stock adjustments",
-    "Payment mode and status tracking on every sale",
-    "Auditable who-columns on all data types (created by, updated by, timestamps)",
-    "Per-profile branding with logo and theme color",
-    "Multi-tenant data isolation with three-tier roles"
+    "Multi-tenant business profiles with role-based access (Super Admin, Admin, Staff, Referral User)",
+    "Sales cart with return orders, payment tracking, and receipt PDF generation",
+    "Customer management with body composition, body inches, primary goals, and medical issues tracking",
+    "Inventory management with FIFO, loaner/temporary stock, and warehouse sharing",
+    "Purchase orders with vendor management and inventory auto-increment",
+    "Multi-lingual UI (English, Gujarati, Hindi) with per-user preference",
+    "Super Admin dashboard with canister cycles monitoring and profile management",
+    "Automated regression test suite at /admin/tests with 130+ checks",
+    "Background notification jobs for overdue payments, follow-ups, and lead reminders",
+    "CSV bulk import/export for products, categories, customers, goals, and medical issues"
   ],
-  "category": "productivity",
+  "category": "business-management",
   "tags": [
     "business",
     "inventory",
     "sales",
     "multi-tenant",
     "herbal",
-    "distribution",
-    "pos"
+    "customers",
+    "multilingual",
+    "health-tracking"
   ],
-  "last_updated": "2026-04-24T06:51:38.711Z"
+  "last_updated": "2026-04-27T10:21:17.053Z"
 }

@@ -8,35 +8,78 @@
 
 import { IDL } from '@icp-sdk/core/candid';
 
+export const CustomerId = IDL.Nat;
+export const Timestamp = IDL.Int;
+export const CustomerNoteInput = IDL.Record({
+  'text' : IDL.Text,
+  'note_date' : Timestamp,
+});
+export const CustomerNote = IDL.Record({
+  'id' : IDL.Nat,
+  'text' : IDL.Text,
+  'created_by' : IDL.Text,
+  'note_date' : Timestamp,
+  'creation_date' : Timestamp,
+});
+export const ProductId = IDL.Nat;
+export const BatchId = IDL.Nat;
+export const LocationMasterEntry = IDL.Record({
+  'id' : IDL.Text,
+  'name' : IDL.Text,
+  'entry_type' : IDL.Text,
+  'parent_id' : IDL.Opt(IDL.Text),
+});
+export const SaleId = IDL.Nat;
+export const ProfileKey = IDL.Text;
 export const UserId = IDL.Principal;
 export const UserRole = IDL.Variant({
   'admin' : IDL.Null,
+  'referralUser' : IDL.Null,
+  'regularUser' : IDL.Null,
   'superAdmin' : IDL.Null,
   'staff' : IDL.Null,
 });
-export const ProfileKey = IDL.Text;
-export const CustomerId = IDL.Nat;
-export const Timestamp = IDL.Int;
 export const DiscountType = IDL.Variant({
   'Fixed' : IDL.Null,
   'Percentage' : IDL.Null,
 });
 export const CustomerPublic = IDL.Record({
   'id' : CustomerId,
+  'age' : IDL.Opt(IDL.Nat),
+  'height' : IDL.Opt(IDL.Text),
+  'pin_code' : IDL.Opt(IDL.Text),
   'total_sales' : IDL.Nat,
+  'medical_issue_ids' : IDL.Vec(IDL.Nat),
+  'country' : IDL.Opt(IDL.Text),
+  'address_line1' : IDL.Opt(IDL.Text),
+  'address_line2' : IDL.Opt(IDL.Text),
+  'referral_commission_amount' : IDL.Opt(IDL.Float64),
+  'city' : IDL.Opt(IDL.Text),
   'name' : IDL.Text,
   'lifetime_revenue' : IDL.Float64,
+  'referred_by' : IDL.Opt(IDL.Text),
   'discount_value' : IDL.Opt(IDL.Float64),
   'last_purchase_at' : Timestamp,
   'created_at' : Timestamp,
+  'lead_follow_up_date' : IDL.Opt(IDL.Int),
   'email' : IDL.Text,
   'discount_applicable' : IDL.Opt(DiscountType),
+  'state' : IDL.Opt(IDL.Text),
+  'lead_to_active_datetime' : IDL.Opt(Timestamp),
   'address' : IDL.Text,
   'gender' : IDL.Opt(IDL.Text),
-  'notes' : IDL.Vec(IDL.Text),
+  'notes' : IDL.Vec(CustomerNote),
   'date_of_birth' : IDL.Opt(IDL.Text),
   'phone' : IDL.Text,
+  'primary_goal_ids' : IDL.Vec(IDL.Nat),
+  'customer_type' : IDL.Variant({
+    'active' : IDL.Null,
+    'lead' : IDL.Null,
+    'inactive' : IDL.Null,
+  }),
+  'lead_notes' : IDL.Opt(IDL.Text),
   'profile_key' : ProfileKey,
+  'customer_created_by' : IDL.Opt(UserId),
 });
 export const DuplicateCheckResult = IDL.Record({
   'similar_customers' : IDL.Vec(CustomerPublic),
@@ -69,37 +112,107 @@ export const BodyCompositionEntry = IDL.Record({
   'profile_key' : ProfileKey,
   'creation_date' : Timestamp,
 });
+export const BodyInchesInput = IDL.Record({
+  'hips' : IDL.Opt(IDL.Float64),
+  'chest' : IDL.Opt(IDL.Float64),
+  'entry_date' : Timestamp,
+  'thighs' : IDL.Opt(IDL.Float64),
+  'calves' : IDL.Opt(IDL.Float64),
+  'waist' : IDL.Opt(IDL.Float64),
+  'biceps' : IDL.Opt(IDL.Float64),
+});
+export const BodyInchesPublic = IDL.Record({
+  'id' : IDL.Nat,
+  'hips' : IDL.Opt(IDL.Float64),
+  'chest' : IDL.Opt(IDL.Float64),
+  'entry_date' : Timestamp,
+  'created_by' : IDL.Text,
+  'customer_id' : IDL.Nat,
+  'thighs' : IDL.Opt(IDL.Float64),
+  'calves' : IDL.Opt(IDL.Float64),
+  'waist' : IDL.Opt(IDL.Float64),
+  'biceps' : IDL.Opt(IDL.Float64),
+  'profile_key' : ProfileKey,
+  'creation_date' : Timestamp,
+});
 export const CategoryInput = IDL.Record({
   'name' : IDL.Text,
   'description' : IDL.Text,
 });
 export const CategoryId = IDL.Nat;
 export const CustomerInput = IDL.Record({
+  'age' : IDL.Opt(IDL.Nat),
+  'height' : IDL.Opt(IDL.Text),
+  'pin_code' : IDL.Opt(IDL.Text),
+  'medical_issue_ids' : IDL.Opt(IDL.Vec(IDL.Nat)),
+  'body_composition' : IDL.Opt(IDL.Vec(BodyCompositionInput)),
+  'country' : IDL.Opt(IDL.Text),
+  'address_line1' : IDL.Opt(IDL.Text),
+  'address_line2' : IDL.Opt(IDL.Text),
+  'referral_commission_amount' : IDL.Opt(IDL.Float64),
+  'city' : IDL.Opt(IDL.Text),
   'name' : IDL.Text,
   'note' : IDL.Opt(IDL.Text),
+  'referred_by' : IDL.Opt(IDL.Text),
   'discount_value' : IDL.Opt(IDL.Float64),
+  'lead_follow_up_date' : IDL.Opt(IDL.Int),
   'email' : IDL.Text,
   'discount_applicable' : IDL.Opt(DiscountType),
+  'state' : IDL.Opt(IDL.Text),
+  'lead_to_active_datetime' : IDL.Opt(Timestamp),
   'address' : IDL.Text,
   'gender' : IDL.Opt(IDL.Text),
+  'notes' : IDL.Opt(IDL.Vec(CustomerNoteInput)),
   'date_of_birth' : IDL.Opt(IDL.Text),
   'phone' : IDL.Text,
+  'primary_goal_ids' : IDL.Opt(IDL.Vec(IDL.Nat)),
+  'customer_type' : IDL.Opt(
+    IDL.Variant({
+      'active' : IDL.Null,
+      'lead' : IDL.Null,
+      'inactive' : IDL.Null,
+    })
+  ),
+  'lead_notes' : IDL.Opt(IDL.Text),
+  'customer_created_by' : IDL.Opt(UserId),
+});
+export const GoalMasterInput = IDL.Record({
+  'name' : IDL.Text,
+  'description' : IDL.Text,
+  'product_bundle' : IDL.Vec(ProductId),
+});
+export const GoalMasterPublic__1 = IDL.Record({
+  'id' : IDL.Nat,
+  'name' : IDL.Text,
+  'description' : IDL.Text,
+  'product_bundle' : IDL.Vec(ProductId),
+});
+export const MedicalIssueMasterInput = IDL.Record({
+  'name' : IDL.Text,
+  'description' : IDL.Text,
+});
+export const MedicalIssueMasterPublic__1 = IDL.Record({
+  'id' : IDL.Nat,
+  'name' : IDL.Text,
+  'description' : IDL.Text,
 });
 export const ProductInput = IDL.Record({
   'mrp' : IDL.Float64,
   'sku' : IDL.Text,
   'name' : IDL.Text,
   'earn_base' : IDL.Float64,
+  'instructions' : IDL.Opt(IDL.Text),
   'volume_points' : IDL.Float64,
+  'serving_size' : IDL.Opt(IDL.Text),
   'hsn_code' : IDL.Text,
   'category_id' : CategoryId,
 });
-export const ProductId = IDL.Nat;
 export const ProfileInput = IDL.Record({
   'business_name' : IDL.Text,
   'email' : IDL.Text,
   'business_address' : IDL.Text,
   'logo_url' : IDL.Text,
+  'instagram_handle' : IDL.Text,
   'receipt_notes' : IDL.Text,
   'phone_number' : IDL.Text,
   'theme_color' : IDL.Text,
@@ -113,11 +226,25 @@ export const PurchaseOrderItemInput = IDL.Record({
 });
 export const WarehouseName = IDL.Text;
 export const PurchaseOrderInput = IDL.Record({
+  'po_number' : IDL.Opt(IDL.Text),
   'vendor' : IDL.Text,
   'items' : IDL.Vec(PurchaseOrderItemInput),
   'warehouse_name' : WarehouseName,
+  'vendor_name' : IDL.Opt(IDL.Text),
+  'vendor_id' : IDL.Opt(IDL.Text),
 });
 export const PurchaseOrderId = IDL.Nat;
+export const ReturnItem = IDL.Record({
+  'qty' : IDL.Nat,
+  'product_id' : ProductId,
+  'unit_price' : IDL.Float64,
+  'is_usable' : IDL.Bool,
+});
+export const ReturnOrderResult = IDL.Record({
+  'error' : IDL.Opt(IDL.Text),
+  'success' : IDL.Bool,
+  'return_order_id' : IDL.Opt(SaleId),
+});
 export const PaymentMode = IDL.Variant({
   'Card' : IDL.Null,
   'Cash' : IDL.Null,
@@ -126,7 +253,9 @@ export const PaymentMode = IDL.Variant({
   'Check' : IDL.Null,
 });
 export const CartItem = IDL.Record({
+  'is_loaned_item' : IDL.Opt(IDL.Bool),
   'product_id' : ProductId,
+  'product_instructions' : IDL.Opt(IDL.Text),
   'quantity' : IDL.Nat,
   'actual_sale_price' : IDL.Float64,
 });
@@ -135,14 +264,48 @@ export const PaymentStatus = IDL.Variant({
   'Unpaid' : IDL.Null,
   'Partial' : IDL.Null,
 });
+export const OrderType = IDL.Variant({
+  'return' : IDL.Null,
+  'standard' : IDL.Null,
+});
 export const SaleInput = IDL.Record({
+  'return_of_sale_id' : IDL.Opt(SaleId),
   'payment_mode' : IDL.Opt(PaymentMode),
+  'sale_note' : IDL.Opt(IDL.Text),
   'cart_items' : IDL.Vec(CartItem),
   'payment_status' : IDL.Opt(PaymentStatus),
   'customer_id' : CustomerId,
   'amount_paid' : IDL.Opt(IDL.Float64),
+  'order_type' : IDL.Opt(OrderType),
+  'payment_due_date' : IDL.Opt(IDL.Text),
 });
-export const SaleId = IDL.Nat;
+export const VendorInput = IDL.Record({
+  'name' : IDL.Text,
+  'email' : IDL.Opt(IDL.Text),
+  'is_default' : IDL.Bool,
+  'address' : IDL.Opt(IDL.Text),
+  'contact_name' : IDL.Opt(IDL.Text),
+  'phone' : IDL.Opt(IDL.Text),
+});
+export const Vendor = IDL.Record({
+  'id' : IDL.Text,
+  'last_update_date' : Timestamp,
+  'name' : IDL.Text,
+  'created_by' : UserId,
+  'email' : IDL.Opt(IDL.Text),
+  'is_default' : IDL.Bool,
+  'address' : IDL.Opt(IDL.Text),
+  'last_updated_by' : UserId,
+  'contact_name' : IDL.Opt(IDL.Text),
+  'phone' : IDL.Opt(IDL.Text),
+  'profile_key' : IDL.Text,
+  'creation_date' : Timestamp,
+});
+export const ProfileApprovalStatus = IDL.Variant({
+  'approved' : IDL.Null,
+  'suspended' : IDL.Null,
+  'pending_super_admin_approval' : IDL.Null,
+});
 export const ProfilePublic = IDL.Record({
   'owner' : UserId,
   'is_enabled' : IDL.Bool,
@@ -154,6 +317,8 @@ export const ProfilePublic = IDL.Record({
   'business_address' : IDL.Text,
   'start_date' : IDL.Opt(Timestamp),
   'logo_url' : IDL.Text,
+  'instagram_handle' : IDL.Text,
+  'profile_approval_status' : ProfileApprovalStatus,
   'receipt_notes' : IDL.Text,
   'phone_number' : IDL.Text,
   'theme_color' : IDL.Text,
@@ -162,9 +327,15 @@ export const ProfilePublic = IDL.Record({
 });
 export const UserProfilePublic = IDL.Record({
   'principal' : UserId,
+  'default_receipt_language' : IDL.Text,
   'role' : UserRole,
+  'email' : IDL.Opt(IDL.Text),
+  'approval_status' : IDL.Opt(IDL.Text),
   'display_name' : IDL.Text,
+  'module_access' : IDL.Opt(IDL.Text),
   'joined_at' : Timestamp,
+  'language_preference' : IDL.Text,
+  'date_format' : IDL.Text,
   'warehouse_name' : WarehouseName,
   'profile_key' : ProfileKey,
 });
@@ -179,22 +350,34 @@ export const Category = IDL.Record({
   'profile_key' : ProfileKey,
   'creation_date' : Timestamp,
 });
+export const PaymentEntry = IDL.Record({
+  'id' : IDL.Text,
+  'payment_date' : Timestamp,
+  'payment_method' : IDL.Text,
+  'recorded_by' : IDL.Text,
+  'amount' : IDL.Float64,
+});
 export const Sale = IDL.Record({
   'id' : SaleId,
+  'return_of_sale_id' : IDL.Opt(SaleId),
   'payment_mode' : IDL.Opt(PaymentMode),
   'owner' : UserId,
   'last_update_date' : Timestamp,
   'discount_type' : IDL.Opt(DiscountType),
+  'sale_note' : IDL.Opt(IDL.Text),
   'created_by' : UserId,
   'payment_status' : IDL.Opt(PaymentStatus),
   'customer_id' : CustomerId,
   'discount_applied' : IDL.Opt(IDL.Float64),
   'sold_by' : UserId,
   'amount_paid' : IDL.Opt(IDL.Float64),
+  'payment_history' : IDL.Vec(PaymentEntry),
   'last_updated_by' : UserId,
+  'order_type' : IDL.Opt(OrderType),
   'timestamp' : Timestamp,
   'total_revenue' : IDL.Float64,
   'balance_due' : IDL.Opt(IDL.Float64),
+  'payment_due_date' : IDL.Opt(IDL.Text),
   'customer_name' : IDL.Text,
   'total_volume_points' : IDL.Float64,
   'profile_key' : ProfileKey,
@@ -204,8 +387,10 @@ export const Sale = IDL.Record({
 });
 export const SaleItem = IDL.Record({
   'unit_cost_snapshot' : IDL.Float64,
+  'is_loaned_item' : IDL.Bool,
   'product_id' : ProductId,
   'last_update_date' : Timestamp,
+  'product_instructions' : IDL.Opt(IDL.Text),
   'product_name_snapshot' : IDL.Text,
   'created_by' : UserId,
   'volume_points_snapshot' : IDL.Float64,
@@ -220,21 +405,54 @@ export const CustomerOrderDetail = IDL.Record({
   'sale' : Sale,
   'items' : IDL.Vec(SaleItem),
 });
+export const ProfileCyclesEntry = IDL.Record({
+  'business_name' : IDL.Text,
+  'estimated_cycles' : IDL.Nat,
+  'profile_key' : ProfileKey,
+});
+export const CyclesInfo = IDL.Record({
+  'profiles_cycles' : IDL.Vec(ProfileCyclesEntry),
+  'total_cycles' : IDL.Nat,
+});
 export const DashboardStats = IDL.Record({
   'monthly_profit' : IDL.Float64,
+  'inactive_count' : IDL.Nat,
   'total_inventory_value' : IDL.Float64,
+  'active_count' : IDL.Nat,
+  'lead_count' : IDL.Nat,
   'recent_sales' : IDL.Vec(Sale),
   'monthly_volume_points' : IDL.Float64,
 });
-export const BatchId = IDL.Nat;
+export const GoalMasterPublic = IDL.Record({
+  'id' : IDL.Nat,
+  'last_update_date' : Timestamp,
+  'name' : IDL.Text,
+  'description' : IDL.Text,
+  'product_bundle' : IDL.Vec(ProductId),
+  'creation_date' : Timestamp,
+});
+export const StagedBatchStatus = IDL.Variant({
+  'pending' : IDL.Null,
+  'rejected' : IDL.Null,
+  'accepted' : IDL.Null,
+});
+export const LoanedItemStatus = IDL.Variant({
+  'active' : IDL.Null,
+  'archived' : IDL.Null,
+});
 export const InventoryBatchPublic = IDL.Record({
   'id' : BatchId,
   'quantity_remaining' : IDL.Nat,
   'product_id' : ProductId,
+  'staged_status' : IDL.Opt(StagedBatchStatus),
   'unit_cost' : IDL.Float64,
+  'loaned_status' : IDL.Opt(LoanedItemStatus),
+  'loaned_source' : IDL.Opt(IDL.Text),
   'date_received' : Timestamp,
   'warehouse_name' : WarehouseName,
+  'return_order_id' : IDL.Opt(SaleId),
   'profile_key' : ProfileKey,
+  'is_loaned' : IDL.Bool,
 });
 export const InventoryLevel = IDL.Record({
   'product_id' : ProductId,
@@ -246,6 +464,7 @@ export const InventoryMovement = IDL.Record({
   'id' : MovementId,
   'from_warehouse' : WarehouseName,
   'product_id' : ProductId,
+  'is_loaned_move' : IDL.Bool,
   'last_update_date' : Timestamp,
   'created_by' : UserId,
   'last_updated_by' : UserId,
@@ -256,10 +475,27 @@ export const InventoryMovement = IDL.Record({
   'moved_at' : Timestamp,
   'moved_by' : UserId,
 });
+export const MedicalIssueMasterPublic = IDL.Record({
+  'id' : IDL.Nat,
+  'last_update_date' : Timestamp,
+  'name' : IDL.Text,
+  'description' : IDL.Text,
+  'creation_date' : Timestamp,
+});
 export const MonthlySalesTrend = IDL.Record({
   'month_label' : IDL.Text,
   'total_revenue' : IDL.Float64,
   'total_volume_points' : IDL.Float64,
+});
+export const Notification = IDL.Record({
+  'id' : IDL.Text,
+  'is_read' : IDL.Bool,
+  'created_at' : Timestamp,
+  'notification_type' : IDL.Text,
+  'related_id' : IDL.Opt(IDL.Text),
+  'message' : IDL.Text,
+  'profile_key' : IDL.Text,
+  'target_role' : IDL.Text,
 });
 export const Product = IDL.Record({
   'id' : ProductId,
@@ -270,8 +506,10 @@ export const Product = IDL.Record({
   'name' : IDL.Text,
   'earn_base' : IDL.Float64,
   'created_by' : UserId,
+  'instructions' : IDL.Opt(IDL.Text),
   'last_updated_by' : UserId,
   'volume_points' : IDL.Float64,
+  'serving_size' : IDL.Opt(IDL.Text),
   'hsn_code' : IDL.Text,
   'profile_key' : ProfileKey,
   'category_id' : CategoryId,
@@ -282,6 +520,7 @@ export const ProfileStatus = IDL.Record({
   'end_date' : IDL.Opt(Timestamp),
   'start_date' : IDL.Opt(Timestamp),
   'is_within_window' : IDL.Bool,
+  'profile_approval_status' : ProfileApprovalStatus,
 });
 export const PurchaseOrderItem = IDL.Record({
   'product_id' : ProductId,
@@ -300,6 +539,7 @@ export const POStatus = IDL.Variant({
 export const PurchaseOrder = IDL.Record({
   'id' : PurchaseOrderId,
   'status' : POStatus,
+  'po_number' : IDL.Opt(IDL.Text),
   'owner' : UserId,
   'last_update_date' : Timestamp,
   'created_by' : UserId,
@@ -307,8 +547,25 @@ export const PurchaseOrder = IDL.Record({
   'last_updated_by' : UserId,
   'timestamp' : Timestamp,
   'warehouse_name' : WarehouseName,
+  'vendor_name' : IDL.Opt(IDL.Text),
+  'vendor_id' : IDL.Opt(IDL.Text),
   'profile_key' : ProfileKey,
   'creation_date' : Timestamp,
+});
+export const ReferralCommissionEntry = IDL.Record({
+  'month' : IDL.Text,
+  'total_commission' : IDL.Float64,
+  'customer_count' : IDL.Nat,
+  'referral_user_principal' : UserId,
+  'referral_user_display_name' : IDL.Text,
+  'profile_key' : ProfileKey,
+});
+export const RoutingStatus = IDL.Variant({
+  'active' : IDL.Null,
+  'pending_approval' : IDL.Null,
+  'noprofile' : IDL.Null,
+  'superAdmin' : IDL.Null,
+  'profile_pending_super_admin' : IDL.Null,
 });
 export const ProfileStats = IDL.Record({
   'user_count' : IDL.Nat,
@@ -327,27 +584,59 @@ export const SuperAdminStats = IDL.Record({
   'total_profiles' : IDL.Nat,
   'profiles' : IDL.Vec(ProfileStats),
 });
+export const UserPreferences = IDL.Record({
+  'defaultReceiptLanguage' : IDL.Text,
+  'language' : IDL.Text,
+  'whatsappNumber' : IDL.Text,
+  'dateFormat' : IDL.Text,
+});
 export const InventoryMovementInput = IDL.Record({
   'from_warehouse' : WarehouseName,
   'product_id' : ProductId,
+  'is_loaned_move' : IDL.Opt(IDL.Bool),
+  'loaned_source' : IDL.Opt(IDL.Text),
   'quantity' : IDL.Nat,
   'to_warehouse' : WarehouseName,
 });
 export const UpdateSaleInput = IDL.Record({
   'payment_mode' : IDL.Opt(PaymentMode),
+  'sale_note' : IDL.Opt(IDL.Text),
   'payment_status' : IDL.Opt(PaymentStatus),
   'amount_paid' : IDL.Opt(IDL.Float64),
+  'payment_due_date' : IDL.Opt(IDL.Text),
   'items' : IDL.Vec(CartItem),
   'sale_id' : SaleId,
 });
 export const UserProfileInput = IDL.Record({
+  'default_receipt_language' : IDL.Opt(IDL.Text),
+  'email' : IDL.Opt(IDL.Text),
+  'approval_status' : IDL.Opt(IDL.Text),
   'display_name' : IDL.Text,
+  'module_access' : IDL.Opt(IDL.Text),
+  'language_preference' : IDL.Opt(IDL.Text),
+  'date_format' : IDL.Opt(IDL.Text),
   'warehouse_name' : WarehouseName,
   'profile_key' : ProfileKey,
 });
 
 export const idlService = IDL.Service({
+  'addCustomerNote' : IDL.Func(
+      [CustomerId, CustomerNoteInput],
+      [IDL.Opt(CustomerNote)],
+      [],
+    ),
+  'addLoanerBatch' : IDL.Func(
+      [ProductId, IDL.Nat, IDL.Float64, IDL.Text],
+      [IDL.Opt(BatchId)],
+      [],
+    ),
+  'addLocationEntry' : IDL.Func([LocationMasterEntry], [IDL.Bool], []),
+  'addPaymentEntry' : IDL.Func([SaleId, IDL.Float64, IDL.Text], [IDL.Bool], []),
+  'approveProfile' : IDL.Func([ProfileKey], [IDL.Bool], []),
+  'approveUser' : IDL.Func([UserId, IDL.Bool], [IDL.Bool], []),
+  'archiveLoanedBatch' : IDL.Func([BatchId], [IDL.Bool], []),
   'assignUserRole' : IDL.Func([UserId, UserRole, ProfileKey], [IDL.Bool], []),
+  'checkAndCreateNotifications' : IDL.Func([IDL.Text], [IDL.Nat], []),
   'checkCustomerDuplicate' : IDL.Func(
       [IDL.Text],
       [DuplicateCheckResult],
@@ -360,8 +649,26 @@ export const idlService = IDL.Service({
       [IDL.Opt(BodyCompositionEntry)],
       [],
     ),
+  'createBodyInchesEntry' : IDL.Func(
+      [CustomerId, BodyInchesInput],
+      [BodyInchesPublic],
+      [],
+    ),
   'createCategory' : IDL.Func([CategoryInput], [CategoryId], []),
   'createCustomer' : IDL.Func([CustomerInput], [CustomerId], []),
+  'createCustomerFromSales' : IDL.Func([CustomerInput], [CustomerId], []),
+  'createGoal' : IDL.Func([GoalMasterInput], [IDL.Nat], []),
+  'createGoalMaster' : IDL.Func(
+      [ProfileKey, IDL.Text, IDL.Text],
+      [GoalMasterPublic__1],
+      [],
+    ),
+  'createMedicalIssue' : IDL.Func([MedicalIssueMasterInput], [IDL.Nat], []),
+  'createMedicalIssueMaster' : IDL.Func(
+      [ProfileKey, IDL.Text, IDL.Text],
+      [MedicalIssueMasterPublic__1],
+      [],
+    ),
   'createProduct' : IDL.Func([ProductInput], [IDL.Opt(ProductId)], []),
   'createProfile' : IDL.Func([ProfileInput], [IDL.Bool], []),
   'createPurchaseOrder' : IDL.Func(
@@ -369,12 +676,27 @@ export const idlService = IDL.Service({
       [IDL.Opt(PurchaseOrderId)],
       [],
     ),
+  'createReferralUser' : IDL.Func([ProfileKey, IDL.Text], [IDL.Bool], []),
+  'createReturnOrder' : IDL.Func(
+      [SaleId, IDL.Vec(ReturnItem)],
+      [ReturnOrderResult],
+      [],
+    ),
   'createSale' : IDL.Func([SaleInput], [IDL.Opt(SaleId)], []),
+  'createVendor' : IDL.Func([VendorInput, IDL.Text], [IDL.Opt(Vendor)], []),
   'deleteBodyCompositionEntry' : IDL.Func([IDL.Text], [IDL.Bool], []),
+  'deleteBodyInchesEntry' : IDL.Func([IDL.Nat], [IDL.Bool], []),
   'deleteCategory' : IDL.Func([CategoryId], [IDL.Bool], []),
   'deleteCustomer' : IDL.Func([CustomerId], [IDL.Bool], []),
+  'deleteCustomerNote' : IDL.Func([IDL.Nat, CustomerId], [IDL.Bool], []),
+  'deleteGoal' : IDL.Func([IDL.Nat], [IDL.Bool], []),
+  'deleteGoalMaster' : IDL.Func([IDL.Nat], [IDL.Bool], []),
+  'deleteMedicalIssue' : IDL.Func([IDL.Nat], [IDL.Bool], []),
+  'deleteMedicalIssueMaster' : IDL.Func([IDL.Nat], [IDL.Bool], []),
   'deleteProduct' : IDL.Func([ProductId], [IDL.Bool], []),
   'deleteProfile' : IDL.Func([ProfileKey], [IDL.Bool], []),
+  'deleteVendor' : IDL.Func([IDL.Text], [IDL.Bool], []),
+  'doesSuperAdminExist' : IDL.Func([], [IDL.Bool], ['query']),
   'enableProfile' : IDL.Func([ProfileKey, IDL.Bool], [IDL.Bool], []),
   'getAllProfilesForAdmin' : IDL.Func([], [IDL.Vec(ProfilePublic)], ['query']),
   'getAllUsersForAdmin' : IDL.Func([], [IDL.Vec(UserProfilePublic)], ['query']),
@@ -383,7 +705,29 @@ export const idlService = IDL.Service({
       [IDL.Vec(BodyCompositionEntry)],
       ['query'],
     ),
+  'getCanisterCyclesInfo' : IDL.Func(
+      [],
+      [
+        IDL.Record({
+          'per_profile_info' : IDL.Vec(
+            IDL.Record({
+              'business_name' : IDL.Text,
+              'cycles_note' : IDL.Text,
+              'profile_key' : IDL.Text,
+            })
+          ),
+          'total_cycles' : IDL.Nat,
+        }),
+      ],
+      [],
+    ),
   'getCategories' : IDL.Func([], [IDL.Vec(Category)], ['query']),
+  'getCitiesByState' : IDL.Func(
+      [IDL.Text],
+      [IDL.Vec(LocationMasterEntry)],
+      ['query'],
+    ),
+  'getCountries' : IDL.Func([], [IDL.Vec(LocationMasterEntry)], ['query']),
   'getCustomer' : IDL.Func([CustomerId], [IDL.Opt(CustomerPublic)], ['query']),
   'getCustomerOrders' : IDL.Func(
       [CustomerId],
@@ -391,7 +735,14 @@ export const idlService = IDL.Service({
       ['query'],
     ),
   'getCustomers' : IDL.Func([], [IDL.Vec(CustomerPublic)], ['query']),
+  'getCyclesInfo' : IDL.Func([], [CyclesInfo], []),
   'getDashboardStats' : IDL.Func([], [DashboardStats], ['query']),
+  'getGoal' : IDL.Func([IDL.Nat], [IDL.Opt(GoalMasterPublic)], ['query']),
+  'getGoalMasterData' : IDL.Func(
+      [ProfileKey],
+      [IDL.Vec(GoalMasterPublic__1)],
+      ['query'],
+    ),
   'getInventoryBatches' : IDL.Func(
       [ProductId],
       [IDL.Vec(InventoryBatchPublic)],
@@ -403,9 +754,36 @@ export const idlService = IDL.Service({
       [IDL.Vec(InventoryMovement)],
       ['query'],
     ),
+  'getLastSaleForCustomer' : IDL.Func(
+      [CustomerId],
+      [IDL.Opt(CustomerOrderDetail)],
+      ['query'],
+    ),
+  'getMedicalIssue' : IDL.Func(
+      [IDL.Nat],
+      [IDL.Opt(MedicalIssueMasterPublic)],
+      ['query'],
+    ),
+  'getMedicalIssueMasterData' : IDL.Func(
+      [ProfileKey],
+      [IDL.Vec(MedicalIssueMasterPublic__1)],
+      ['query'],
+    ),
   'getMonthlySalesTrend' : IDL.Func(
       [],
       [IDL.Vec(MonthlySalesTrend)],
+      ['query'],
+    ),
+  'getNotifications' : IDL.Func(
+      [IDL.Text, IDL.Text],
+      [IDL.Vec(Notification)],
+      ['query'],
+    ),
+  'getNotificationsForUser' : IDL.Func([], [IDL.Vec(Notification)], ['query']),
+  'getPaymentHistory' : IDL.Func([SaleId], [IDL.Vec(PaymentEntry)], ['query']),
+  'getPendingApprovalUsers' : IDL.Func(
+      [ProfileKey],
+      [IDL.Vec(UserProfilePublic)],
       ['query'],
     ),
   'getProducts' : IDL.Func([], [IDL.Vec(Product)], ['query']),
@@ -426,75 +804,202 @@ export const idlService = IDL.Service({
       ['query'],
     ),
   'getPurchaseOrders' : IDL.Func([], [IDL.Vec(PurchaseOrder)], ['query']),
+  'getReferralCommissionByMonth' : IDL.Func(
+      [],
+      [IDL.Vec(ReferralCommissionEntry)],
+      ['query'],
+    ),
+  'getReferralUsers' : IDL.Func(
+      [ProfileKey],
+      [IDL.Vec(UserProfilePublic)],
+      ['query'],
+    ),
+  'getRoutingStatus' : IDL.Func([], [RoutingStatus], []),
   'getSale' : IDL.Func([SaleId], [IDL.Opt(Sale)], ['query']),
   'getSaleItems' : IDL.Func([SaleId], [IDL.Vec(SaleItem)], ['query']),
+  'getSaleWithItems' : IDL.Func(
+      [SaleId],
+      [IDL.Opt(CustomerOrderDetail)],
+      ['query'],
+    ),
   'getSales' : IDL.Func([], [IDL.Vec(Sale)], ['query']),
   'getSalesByCustomer' : IDL.Func([CustomerId], [IDL.Vec(Sale)], ['query']),
+  'getStagedInventory' : IDL.Func(
+      [],
+      [IDL.Vec(InventoryBatchPublic)],
+      ['query'],
+    ),
+  'getStates' : IDL.Func([], [IDL.Vec(LocationMasterEntry)], ['query']),
+  'getSuperAdminActiveProfile' : IDL.Func([], [IDL.Opt(ProfileKey)], ['query']),
   'getSuperAdminStats' : IDL.Func([], [SuperAdminStats], ['query']),
+  'getUserPreferences' : IDL.Func([], [UserPreferences], ['query']),
   'getUserProfile' : IDL.Func([], [IDL.Opt(UserProfilePublic)], ['query']),
   'getUsersByProfile' : IDL.Func(
       [ProfileKey],
       [IDL.Vec(UserProfilePublic)],
       ['query'],
     ),
+  'getVendor' : IDL.Func([IDL.Text], [IDL.Opt(Vendor)], ['query']),
+  'getVendors' : IDL.Func([IDL.Text], [IDL.Vec(Vendor)], ['query']),
   'initSuperAdmin' : IDL.Func([], [IDL.Bool], []),
   'joinProfile' : IDL.Func(
       [ProfileKey, IDL.Text, WarehouseName],
       [IDL.Bool],
       [],
     ),
+  'listBodyInchesHistory' : IDL.Func(
+      [CustomerId],
+      [IDL.Vec(BodyInchesPublic)],
+      ['query'],
+    ),
+  'listCustomerNotes' : IDL.Func(
+      [CustomerId],
+      [IDL.Vec(CustomerNote)],
+      ['query'],
+    ),
+  'listGoals' : IDL.Func([], [IDL.Vec(GoalMasterPublic)], ['query']),
+  'listMedicalIssues' : IDL.Func(
+      [],
+      [IDL.Vec(MedicalIssueMasterPublic)],
+      ['query'],
+    ),
+  'markNotificationRead' : IDL.Func([IDL.Text], [IDL.Bool], []),
   'markPurchaseOrderReceived' : IDL.Func([PurchaseOrderId], [IDL.Bool], []),
   'moveInventory' : IDL.Func(
       [InventoryMovementInput],
       [IDL.Opt(MovementId)],
       [],
     ),
+  'moveLoanerToStaff' : IDL.Func(
+      [ProductId, IDL.Nat, WarehouseName],
+      [IDL.Opt(MovementId)],
+      [],
+    ),
+  'rejectProfile' : IDL.Func([ProfileKey], [IDL.Bool], []),
+  'returnToSource' : IDL.Func([BatchId, IDL.Nat], [IDL.Opt(MovementId)], []),
+  'reviewStagedItem' : IDL.Func(
+      [BatchId, IDL.Variant({ 'reject' : IDL.Null, 'accept' : IDL.Null })],
+      [IDL.Bool],
+      [],
+    ),
+  'runBackgroundChecks' : IDL.Func([], [IDL.Nat], []),
   'setProfileWindow' : IDL.Func(
       [ProfileKey, IDL.Opt(Timestamp), IDL.Opt(Timestamp)],
       [IDL.Bool],
       [],
     ),
+  'setSuperAdminActiveProfile' : IDL.Func([ProfileKey], [IDL.Bool], []),
   'updateCategory' : IDL.Func([CategoryId, CategoryInput], [IDL.Bool], []),
   'updateCustomer' : IDL.Func([CustomerId, CustomerInput], [IDL.Bool], []),
+  'updateGoal' : IDL.Func([IDL.Nat, GoalMasterInput], [IDL.Bool], []),
+  'updateGoalMaster' : IDL.Func(
+      [IDL.Nat, IDL.Text, IDL.Text, IDL.Vec(ProductId)],
+      [IDL.Bool],
+      [],
+    ),
+  'updateMedicalIssue' : IDL.Func(
+      [IDL.Nat, MedicalIssueMasterInput],
+      [IDL.Bool],
+      [],
+    ),
+  'updateMedicalIssueMaster' : IDL.Func(
+      [IDL.Nat, IDL.Text, IDL.Text],
+      [IDL.Bool],
+      [],
+    ),
+  'updatePaymentStatus' : IDL.Func(
+      [SaleId, PaymentStatus, IDL.Opt(IDL.Float64), IDL.Opt(IDL.Text)],
+      [IDL.Bool],
+      [],
+    ),
   'updateProduct' : IDL.Func([ProductId, ProductInput], [IDL.Bool], []),
   'updateProfile' : IDL.Func([ProfileInput], [IDL.Bool], []),
   'updateProfileKey' : IDL.Func([ProfileKey, ProfileKey], [IDL.Bool], []),
   'updateSale' : IDL.Func([UpdateSaleInput], [IDL.Bool], []),
+  'updateUserPreferences' : IDL.Func(
+      [IDL.Text, IDL.Text, IDL.Text, IDL.Text],
+      [IDL.Bool],
+      [],
+    ),
   'updateUserProfile' : IDL.Func([UserProfileInput], [IDL.Bool], []),
+  'updateVendor' : IDL.Func([IDL.Text, VendorInput], [IDL.Bool], []),
 });
 
 export const idlInitArgs = [];
 
 export const idlFactory = ({ IDL }) => {
+  const CustomerId = IDL.Nat;
+  const Timestamp = IDL.Int;
+  const CustomerNoteInput = IDL.Record({
+    'text' : IDL.Text,
+    'note_date' : Timestamp,
+  });
+  const CustomerNote = IDL.Record({
+    'id' : IDL.Nat,
+    'text' : IDL.Text,
+    'created_by' : IDL.Text,
+    'note_date' : Timestamp,
+    'creation_date' : Timestamp,
+  });
+  const ProductId = IDL.Nat;
+  const BatchId = IDL.Nat;
+  const LocationMasterEntry = IDL.Record({
+    'id' : IDL.Text,
+    'name' : IDL.Text,
+    'entry_type' : IDL.Text,
+    'parent_id' : IDL.Opt(IDL.Text),
+  });
+  const SaleId = IDL.Nat;
+  const ProfileKey = IDL.Text;
   const UserId = IDL.Principal;
   const UserRole = IDL.Variant({
     'admin' : IDL.Null,
+    'referralUser' : IDL.Null,
+    'regularUser' : IDL.Null,
     'superAdmin' : IDL.Null,
     'staff' : IDL.Null,
   });
-  const ProfileKey = IDL.Text;
-  const CustomerId = IDL.Nat;
-  const Timestamp = IDL.Int;
   const DiscountType = IDL.Variant({
     'Fixed' : IDL.Null,
     'Percentage' : IDL.Null,
   });
   const CustomerPublic = IDL.Record({
     'id' : CustomerId,
+    'age' : IDL.Opt(IDL.Nat),
+    'height' : IDL.Opt(IDL.Text),
+    'pin_code' : IDL.Opt(IDL.Text),
     'total_sales' : IDL.Nat,
+    'medical_issue_ids' : IDL.Vec(IDL.Nat),
+    'country' : IDL.Opt(IDL.Text),
+    'address_line1' : IDL.Opt(IDL.Text),
+    'address_line2' : IDL.Opt(IDL.Text),
+    'referral_commission_amount' : IDL.Opt(IDL.Float64),
+    'city' : IDL.Opt(IDL.Text),
     'name' : IDL.Text,
     'lifetime_revenue' : IDL.Float64,
+    'referred_by' : IDL.Opt(IDL.Text),
     'discount_value' : IDL.Opt(IDL.Float64),
     'last_purchase_at' : Timestamp,
     'created_at' : Timestamp,
+    'lead_follow_up_date' : IDL.Opt(IDL.Int),
     'email' : IDL.Text,
     'discount_applicable' : IDL.Opt(DiscountType),
+    'state' : IDL.Opt(IDL.Text),
+    'lead_to_active_datetime' : IDL.Opt(Timestamp),
     'address' : IDL.Text,
     'gender' : IDL.Opt(IDL.Text),
-    'notes' : IDL.Vec(IDL.Text),
+    'notes' : IDL.Vec(CustomerNote),
     'date_of_birth' : IDL.Opt(IDL.Text),
     'phone' : IDL.Text,
+    'primary_goal_ids' : IDL.Vec(IDL.Nat),
+    'customer_type' : IDL.Variant({
+      'active' : IDL.Null,
+      'lead' : IDL.Null,
+      'inactive' : IDL.Null,
+    }),
+    'lead_notes' : IDL.Opt(IDL.Text),
     'profile_key' : ProfileKey,
+    'customer_created_by' : IDL.Opt(UserId),
   });
   const DuplicateCheckResult = IDL.Record({
     'similar_customers' : IDL.Vec(CustomerPublic),
@@ -527,37 +1032,107 @@ export const idlFactory = ({ IDL }) => {
     'profile_key' : ProfileKey,
     'creation_date' : Timestamp,
   });
+  const BodyInchesInput = IDL.Record({
+    'hips' : IDL.Opt(IDL.Float64),
+    'chest' : IDL.Opt(IDL.Float64),
+    'entry_date' : Timestamp,
+    'thighs' : IDL.Opt(IDL.Float64),
+    'calves' : IDL.Opt(IDL.Float64),
+    'waist' : IDL.Opt(IDL.Float64),
+    'biceps' : IDL.Opt(IDL.Float64),
+  });
+  const BodyInchesPublic = IDL.Record({
+    'id' : IDL.Nat,
+    'hips' : IDL.Opt(IDL.Float64),
+    'chest' : IDL.Opt(IDL.Float64),
+    'entry_date' : Timestamp,
+    'created_by' : IDL.Text,
+    'customer_id' : IDL.Nat,
+    'thighs' : IDL.Opt(IDL.Float64),
+    'calves' : IDL.Opt(IDL.Float64),
+    'waist' : IDL.Opt(IDL.Float64),
+    'biceps' : IDL.Opt(IDL.Float64),
+    'profile_key' : ProfileKey,
+    'creation_date' : Timestamp,
+  });
   const CategoryInput = IDL.Record({
     'name' : IDL.Text,
     'description' : IDL.Text,
   });
   const CategoryId = IDL.Nat;
   const CustomerInput = IDL.Record({
+    'age' : IDL.Opt(IDL.Nat),
+    'height' : IDL.Opt(IDL.Text),
+    'pin_code' : IDL.Opt(IDL.Text),
+    'medical_issue_ids' : IDL.Opt(IDL.Vec(IDL.Nat)),
+    'body_composition' : IDL.Opt(IDL.Vec(BodyCompositionInput)),
+    'country' : IDL.Opt(IDL.Text),
+    'address_line1' : IDL.Opt(IDL.Text),
+    'address_line2' : IDL.Opt(IDL.Text),
+    'referral_commission_amount' : IDL.Opt(IDL.Float64),
+    'city' : IDL.Opt(IDL.Text),
     'name' : IDL.Text,
     'note' : IDL.Opt(IDL.Text),
+    'referred_by' : IDL.Opt(IDL.Text),
     'discount_value' : IDL.Opt(IDL.Float64),
+    'lead_follow_up_date' : IDL.Opt(IDL.Int),
     'email' : IDL.Text,
     'discount_applicable' : IDL.Opt(DiscountType),
+    'state' : IDL.Opt(IDL.Text),
+    'lead_to_active_datetime' : IDL.Opt(Timestamp),
     'address' : IDL.Text,
     'gender' : IDL.Opt(IDL.Text),
+    'notes' : IDL.Opt(IDL.Vec(CustomerNoteInput)),
     'date_of_birth' : IDL.Opt(IDL.Text),
     'phone' : IDL.Text,
+    'primary_goal_ids' : IDL.Opt(IDL.Vec(IDL.Nat)),
+    'customer_type' : IDL.Opt(
+      IDL.Variant({
+        'active' : IDL.Null,
+        'lead' : IDL.Null,
+        'inactive' : IDL.Null,
+      })
+    ),
+    'lead_notes' : IDL.Opt(IDL.Text),
+    'customer_created_by' : IDL.Opt(UserId),
+  });
+  const GoalMasterInput = IDL.Record({
+    'name' : IDL.Text,
+    'description' : IDL.Text,
+    'product_bundle' : IDL.Vec(ProductId),
+  });
+  const GoalMasterPublic__1 = IDL.Record({
+    'id' : IDL.Nat,
+    'name' : IDL.Text,
+    'description' : IDL.Text,
+    'product_bundle' : IDL.Vec(ProductId),
+  });
+  const MedicalIssueMasterInput = IDL.Record({
+    'name' : IDL.Text,
+    'description' : IDL.Text,
+  });
+  const MedicalIssueMasterPublic__1 = IDL.Record({
+    'id' : IDL.Nat,
+    'name' : IDL.Text,
+    'description' : IDL.Text,
   });
   const ProductInput = IDL.Record({
     'mrp' : IDL.Float64,
     'sku' : IDL.Text,
     'name' : IDL.Text,
     'earn_base' : IDL.Float64,
+    'instructions' : IDL.Opt(IDL.Text),
     'volume_points' : IDL.Float64,
+    'serving_size' : IDL.Opt(IDL.Text),
     'hsn_code' : IDL.Text,
     'category_id' : CategoryId,
   });
-  const ProductId = IDL.Nat;
   const ProfileInput = IDL.Record({
     'business_name' : IDL.Text,
     'email' : IDL.Text,
     'business_address' : IDL.Text,
     'logo_url' : IDL.Text,
+    'instagram_handle' : IDL.Text,
     'receipt_notes' : IDL.Text,
     'phone_number' : IDL.Text,
     'theme_color' : IDL.Text,
@@ -571,11 +1146,25 @@ export const idlFactory = ({ IDL }) => {
   });
   const WarehouseName = IDL.Text;
   const PurchaseOrderInput = IDL.Record({
+    'po_number' : IDL.Opt(IDL.Text),
     'vendor' : IDL.Text,
     'items' : IDL.Vec(PurchaseOrderItemInput),
     'warehouse_name' : WarehouseName,
+    'vendor_name' : IDL.Opt(IDL.Text),
+    'vendor_id' : IDL.Opt(IDL.Text),
   });
   const PurchaseOrderId = IDL.Nat;
+  const ReturnItem = IDL.Record({
+    'qty' : IDL.Nat,
+    'product_id' : ProductId,
+    'unit_price' : IDL.Float64,
+    'is_usable' : IDL.Bool,
+  });
+  const ReturnOrderResult = IDL.Record({
+    'error' : IDL.Opt(IDL.Text),
+    'success' : IDL.Bool,
+    'return_order_id' : IDL.Opt(SaleId),
+  });
   const PaymentMode = IDL.Variant({
     'Card' : IDL.Null,
     'Cash' : IDL.Null,
@@ -584,7 +1173,9 @@ export const idlFactory = ({ IDL }) => {
     'Check' : IDL.Null,
   });
   const CartItem = IDL.Record({
+    'is_loaned_item' : IDL.Opt(IDL.Bool),
     'product_id' : ProductId,
+    'product_instructions' : IDL.Opt(IDL.Text),
     'quantity' : IDL.Nat,
     'actual_sale_price' : IDL.Float64,
   });
@@ -593,14 +1184,45 @@ export const idlFactory = ({ IDL }) => {
     'Unpaid' : IDL.Null,
     'Partial' : IDL.Null,
   });
+  const OrderType = IDL.Variant({ 'return' : IDL.Null, 'standard' : IDL.Null });
   const SaleInput = IDL.Record({
+    'return_of_sale_id' : IDL.Opt(SaleId),
     'payment_mode' : IDL.Opt(PaymentMode),
+    'sale_note' : IDL.Opt(IDL.Text),
     'cart_items' : IDL.Vec(CartItem),
     'payment_status' : IDL.Opt(PaymentStatus),
     'customer_id' : CustomerId,
     'amount_paid' : IDL.Opt(IDL.Float64),
+    'order_type' : IDL.Opt(OrderType),
+    'payment_due_date' : IDL.Opt(IDL.Text),
   });
-  const SaleId = IDL.Nat;
+  const VendorInput = IDL.Record({
+    'name' : IDL.Text,
+    'email' : IDL.Opt(IDL.Text),
+    'is_default' : IDL.Bool,
+    'address' : IDL.Opt(IDL.Text),
+    'contact_name' : IDL.Opt(IDL.Text),
+    'phone' : IDL.Opt(IDL.Text),
+  });
+  const Vendor = IDL.Record({
+    'id' : IDL.Text,
+    'last_update_date' : Timestamp,
+    'name' : IDL.Text,
+    'created_by' : UserId,
+    'email' : IDL.Opt(IDL.Text),
+    'is_default' : IDL.Bool,
+    'address' : IDL.Opt(IDL.Text),
+    'last_updated_by' : UserId,
+    'contact_name' : IDL.Opt(IDL.Text),
+    'phone' : IDL.Opt(IDL.Text),
+    'profile_key' : IDL.Text,
+    'creation_date' : Timestamp,
+  });
+  const ProfileApprovalStatus = IDL.Variant({
+    'approved' : IDL.Null,
+    'suspended' : IDL.Null,
+    'pending_super_admin_approval' : IDL.Null,
+  });
   const ProfilePublic = IDL.Record({
     'owner' : UserId,
     'is_enabled' : IDL.Bool,
@@ -612,6 +1234,8 @@ export const idlFactory = ({ IDL }) => {
     'business_address' : IDL.Text,
     'start_date' : IDL.Opt(Timestamp),
     'logo_url' : IDL.Text,
+    'instagram_handle' : IDL.Text,
+    'profile_approval_status' : ProfileApprovalStatus,
     'receipt_notes' : IDL.Text,
     'phone_number' : IDL.Text,
     'theme_color' : IDL.Text,
@@ -620,9 +1244,15 @@ export const idlFactory = ({ IDL }) => {
   });
   const UserProfilePublic = IDL.Record({
     'principal' : UserId,
+    'default_receipt_language' : IDL.Text,
     'role' : UserRole,
+    'email' : IDL.Opt(IDL.Text),
+    'approval_status' : IDL.Opt(IDL.Text),
     'display_name' : IDL.Text,
+    'module_access' : IDL.Opt(IDL.Text),
     'joined_at' : Timestamp,
+    'language_preference' : IDL.Text,
+    'date_format' : IDL.Text,
     'warehouse_name' : WarehouseName,
     'profile_key' : ProfileKey,
   });
@@ -637,22 +1267,34 @@ export const idlFactory = ({ IDL }) => {
     'profile_key' : ProfileKey,
     'creation_date' : Timestamp,
   });
+  const PaymentEntry = IDL.Record({
+    'id' : IDL.Text,
+    'payment_date' : Timestamp,
+    'payment_method' : IDL.Text,
+    'recorded_by' : IDL.Text,
+    'amount' : IDL.Float64,
+  });
   const Sale = IDL.Record({
     'id' : SaleId,
+    'return_of_sale_id' : IDL.Opt(SaleId),
     'payment_mode' : IDL.Opt(PaymentMode),
     'owner' : UserId,
     'last_update_date' : Timestamp,
     'discount_type' : IDL.Opt(DiscountType),
+    'sale_note' : IDL.Opt(IDL.Text),
     'created_by' : UserId,
     'payment_status' : IDL.Opt(PaymentStatus),
     'customer_id' : CustomerId,
     'discount_applied' : IDL.Opt(IDL.Float64),
     'sold_by' : UserId,
     'amount_paid' : IDL.Opt(IDL.Float64),
+    'payment_history' : IDL.Vec(PaymentEntry),
     'last_updated_by' : UserId,
+    'order_type' : IDL.Opt(OrderType),
     'timestamp' : Timestamp,
     'total_revenue' : IDL.Float64,
     'balance_due' : IDL.Opt(IDL.Float64),
+    'payment_due_date' : IDL.Opt(IDL.Text),
     'customer_name' : IDL.Text,
     'total_volume_points' : IDL.Float64,
     'profile_key' : ProfileKey,
@@ -662,8 +1304,10 @@ export const idlFactory = ({ IDL }) => {
   });
   const SaleItem = IDL.Record({
     'unit_cost_snapshot' : IDL.Float64,
+    'is_loaned_item' : IDL.Bool,
     'product_id' : ProductId,
     'last_update_date' : Timestamp,
+    'product_instructions' : IDL.Opt(IDL.Text),
     'product_name_snapshot' : IDL.Text,
     'created_by' : UserId,
     'volume_points_snapshot' : IDL.Float64,
@@ -678,21 +1322,54 @@ export const idlFactory = ({ IDL }) => {
     'sale' : Sale,
     'items' : IDL.Vec(SaleItem),
   });
+  const ProfileCyclesEntry = IDL.Record({
+    'business_name' : IDL.Text,
+    'estimated_cycles' : IDL.Nat,
+    'profile_key' : ProfileKey,
+  });
+  const CyclesInfo = IDL.Record({
+    'profiles_cycles' : IDL.Vec(ProfileCyclesEntry),
+    'total_cycles' : IDL.Nat,
+  });
   const DashboardStats = IDL.Record({
     'monthly_profit' : IDL.Float64,
+    'inactive_count' : IDL.Nat,
     'total_inventory_value' : IDL.Float64,
+    'active_count' : IDL.Nat,
+    'lead_count' : IDL.Nat,
     'recent_sales' : IDL.Vec(Sale),
     'monthly_volume_points' : IDL.Float64,
   });
-  const BatchId = IDL.Nat;
+  const GoalMasterPublic = IDL.Record({
+    'id' : IDL.Nat,
+    'last_update_date' : Timestamp,
+    'name' : IDL.Text,
+    'description' : IDL.Text,
+    'product_bundle' : IDL.Vec(ProductId),
+    'creation_date' : Timestamp,
+  });
+  const StagedBatchStatus = IDL.Variant({
+    'pending' : IDL.Null,
+    'rejected' : IDL.Null,
+    'accepted' : IDL.Null,
+  });
+  const LoanedItemStatus = IDL.Variant({
+    'active' : IDL.Null,
+    'archived' : IDL.Null,
+  });
   const InventoryBatchPublic = IDL.Record({
     'id' : BatchId,
     'quantity_remaining' : IDL.Nat,
     'product_id' : ProductId,
+    'staged_status' : IDL.Opt(StagedBatchStatus),
     'unit_cost' : IDL.Float64,
+    'loaned_status' : IDL.Opt(LoanedItemStatus),
+    'loaned_source' : IDL.Opt(IDL.Text),
     'date_received' : Timestamp,
     'warehouse_name' : WarehouseName,
+    'return_order_id' : IDL.Opt(SaleId),
     'profile_key' : ProfileKey,
+    'is_loaned' : IDL.Bool,
   });
   const InventoryLevel = IDL.Record({
     'product_id' : ProductId,
@@ -704,6 +1381,7 @@ export const idlFactory = ({ IDL }) => {
     'id' : MovementId,
     'from_warehouse' : WarehouseName,
     'product_id' : ProductId,
+    'is_loaned_move' : IDL.Bool,
     'last_update_date' : Timestamp,
     'created_by' : UserId,
     'last_updated_by' : UserId,
@@ -714,10 +1392,27 @@ export const idlFactory = ({ IDL }) => {
     'moved_at' : Timestamp,
     'moved_by' : UserId,
   });
+  const MedicalIssueMasterPublic = IDL.Record({
+    'id' : IDL.Nat,
+    'last_update_date' : Timestamp,
+    'name' : IDL.Text,
+    'description' : IDL.Text,
+    'creation_date' : Timestamp,
+  });
   const MonthlySalesTrend = IDL.Record({
     'month_label' : IDL.Text,
     'total_revenue' : IDL.Float64,
     'total_volume_points' : IDL.Float64,
+  });
+  const Notification = IDL.Record({
+    'id' : IDL.Text,
+    'is_read' : IDL.Bool,
+    'created_at' : Timestamp,
+    'notification_type' : IDL.Text,
+    'related_id' : IDL.Opt(IDL.Text),
+    'message' : IDL.Text,
+    'profile_key' : IDL.Text,
+    'target_role' : IDL.Text,
   });
   const Product = IDL.Record({
     'id' : ProductId,
@@ -728,8 +1423,10 @@ export const idlFactory = ({ IDL }) => {
     'name' : IDL.Text,
     'earn_base' : IDL.Float64,
     'created_by' : UserId,
+    'instructions' : IDL.Opt(IDL.Text),
     'last_updated_by' : UserId,
     'volume_points' : IDL.Float64,
+    'serving_size' : IDL.Opt(IDL.Text),
     'hsn_code' : IDL.Text,
     'profile_key' : ProfileKey,
     'category_id' : CategoryId,
@@ -740,6 +1437,7 @@ export const idlFactory = ({ IDL }) => {
     'end_date' : IDL.Opt(Timestamp),
     'start_date' : IDL.Opt(Timestamp),
     'is_within_window' : IDL.Bool,
+    'profile_approval_status' : ProfileApprovalStatus,
   });
   const PurchaseOrderItem = IDL.Record({
     'product_id' : ProductId,
@@ -755,6 +1453,7 @@ export const idlFactory = ({ IDL }) => {
   const PurchaseOrder = IDL.Record({
     'id' : PurchaseOrderId,
     'status' : POStatus,
+    'po_number' : IDL.Opt(IDL.Text),
     'owner' : UserId,
     'last_update_date' : Timestamp,
     'created_by' : UserId,
@@ -762,8 +1461,25 @@ export const idlFactory = ({ IDL }) => {
     'last_updated_by' : UserId,
     'timestamp' : Timestamp,
     'warehouse_name' : WarehouseName,
+    'vendor_name' : IDL.Opt(IDL.Text),
+    'vendor_id' : IDL.Opt(IDL.Text),
     'profile_key' : ProfileKey,
     'creation_date' : Timestamp,
+  });
+  const ReferralCommissionEntry = IDL.Record({
+    'month' : IDL.Text,
+    'total_commission' : IDL.Float64,
+    'customer_count' : IDL.Nat,
+    'referral_user_principal' : UserId,
+    'referral_user_display_name' : IDL.Text,
+    'profile_key' : ProfileKey,
+  });
+  const RoutingStatus = IDL.Variant({
+    'active' : IDL.Null,
+    'pending_approval' : IDL.Null,
+    'noprofile' : IDL.Null,
+    'superAdmin' : IDL.Null,
+    'profile_pending_super_admin' : IDL.Null,
   });
   const ProfileStats = IDL.Record({
     'user_count' : IDL.Nat,
@@ -782,27 +1498,63 @@ export const idlFactory = ({ IDL }) => {
     'total_profiles' : IDL.Nat,
     'profiles' : IDL.Vec(ProfileStats),
   });
+  const UserPreferences = IDL.Record({
+    'defaultReceiptLanguage' : IDL.Text,
+    'language' : IDL.Text,
+    'whatsappNumber' : IDL.Text,
+    'dateFormat' : IDL.Text,
+  });
   const InventoryMovementInput = IDL.Record({
     'from_warehouse' : WarehouseName,
     'product_id' : ProductId,
+    'is_loaned_move' : IDL.Opt(IDL.Bool),
+    'loaned_source' : IDL.Opt(IDL.Text),
     'quantity' : IDL.Nat,
     'to_warehouse' : WarehouseName,
   });
   const UpdateSaleInput = IDL.Record({
     'payment_mode' : IDL.Opt(PaymentMode),
+    'sale_note' : IDL.Opt(IDL.Text),
     'payment_status' : IDL.Opt(PaymentStatus),
     'amount_paid' : IDL.Opt(IDL.Float64),
+    'payment_due_date' : IDL.Opt(IDL.Text),
     'items' : IDL.Vec(CartItem),
     'sale_id' : SaleId,
   });
   const UserProfileInput = IDL.Record({
+    'default_receipt_language' : IDL.Opt(IDL.Text),
+    'email' : IDL.Opt(IDL.Text),
+    'approval_status' : IDL.Opt(IDL.Text),
     'display_name' : IDL.Text,
+    'module_access' : IDL.Opt(IDL.Text),
+    'language_preference' : IDL.Opt(IDL.Text),
+    'date_format' : IDL.Opt(IDL.Text),
     'warehouse_name' : WarehouseName,
     'profile_key' : ProfileKey,
   });
   
   return IDL.Service({
+    'addCustomerNote' : IDL.Func(
+        [CustomerId, CustomerNoteInput],
+        [IDL.Opt(CustomerNote)],
+        [],
+      ),
+    'addLoanerBatch' : IDL.Func(
+        [ProductId, IDL.Nat, IDL.Float64, IDL.Text],
+        [IDL.Opt(BatchId)],
+        [],
+      ),
+    'addLocationEntry' : IDL.Func([LocationMasterEntry], [IDL.Bool], []),
+    'addPaymentEntry' : IDL.Func(
+        [SaleId, IDL.Float64, IDL.Text],
+        [IDL.Bool],
+        [],
+      ),
+    'approveProfile' : IDL.Func([ProfileKey], [IDL.Bool], []),
+    'approveUser' : IDL.Func([UserId, IDL.Bool], [IDL.Bool], []),
+    'archiveLoanedBatch' : IDL.Func([BatchId], [IDL.Bool], []),
     'assignUserRole' : IDL.Func([UserId, UserRole, ProfileKey], [IDL.Bool], []),
+    'checkAndCreateNotifications' : IDL.Func([IDL.Text], [IDL.Nat], []),
     'checkCustomerDuplicate' : IDL.Func(
         [IDL.Text],
         [DuplicateCheckResult],
@@ -815,8 +1567,26 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Opt(BodyCompositionEntry)],
         [],
       ),
+    'createBodyInchesEntry' : IDL.Func(
+        [CustomerId, BodyInchesInput],
+        [BodyInchesPublic],
+        [],
+      ),
     'createCategory' : IDL.Func([CategoryInput], [CategoryId], []),
     'createCustomer' : IDL.Func([CustomerInput], [CustomerId], []),
+    'createCustomerFromSales' : IDL.Func([CustomerInput], [CustomerId], []),
+    'createGoal' : IDL.Func([GoalMasterInput], [IDL.Nat], []),
+    'createGoalMaster' : IDL.Func(
+        [ProfileKey, IDL.Text, IDL.Text],
+        [GoalMasterPublic__1],
+        [],
+      ),
+    'createMedicalIssue' : IDL.Func([MedicalIssueMasterInput], [IDL.Nat], []),
+    'createMedicalIssueMaster' : IDL.Func(
+        [ProfileKey, IDL.Text, IDL.Text],
+        [MedicalIssueMasterPublic__1],
+        [],
+      ),
     'createProduct' : IDL.Func([ProductInput], [IDL.Opt(ProductId)], []),
     'createProfile' : IDL.Func([ProfileInput], [IDL.Bool], []),
     'createPurchaseOrder' : IDL.Func(
@@ -824,12 +1594,27 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Opt(PurchaseOrderId)],
         [],
       ),
+    'createReferralUser' : IDL.Func([ProfileKey, IDL.Text], [IDL.Bool], []),
+    'createReturnOrder' : IDL.Func(
+        [SaleId, IDL.Vec(ReturnItem)],
+        [ReturnOrderResult],
+        [],
+      ),
     'createSale' : IDL.Func([SaleInput], [IDL.Opt(SaleId)], []),
+    'createVendor' : IDL.Func([VendorInput, IDL.Text], [IDL.Opt(Vendor)], []),
     'deleteBodyCompositionEntry' : IDL.Func([IDL.Text], [IDL.Bool], []),
+    'deleteBodyInchesEntry' : IDL.Func([IDL.Nat], [IDL.Bool], []),
     'deleteCategory' : IDL.Func([CategoryId], [IDL.Bool], []),
     'deleteCustomer' : IDL.Func([CustomerId], [IDL.Bool], []),
+    'deleteCustomerNote' : IDL.Func([IDL.Nat, CustomerId], [IDL.Bool], []),
+    'deleteGoal' : IDL.Func([IDL.Nat], [IDL.Bool], []),
+    'deleteGoalMaster' : IDL.Func([IDL.Nat], [IDL.Bool], []),
+    'deleteMedicalIssue' : IDL.Func([IDL.Nat], [IDL.Bool], []),
+    'deleteMedicalIssueMaster' : IDL.Func([IDL.Nat], [IDL.Bool], []),
     'deleteProduct' : IDL.Func([ProductId], [IDL.Bool], []),
     'deleteProfile' : IDL.Func([ProfileKey], [IDL.Bool], []),
+    'deleteVendor' : IDL.Func([IDL.Text], [IDL.Bool], []),
+    'doesSuperAdminExist' : IDL.Func([], [IDL.Bool], ['query']),
     'enableProfile' : IDL.Func([ProfileKey, IDL.Bool], [IDL.Bool], []),
     'getAllProfilesForAdmin' : IDL.Func(
         [],
@@ -846,7 +1631,29 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Vec(BodyCompositionEntry)],
         ['query'],
       ),
+    'getCanisterCyclesInfo' : IDL.Func(
+        [],
+        [
+          IDL.Record({
+            'per_profile_info' : IDL.Vec(
+              IDL.Record({
+                'business_name' : IDL.Text,
+                'cycles_note' : IDL.Text,
+                'profile_key' : IDL.Text,
+              })
+            ),
+            'total_cycles' : IDL.Nat,
+          }),
+        ],
+        [],
+      ),
     'getCategories' : IDL.Func([], [IDL.Vec(Category)], ['query']),
+    'getCitiesByState' : IDL.Func(
+        [IDL.Text],
+        [IDL.Vec(LocationMasterEntry)],
+        ['query'],
+      ),
+    'getCountries' : IDL.Func([], [IDL.Vec(LocationMasterEntry)], ['query']),
     'getCustomer' : IDL.Func(
         [CustomerId],
         [IDL.Opt(CustomerPublic)],
@@ -858,7 +1665,14 @@ export const idlFactory = ({ IDL }) => {
         ['query'],
       ),
     'getCustomers' : IDL.Func([], [IDL.Vec(CustomerPublic)], ['query']),
+    'getCyclesInfo' : IDL.Func([], [CyclesInfo], []),
     'getDashboardStats' : IDL.Func([], [DashboardStats], ['query']),
+    'getGoal' : IDL.Func([IDL.Nat], [IDL.Opt(GoalMasterPublic)], ['query']),
+    'getGoalMasterData' : IDL.Func(
+        [ProfileKey],
+        [IDL.Vec(GoalMasterPublic__1)],
+        ['query'],
+      ),
     'getInventoryBatches' : IDL.Func(
         [ProductId],
         [IDL.Vec(InventoryBatchPublic)],
@@ -870,9 +1684,44 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Vec(InventoryMovement)],
         ['query'],
       ),
+    'getLastSaleForCustomer' : IDL.Func(
+        [CustomerId],
+        [IDL.Opt(CustomerOrderDetail)],
+        ['query'],
+      ),
+    'getMedicalIssue' : IDL.Func(
+        [IDL.Nat],
+        [IDL.Opt(MedicalIssueMasterPublic)],
+        ['query'],
+      ),
+    'getMedicalIssueMasterData' : IDL.Func(
+        [ProfileKey],
+        [IDL.Vec(MedicalIssueMasterPublic__1)],
+        ['query'],
+      ),
     'getMonthlySalesTrend' : IDL.Func(
         [],
         [IDL.Vec(MonthlySalesTrend)],
+        ['query'],
+      ),
+    'getNotifications' : IDL.Func(
+        [IDL.Text, IDL.Text],
+        [IDL.Vec(Notification)],
+        ['query'],
+      ),
+    'getNotificationsForUser' : IDL.Func(
+        [],
+        [IDL.Vec(Notification)],
+        ['query'],
+      ),
+    'getPaymentHistory' : IDL.Func(
+        [SaleId],
+        [IDL.Vec(PaymentEntry)],
+        ['query'],
+      ),
+    'getPendingApprovalUsers' : IDL.Func(
+        [ProfileKey],
+        [IDL.Vec(UserProfilePublic)],
         ['query'],
       ),
     'getProducts' : IDL.Func([], [IDL.Vec(Product)], ['query']),
@@ -893,41 +1742,129 @@ export const idlFactory = ({ IDL }) => {
         ['query'],
       ),
     'getPurchaseOrders' : IDL.Func([], [IDL.Vec(PurchaseOrder)], ['query']),
+    'getReferralCommissionByMonth' : IDL.Func(
+        [],
+        [IDL.Vec(ReferralCommissionEntry)],
+        ['query'],
+      ),
+    'getReferralUsers' : IDL.Func(
+        [ProfileKey],
+        [IDL.Vec(UserProfilePublic)],
+        ['query'],
+      ),
+    'getRoutingStatus' : IDL.Func([], [RoutingStatus], []),
     'getSale' : IDL.Func([SaleId], [IDL.Opt(Sale)], ['query']),
     'getSaleItems' : IDL.Func([SaleId], [IDL.Vec(SaleItem)], ['query']),
+    'getSaleWithItems' : IDL.Func(
+        [SaleId],
+        [IDL.Opt(CustomerOrderDetail)],
+        ['query'],
+      ),
     'getSales' : IDL.Func([], [IDL.Vec(Sale)], ['query']),
     'getSalesByCustomer' : IDL.Func([CustomerId], [IDL.Vec(Sale)], ['query']),
+    'getStagedInventory' : IDL.Func(
+        [],
+        [IDL.Vec(InventoryBatchPublic)],
+        ['query'],
+      ),
+    'getStates' : IDL.Func([], [IDL.Vec(LocationMasterEntry)], ['query']),
+    'getSuperAdminActiveProfile' : IDL.Func(
+        [],
+        [IDL.Opt(ProfileKey)],
+        ['query'],
+      ),
     'getSuperAdminStats' : IDL.Func([], [SuperAdminStats], ['query']),
+    'getUserPreferences' : IDL.Func([], [UserPreferences], ['query']),
     'getUserProfile' : IDL.Func([], [IDL.Opt(UserProfilePublic)], ['query']),
     'getUsersByProfile' : IDL.Func(
         [ProfileKey],
         [IDL.Vec(UserProfilePublic)],
         ['query'],
       ),
+    'getVendor' : IDL.Func([IDL.Text], [IDL.Opt(Vendor)], ['query']),
+    'getVendors' : IDL.Func([IDL.Text], [IDL.Vec(Vendor)], ['query']),
     'initSuperAdmin' : IDL.Func([], [IDL.Bool], []),
     'joinProfile' : IDL.Func(
         [ProfileKey, IDL.Text, WarehouseName],
         [IDL.Bool],
         [],
       ),
+    'listBodyInchesHistory' : IDL.Func(
+        [CustomerId],
+        [IDL.Vec(BodyInchesPublic)],
+        ['query'],
+      ),
+    'listCustomerNotes' : IDL.Func(
+        [CustomerId],
+        [IDL.Vec(CustomerNote)],
+        ['query'],
+      ),
+    'listGoals' : IDL.Func([], [IDL.Vec(GoalMasterPublic)], ['query']),
+    'listMedicalIssues' : IDL.Func(
+        [],
+        [IDL.Vec(MedicalIssueMasterPublic)],
+        ['query'],
+      ),
+    'markNotificationRead' : IDL.Func([IDL.Text], [IDL.Bool], []),
     'markPurchaseOrderReceived' : IDL.Func([PurchaseOrderId], [IDL.Bool], []),
     'moveInventory' : IDL.Func(
         [InventoryMovementInput],
         [IDL.Opt(MovementId)],
         [],
       ),
+    'moveLoanerToStaff' : IDL.Func(
+        [ProductId, IDL.Nat, WarehouseName],
+        [IDL.Opt(MovementId)],
+        [],
+      ),
+    'rejectProfile' : IDL.Func([ProfileKey], [IDL.Bool], []),
+    'returnToSource' : IDL.Func([BatchId, IDL.Nat], [IDL.Opt(MovementId)], []),
+    'reviewStagedItem' : IDL.Func(
+        [BatchId, IDL.Variant({ 'reject' : IDL.Null, 'accept' : IDL.Null })],
+        [IDL.Bool],
+        [],
+      ),
+    'runBackgroundChecks' : IDL.Func([], [IDL.Nat], []),
     'setProfileWindow' : IDL.Func(
         [ProfileKey, IDL.Opt(Timestamp), IDL.Opt(Timestamp)],
         [IDL.Bool],
         [],
       ),
+    'setSuperAdminActiveProfile' : IDL.Func([ProfileKey], [IDL.Bool], []),
     'updateCategory' : IDL.Func([CategoryId, CategoryInput], [IDL.Bool], []),
     'updateCustomer' : IDL.Func([CustomerId, CustomerInput], [IDL.Bool], []),
+    'updateGoal' : IDL.Func([IDL.Nat, GoalMasterInput], [IDL.Bool], []),
+    'updateGoalMaster' : IDL.Func(
+        [IDL.Nat, IDL.Text, IDL.Text, IDL.Vec(ProductId)],
+        [IDL.Bool],
+        [],
+      ),
+    'updateMedicalIssue' : IDL.Func(
+        [IDL.Nat, MedicalIssueMasterInput],
+        [IDL.Bool],
+        [],
+      ),
+    'updateMedicalIssueMaster' : IDL.Func(
+        [IDL.Nat, IDL.Text, IDL.Text],
+        [IDL.Bool],
+        [],
+      ),
+    'updatePaymentStatus' : IDL.Func(
+        [SaleId, PaymentStatus, IDL.Opt(IDL.Float64), IDL.Opt(IDL.Text)],
+        [IDL.Bool],
+        [],
+      ),
     'updateProduct' : IDL.Func([ProductId, ProductInput], [IDL.Bool], []),
     'updateProfile' : IDL.Func([ProfileInput], [IDL.Bool], []),
     'updateProfileKey' : IDL.Func([ProfileKey, ProfileKey], [IDL.Bool], []),
     'updateSale' : IDL.Func([UpdateSaleInput], [IDL.Bool], []),
+    'updateUserPreferences' : IDL.Func(
+        [IDL.Text, IDL.Text, IDL.Text, IDL.Text],
+        [IDL.Bool],
+        [],
+      ),
     'updateUserProfile' : IDL.Func([UserProfileInput], [IDL.Bool], []),
+    'updateVendor' : IDL.Func([IDL.Text, VendorInput], [IDL.Bool], []),
   });
 };
 

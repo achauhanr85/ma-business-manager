@@ -93,6 +93,8 @@ module {
       earn_base = input.earn_base;
       mrp = input.mrp;
       hsn_code = input.hsn_code;
+      instructions = input.instructions;
+      serving_size = input.serving_size;
       profile_key = profileKey;
       owner = caller;
       // Who-columns
@@ -127,6 +129,8 @@ module {
           earn_base = input.earn_base;
           mrp = input.mrp;
           hsn_code = input.hsn_code;
+          instructions = input.instructions;
+          serving_size = input.serving_size;
           // Who-columns: update last_updated_by and last_update_date
           last_updated_by = caller;
           last_update_date = Time.now();

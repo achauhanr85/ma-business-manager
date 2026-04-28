@@ -9,6 +9,7 @@ import InventoryTypes "../types/inventory";
 import SalesTypes "../types/sales";
 import PurchaseTypes "../types/purchases";
 import CustomerTypes "../types/customers";
+import NotificationsLib "notifications";
 
 module {
   public type Store = Map.Map<Common.ProfileKey, ProfileTypes.Profile>;
@@ -29,11 +30,13 @@ module {
       logo_url = p.logo_url;
       theme_color = p.theme_color;
       receipt_notes = p.receipt_notes;
+      instagram_handle = p.instagram_handle;
       created_at = p.created_at;
       is_archived = p.is_archived;
       is_enabled = p.is_enabled;
       start_date = p.start_date;
       end_date = p.end_date;
+      profile_approval_status = p.profile_approval_status;
     };
   };
 
@@ -56,12 +59,22 @@ module {
 
   public func checkProfileAccess(store : Store, userStore : UserStore, caller : Common.UserId) : { #ok; #err : ProfileTypes.ProfileAccessError } {
     let profileKey = switch (userStore.get(caller)) {
-      case (?up) up.profile_key;
+      case (?up) {
+        // Super Admin bypasses all profile access checks — they manage profiles, not subject to them
+        if (up.role == #superAdmin) return #ok;
+        up.profile_key
+      };
       case null Runtime.trap("Caller has no profile");
     };
     let profile = switch (store.get(profileKey)) {
       case (?p) p;
       case null Runtime.trap("Profile not found: " # profileKey);
+    };
+    // Check approval status first
+    switch (profile.profile_approval_status) {
+      case (#pending_super_admin_approval) return #err(#PendingSuperAdminApproval);
+      case (#suspended) return #err(#ProfileSuspended);
+      case (#approved) {};
     };
     if (not profile.is_enabled) return #err(#ProfileDisabled);
     let now = Time.now();
@@ -113,6 +126,7 @@ module {
           is_within_window = windowOpen and windowNotExpired;
           start_date = p.start_date;
           end_date = p.end_date;
+          profile_approval_status = p.profile_approval_status;
         }
       };
       case null null;
@@ -138,7 +152,13 @@ module {
           role = up.role;
           warehouse_name = up.warehouse_name;
           display_name = up.display_name;
+          email = up.email;
           joined_at = up.joined_at;
+          approval_status = up.approval_status;
+          module_access = up.module_access;
+          language_preference = up.language_preference;
+          date_format = up.date_format;
+          default_receipt_language = up.default_receipt_language;
         }
       })
       .toArray()
@@ -157,7 +177,13 @@ module {
           role = up.role;
           warehouse_name = up.warehouse_name;
           display_name = up.display_name;
+          email = up.email;
           joined_at = up.joined_at;
+          approval_status = up.approval_status;
+          module_access = up.module_access;
+          language_preference = up.language_preference;
+          date_format = up.date_format;
+          default_receipt_language = up.default_receipt_language;
         }
       })
       .toArray()
@@ -191,8 +217,10 @@ module {
 
   // ── Write operations ──────────────────────────────────────────────────────────
 
-  /// Create a new profile; traps if the profile_key already exists; caller becomes #admin
-  public func createProfile(store : Store, userStore : UserStore, caller : Common.UserId, input : ProfileTypes.ProfileInput) : Bool {
+  /// Create a new profile; traps if the profile_key already exists; caller becomes #admin.
+  /// New profiles start with profile_approval_status = #pending_super_admin_approval.
+  /// A #NewProfilePendingApproval notification is created for Super Admin.
+  public func createProfile(store : Store, userStore : UserStore, notificationsStore : NotificationsLib.Store, caller : Common.UserId, input : ProfileTypes.ProfileInput) : Bool {
     switch (store.get(input.profile_key)) {
       case (?_) false; // profile_key already taken
       case null {
@@ -208,12 +236,15 @@ module {
           logo_url = input.logo_url;
           theme_color = input.theme_color;
           receipt_notes = input.receipt_notes;
+          instagram_handle = input.instagram_handle;
           created_at = now;
           is_archived = false;
           // Profiles start enabled with no window restrictions
           is_enabled = true;
           start_date = null;
           end_date = null;
+          // New profiles require Super Admin approval before becoming active
+          profile_approval_status = #pending_super_admin_approval;
           // Who-columns
           created_by = caller;
           last_updated_by = caller;
@@ -227,7 +258,15 @@ module {
           role = #admin;
           warehouse_name = "Main";
           display_name = input.business_name;
+          email = null;
           joined_at = now;
+          // Profile creator is immediately approved as Admin
+          approval_status = ?"approved";
+          module_access = null;
+          // User preferences — default to English / DD/MM/YYYY
+          language_preference = "en";
+          date_format = "DD/MM/YYYY";
+          default_receipt_language = "en";
           // Who-columns
           created_by = caller;
           last_updated_by = caller;
@@ -235,13 +274,23 @@ module {
           last_update_date = now;
         };
         userStore.add(caller, up);
+        // Notify Super Admin that a new profile is pending approval
+        let _ = NotificationsLib.createNotification(
+          notificationsStore,
+          "superadmin",
+          "NewProfilePendingApproval",
+          "New business profile '" # input.business_name # "' (key: " # input.profile_key # ") is pending Super Admin approval.",
+          ?input.profile_key,
+          "superAdmin",
+        );
         true
       };
     }
   };
 
-  /// Join an existing profile by profile_key; assigns #staff role
-  public func joinProfile(store : Store, userStore : UserStore, caller : Common.UserId, profile_key : Common.ProfileKey, display_name : Text, warehouse_name : Common.WarehouseName) : Bool {
+  /// Join an existing profile by profile_key; assigns #staff role with pending approval.
+  /// Sends a #StaffPendingApproval notification to Admin.
+  public func joinProfile(store : Store, userStore : UserStore, notificationsStore : NotificationsLib.Store, caller : Common.UserId, profile_key : Common.ProfileKey, display_name : Text, warehouse_name : Common.WarehouseName) : Bool {
     switch (store.get(profile_key)) {
       case null false; // profile_key does not exist
       case (?_) {
@@ -252,7 +301,15 @@ module {
           role = #staff;
           warehouse_name;
           display_name;
+          email = null;
           joined_at = now;
+          // Staff members start as pending until approved by Admin
+          approval_status = ?"pending";
+          module_access = null;
+          // User preferences — default to English / DD/MM/YYYY
+          language_preference = "en";
+          date_format = "DD/MM/YYYY";
+          default_receipt_language = "en";
           // Who-columns
           created_by = caller;
           last_updated_by = caller;
@@ -260,6 +317,55 @@ module {
           last_update_date = now;
         };
         userStore.add(caller, up);
+        // Notify Admin that a new staff member is pending approval
+        let _ = NotificationsLib.createNotification(
+          notificationsStore,
+          profile_key,
+          "StaffPendingApproval",
+          "New staff member '" # display_name # "' has joined and is awaiting Admin approval.",
+          ?(caller.toText()),
+          "admin",
+        );
+        true
+      };
+    }
+  };
+
+  /// Create a referral user in an existing profile; assigns #referralUser role with pending approval.
+  /// Sends a #ReferralUserPendingApproval notification to Admin.
+  public func createReferralUser(store : Store, userStore : UserStore, notificationsStore : NotificationsLib.Store, caller : Common.UserId, profile_key : Common.ProfileKey, display_name : Text) : Bool {
+    switch (store.get(profile_key)) {
+      case null false;
+      case (?_) {
+        let now = Time.now();
+        let up : UserTypes.UserProfile = {
+          principal = caller;
+          profile_key;
+          role = #referralUser;
+          warehouse_name = "";
+          display_name;
+          email = null;
+          joined_at = now;
+          approval_status = ?"pending";
+          module_access = null;
+          language_preference = "en";
+          date_format = "DD/MM/YYYY";
+          default_receipt_language = "en";
+          created_by = caller;
+          last_updated_by = caller;
+          creation_date = now;
+          last_update_date = now;
+        };
+        userStore.add(caller, up);
+        // Notify Admin that a new referral user is pending approval
+        let _ = NotificationsLib.createNotification(
+          notificationsStore,
+          profile_key,
+          "ReferralUserPendingApproval",
+          "New referral user '" # display_name # "' has been created and is awaiting Admin approval.",
+          ?(caller.toText()),
+          "admin",
+        );
         true
       };
     }
@@ -292,6 +398,7 @@ module {
               logo_url = input.logo_url;
               theme_color = input.theme_color;
               receipt_notes = input.receipt_notes;
+              instagram_handle = input.instagram_handle;
               last_updated_by = caller;
               last_update_date = Time.now();
             };
@@ -513,9 +620,152 @@ module {
         role = up.role;
         warehouse_name = up.warehouse_name;
         display_name = up.display_name;
+        email = up.email;
         joined_at = up.joined_at;
+        approval_status = up.approval_status;
+        module_access = up.module_access;
+        language_preference = up.language_preference;
+        date_format = up.date_format;
+        default_receipt_language = up.default_receipt_language;
       };
       case null null;
+    }
+  };
+
+  // ── Routing status helpers ────────────────────────────────────────────────────
+
+  /// Returns the routing status for a caller — used by the frontend to decide
+  /// which screen to show on login without any ambiguity.
+  ///   #noprofile        — brand-new user, no profile assigned yet → onboarding
+  ///   #pending_approval — user has a profile but is awaiting Admin approval → waiting screen
+  ///   #profile_pending_super_admin — profile exists but Super Admin hasn't approved it yet
+  ///   #active           — user is good to go → normal routing
+  ///   #superAdmin       — caller is Super Admin → SA dashboard
+  public type RoutingStatus = {
+    #noprofile;
+    #pending_approval;
+    #profile_pending_super_admin;
+    #active;
+    #superAdmin;
+  };
+
+  public func getRoutingStatus(
+    store : Store,
+    userStore : UserStore,
+    notificationsStore : NotificationsLib.Store,
+    caller : Common.UserId,
+  ) : RoutingStatus {
+    switch (userStore.get(caller)) {
+      case null {
+        // Brand-new user: write welcome notification and return #noprofile
+        let _ = NotificationsLib.createWelcomeNotification(notificationsStore, caller);
+        #noprofile
+      };
+      case (?up) {
+        // Super Admin always bypasses every gate
+        if (up.role == #superAdmin) return #superAdmin;
+        // No profile assigned (shouldn't happen for registered users, but guard it)
+        if (up.profile_key == "") return #noprofile;
+        // Check individual approval status
+        let userApproved = switch (up.approval_status) {
+          case (?"approved") true;
+          case _ false;
+        };
+        if (not userApproved) return #pending_approval;
+        // Check profile-level approval
+        switch (store.get(up.profile_key)) {
+          case null return #noprofile; // profile was deleted
+          case (?profile) {
+            switch (profile.profile_approval_status) {
+              case (#pending_super_admin_approval) return #profile_pending_super_admin;
+              case (#suspended) return #pending_approval;
+              case (#approved) {};
+            };
+          };
+        };
+        #active
+      };
+    }
+  };
+
+  // ── User preferences ──────────────────────────────────────────────────────────
+
+  /// Returns user preferences for a given principal — fast query, called before first render.
+  /// Returns defaults when user is not found (anonymous / brand-new user).
+  public func getUserPreferences(userStore : UserStore, caller : Common.UserId) : UserTypes.UserPreferences {
+    switch (userStore.get(caller)) {
+      case (?up) {
+        {
+          language = up.language_preference;
+          dateFormat = up.date_format;
+          defaultReceiptLanguage = up.default_receipt_language;
+          whatsappNumber = switch (up.email) { case (?e) e; case null "" };
+        }
+      };
+      case null {
+        { language = "en"; dateFormat = "DD/MM/YYYY"; defaultReceiptLanguage = "en"; whatsappNumber = "" }
+      };
+    }
+  };
+
+  /// Updates user preferences — always succeeds (creates entry if missing).
+  public func updateUserPreferences(
+    userStore : UserStore,
+    caller : Common.UserId,
+    language : Text,
+    dateFormat : Text,
+    defaultReceiptLanguage : Text,
+    whatsappNumber : Text,
+  ) : Bool {
+    let now = Time.now();
+    switch (userStore.get(caller)) {
+      case null false; // user must exist before preferences can be updated
+      case (?existing) {
+        userStore.add(caller, {
+          existing with
+          language_preference = language;
+          date_format = dateFormat;
+          default_receipt_language = defaultReceiptLanguage;
+          email = if (whatsappNumber == "") existing.email else ?whatsappNumber;
+          last_updated_by = caller;
+          last_update_date = now;
+        });
+        true
+      };
+    }
+  };
+
+  // ── Super Admin active profile context ───────────────────────────────────────
+
+  /// Returns the profile_key currently active for Super Admin context.
+  /// Super Admin can have an optional impersonated profile_key stored in a separate
+  /// mechanism; here we return the profile_key stored in the Super Admin's UserProfile,
+  /// which the frontend sets via setSuperAdminActiveProfile().
+  public func getSuperAdminActiveProfile(userStore : UserStore, caller : Common.UserId) : ?Common.ProfileKey {
+    switch (userStore.get(caller)) {
+      case (?up) {
+        if (up.role != #superAdmin) return null;
+        if (up.profile_key == "") null else ?up.profile_key
+      };
+      case null null;
+    }
+  };
+
+  /// Sets the active profile_key for Super Admin impersonation context.
+  /// Only applicable to Super Admin principals.
+  public func setSuperAdminActiveProfile(userStore : UserStore, caller : Common.UserId, profile_key : Common.ProfileKey) : Bool {
+    switch (userStore.get(caller)) {
+      case null false;
+      case (?up) {
+        if (up.role != #superAdmin) return false;
+        userStore.add(caller, {
+          up with
+          profile_key;
+          last_updated_by = caller;
+          last_update_date = Time.now();
+        });
+        true
+      };
     }
   };
 
@@ -535,5 +785,111 @@ module {
         true
       };
     }
+  };
+
+  /// Returns all UserProfile entries for the profile where approval_status = "pending" — Admin/SuperAdmin only.
+  public func getPendingApprovalUsers(userStore : UserStore, caller : Common.UserId, profileKey : Common.ProfileKey) : [UserTypes.UserProfilePublic] {
+    switch (userStore.get(caller)) {
+      case null return [];
+      case (?up) {
+        if (up.role != #admin and up.role != #superAdmin) return [];
+      };
+    };
+    userStore.entries()
+      .filter(func((_k, up) : (Common.UserId, UserTypes.UserProfile)) : Bool {
+        up.profile_key == profileKey and up.approval_status == ?"pending"
+      })
+      .map(func((_k, up) : (Common.UserId, UserTypes.UserProfile)) : UserTypes.UserProfilePublic {
+        {
+          principal = up.principal;
+          profile_key = up.profile_key;
+          role = up.role;
+          warehouse_name = up.warehouse_name;
+          display_name = up.display_name;
+          email = up.email;
+          joined_at = up.joined_at;
+          approval_status = up.approval_status;
+          module_access = up.module_access;
+          language_preference = up.language_preference;
+          date_format = up.date_format;
+          default_receipt_language = up.default_receipt_language;
+        }
+      })
+      .toArray()
+  };
+
+  /// Approve or reject a pending user — Admin or SuperAdmin only.
+  /// Sets approval_status to "approved" or "rejected".
+  /// Works for both #staff and #referralUser roles.
+  public func approveUser(userStore : UserStore, caller : Common.UserId, userId : Common.UserId, approved : Bool) : Bool {
+    let callerRole = switch (userStore.get(caller)) {
+      case null return false;
+      case (?up) up.role;
+    };
+    if (callerRole != #admin and callerRole != #superAdmin) return false;
+
+    switch (userStore.get(userId)) {
+      case null false;
+      case (?existing) {
+        let newStatus = if (approved) "approved" else "rejected";
+        userStore.add(userId, {
+          existing with
+          approval_status = ?newStatus;
+          last_updated_by = caller;
+          last_update_date = Time.now();
+        });
+        true
+      };
+    }
+  };
+
+  /// Approve or reject a profile — Super Admin only.
+  /// approved=true → #approved; approved=false → #suspended.
+  public func approveProfile(store : Store, userStore : UserStore, caller : Common.UserId, profile_key : Common.ProfileKey, approved : Bool) : Bool {
+    switch (userStore.get(caller)) {
+      case (?up) {
+        if (up.role != #superAdmin) return false;
+      };
+      case null return false;
+    };
+    switch (store.get(profile_key)) {
+      case null false;
+      case (?existing) {
+        let newStatus : ProfileTypes.ProfileApprovalStatus = if (approved) #approved else #suspended;
+        store.add(profile_key, {
+          existing with
+          profile_approval_status = newStatus;
+          last_updated_by = caller;
+          last_update_date = Time.now();
+        });
+        true
+      };
+    }
+  };
+
+  /// Returns all users with role #referralUser for a given profile.
+  /// Used to populate the "Referred By" dropdown on the customer form.
+  public func getReferralUsers(userStore : UserStore, profile_key : Common.ProfileKey) : [UserTypes.UserProfilePublic] {
+    userStore.entries()
+      .filter(func((_k, up) : (Common.UserId, UserTypes.UserProfile)) : Bool {
+        up.profile_key == profile_key and up.role == #referralUser
+      })
+      .map(func((_k, up) : (Common.UserId, UserTypes.UserProfile)) : UserTypes.UserProfilePublic {
+        {
+          principal = up.principal;
+          profile_key = up.profile_key;
+          role = up.role;
+          warehouse_name = up.warehouse_name;
+          display_name = up.display_name;
+          email = up.email;
+          joined_at = up.joined_at;
+          approval_status = up.approval_status;
+          module_access = up.module_access;
+          language_preference = up.language_preference;
+          date_format = up.date_format;
+          default_receipt_language = up.default_receipt_language;
+        }
+      })
+      .toArray()
   };
 };

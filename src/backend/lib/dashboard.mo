@@ -7,6 +7,7 @@ import SalesTypes "../types/sales";
 import InventoryTypes "../types/inventory";
 import ProfileTypes "../types/profile";
 import UserTypes "../types/users";
+import CustomerTypes "../types/customers";
 
 module {
   // Nanoseconds in a month (approx 30 days): 30 * 24 * 60 * 60 * 1_000_000_000
@@ -22,6 +23,7 @@ module {
   public func getDashboardStats(
     saleStore : Map.Map<Common.SaleId, SalesTypes.Sale>,
     batchStore : Map.Map<Common.BatchId, InventoryTypes.InventoryBatch>,
+    customerStore : Map.Map<Common.CustomerId, CustomerTypes.Customer>,
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
     caller : Common.UserId,
   ) : DashboardTypes.DashboardStats {
@@ -60,11 +62,28 @@ module {
     let recentSales = if (sorted.size() <= 10) sorted
       else sorted.sliceToArray(0, 10);
 
+    // Customer status counts scoped to this profile
+    var leadCount : Nat = 0;
+    var activeCount : Nat = 0;
+    var inactiveCount : Nat = 0;
+    for ((_id, customer) in customerStore.entries()) {
+      if (customer.profile_key == profileKey) {
+        switch (customer.customer_type) {
+          case (#lead) { leadCount += 1 };
+          case (#active) { activeCount += 1 };
+          case (#inactive) { inactiveCount += 1 };
+        };
+      };
+    };
+
     {
       monthly_volume_points = monthlyVP;
       monthly_profit = monthlyProfit;
       total_inventory_value = totalInventoryValue;
       recent_sales = recentSales;
+      lead_count = leadCount;
+      active_count = activeCount;
+      inactive_count = inactiveCount;
     }
   };
 

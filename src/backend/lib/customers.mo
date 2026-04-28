@@ -34,6 +34,23 @@ module {
       notes = c.notes;
       date_of_birth = c.date_of_birth;
       gender = c.gender;
+      height = c.height;
+      age = c.age;
+      address_line1 = c.address_line1;
+      address_line2 = c.address_line2;
+      state = c.state;
+      city = c.city;
+      country = c.country;
+      pin_code = c.pin_code;
+      customer_created_by = c.customer_created_by;
+      referred_by = c.referred_by;
+      referral_commission_amount = c.referral_commission_amount;
+      customer_type = c.customer_type;
+      lead_follow_up_date = c.lead_follow_up_date;
+      lead_notes = c.lead_notes;
+      primary_goal_ids = c.primary_goal_ids;
+      medical_issue_ids = c.medical_issue_ids;
+      lead_to_active_datetime = c.lead_to_active_datetime;
     }
   };
 
@@ -98,6 +115,46 @@ module {
   ) : Common.CustomerId {
     let profileKey = callerProfileKey(userStore, caller);
     let now = Time.now();
+    let callerText = caller.toText();
+    // customer_created_by: use provided value if present, otherwise null (frontend shows caller)
+    let effectiveCreatedBy : ?Common.UserId = switch (input.customer_created_by) {
+      case (?p) ?p;
+      case null null;
+    };
+    // Build initial notes array: support structured notes input
+    let initialNotes : [CustomerTypes.CustomerNote] = switch (input.notes) {
+      case (?noteInputs) {
+        var noteId : Nat = 1;
+        noteInputs.map<CustomerTypes.CustomerNoteInput, CustomerTypes.CustomerNote>(func(ni) {
+          let n : CustomerTypes.CustomerNote = {
+            id = noteId;
+            text = ni.text;
+            note_date = ni.note_date;
+            created_by = callerText;
+            creation_date = now;
+          };
+          noteId += 1;
+          n
+        })
+      };
+      case null {
+        // Legacy single-note compat
+        switch (input.note) {
+          case (?n) [{
+            id = 1;
+            text = n;
+            note_date = now;
+            created_by = callerText;
+            creation_date = now;
+          }];
+          case null [];
+        }
+      };
+    };
+    let customerType = switch (input.customer_type) {
+      case (?ct) ct;
+      case null #lead;
+    };
     let customer : CustomerTypes.Customer = {
       id = nextId;
       profile_key = profileKey;
@@ -111,12 +168,26 @@ module {
       lifetime_revenue = 0.0;
       discount_applicable = input.discount_applicable;
       discount_value = input.discount_value;
-      notes = switch (input.note) {
-        case (?n) [n];
-        case null [];
-      };
+      notes = initialNotes;
       date_of_birth = input.date_of_birth;
       gender = input.gender;
+      height = input.height;
+      age = input.age;
+      address_line1 = input.address_line1;
+      address_line2 = input.address_line2;
+      state = input.state;
+      city = input.city;
+      country = input.country;
+      pin_code = input.pin_code;
+      customer_created_by = effectiveCreatedBy;
+      referred_by = input.referred_by;
+      referral_commission_amount = input.referral_commission_amount;
+      customer_type = customerType;
+      lead_follow_up_date = input.lead_follow_up_date;
+      lead_notes = input.lead_notes;
+      primary_goal_ids = switch (input.primary_goal_ids) { case (?ids) ids; case null [] };
+      medical_issue_ids = switch (input.medical_issue_ids) { case (?ids) ids; case null [] };
+      lead_to_active_datetime = input.lead_to_active_datetime;
       // Who-columns: auto-populated from caller principal and current time
       created_by = caller;
       last_updated_by = caller;
@@ -136,22 +207,46 @@ module {
   ) : Bool {
     let profileKey = callerProfileKey(userStore, caller);
     // Allow #admin, #staff, and #superAdmin to update customers
-    switch (userStore.get(caller)) {
-      case (?up) {
-        if (up.role != #admin and up.role != #staff and up.role != #superAdmin) return false;
-      };
+    let callerRole = switch (userStore.get(caller)) {
+      case (?up) up.role;
       case null return false;
     };
+    if (callerRole != #admin and callerRole != #staff and callerRole != #superAdmin) return false;
     switch (store.get(id)) {
       case null false;
       case (?existing) {
         if (existing.profile_key != profileKey) return false;
-        // Append note if provided — notes array grows over time (append-only)
+        // Append legacy single-note if provided — notes array grows over time (append-only via this path)
         let updatedNotes = switch (input.note) {
-          case (?n) existing.notes.concat([n]);
+          case (?n) {
+            let now = Time.now();
+            let newNote : CustomerTypes.CustomerNote = {
+              id = existing.notes.size() + 1;
+              text = n;
+              note_date = now;
+              created_by = caller.toText();
+              creation_date = now;
+            };
+            existing.notes.concat([newNote])
+          };
           case null existing.notes;
         };
         let now = Time.now();
+        // Admin/Staff may update customer_created_by
+        let updatedCreatedBy : ?Common.UserId = switch (input.customer_created_by) {
+          case (?p) ?p;
+          case null existing.customer_created_by;
+        };
+        // Determine new customer_type
+        let newCustomerType = switch (input.customer_type) {
+          case (?ct) ct;
+          case null existing.customer_type;
+        };
+        // Track lead → active transition datetime
+        let newLeadToActiveDatetime : ?Common.Timestamp = switch (existing.customer_type, newCustomerType) {
+          case (#lead, #active) ?now;  // Transition happened now
+          case _ existing.lead_to_active_datetime; // Preserve existing value
+        };
         store.add(id, {
           existing with
           name = input.name;
@@ -163,6 +258,23 @@ module {
           notes = updatedNotes;
           date_of_birth = input.date_of_birth;
           gender = input.gender;
+          height = input.height;
+          age = input.age;
+          address_line1 = input.address_line1;
+          address_line2 = input.address_line2;
+          state = input.state;
+          city = input.city;
+          country = input.country;
+          pin_code = input.pin_code;
+          customer_created_by = updatedCreatedBy;
+          referred_by = input.referred_by;
+          referral_commission_amount = input.referral_commission_amount;
+          customer_type = newCustomerType;
+          lead_follow_up_date = input.lead_follow_up_date;
+          lead_notes = input.lead_notes;
+          primary_goal_ids = switch (input.primary_goal_ids) { case (?ids) ids; case null existing.primary_goal_ids };
+          medical_issue_ids = switch (input.medical_issue_ids) { case (?ids) ids; case null existing.medical_issue_ids };
+          lead_to_active_datetime = newLeadToActiveDatetime;
           // Who-columns: last_updated_by and last_update_date updated; created_by and creation_date preserved
           last_updated_by = caller;
           last_update_date = now;
@@ -184,16 +296,53 @@ module {
     }
   };
 
-  /// Called after a sale completes — bumps total_sales by saleCountDelta, updates lifetime_revenue by revenueDelta.
+  /// Updates only the customer_type field on a customer record.
+  /// Used internally by the notification background job (silent inactivity updates).
+  /// Does NOT require a caller — operates directly on the store with profileKey guard.
+  public func updateCustomerType(store : CustomerStore, customerId : Common.CustomerId, profileKey : Common.ProfileKey, newType : { #lead; #active; #inactive }) : Bool {
+    switch (store.get(customerId)) {
+      case null false;
+      case (?existing) {
+        if (existing.profile_key != profileKey) return false;
+        let now = Time.now();
+        // Track lead → active transition datetime
+        let newLeadToActiveDatetime : ?Common.Timestamp = switch (existing.customer_type, newType) {
+          case (#lead, #active) ?now;
+          case _ existing.lead_to_active_datetime;
+        };
+        store.add(customerId, {
+          existing with
+          customer_type = newType;
+          lead_to_active_datetime = newLeadToActiveDatetime;
+          last_update_date = now;
+        });
+        true
+      };
+    }
+  };
+
+  /// Called after a sale completes — bumps total_sales by 1, updates lifetime_revenue and last_purchase_at.
+  /// Also promotes #lead customers to #active when a sale is made.
   public func recordSale(store : CustomerStore, id : Common.CustomerId, revenue : Float, timestamp : Common.Timestamp) {
     switch (store.get(id)) {
       case null {};
       case (?existing) {
+        // Promote lead to active when a sale is made
+        let newType = switch (existing.customer_type) {
+          case (#lead) #active;
+          case other other;
+        };
+        let newLeadToActiveDatetime : ?Common.Timestamp = switch (existing.customer_type, newType) {
+          case (#lead, #active) ?timestamp;
+          case _ existing.lead_to_active_datetime;
+        };
         store.add(id, {
           existing with
           total_sales = existing.total_sales + 1;
           last_purchase_at = timestamp;
           lifetime_revenue = existing.lifetime_revenue + revenue;
+          customer_type = newType;
+          lead_to_active_datetime = newLeadToActiveDatetime;
           last_update_date = timestamp;
         });
       };
@@ -210,6 +359,69 @@ module {
           lifetime_revenue = existing.lifetime_revenue + revenueDelta;
           last_update_date = timestamp;
         });
+      };
+    }
+  };
+
+  // ── Customer Notes ─────────────────────────────────────────────────────────────
+
+  /// Append a new structured note to a customer's notes array.
+  /// Returns the updated customer or null if not found / not in profile.
+  public func addCustomerNote(
+    store : CustomerStore,
+    userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
+    caller : Common.UserId,
+    customerId : Common.CustomerId,
+    text : Text,
+    noteDate : Common.Timestamp,
+  ) : ?CustomerTypes.CustomerPublic {
+    let profileKey = callerProfileKey(userStore, caller);
+    switch (store.get(customerId)) {
+      case null null;
+      case (?existing) {
+        if (existing.profile_key != profileKey) return null;
+        let now = Time.now();
+        let newNote : CustomerTypes.CustomerNote = {
+          id = existing.notes.size() + 1;
+          text;
+          note_date = noteDate;
+          created_by = caller.toText();
+          creation_date = now;
+        };
+        let updatedCustomer : CustomerTypes.Customer = {
+          existing with
+          notes = existing.notes.concat([newNote]);
+          last_updated_by = caller;
+          last_update_date = now;
+        };
+        store.add(customerId, updatedCustomer);
+        ?toPublic(updatedCustomer)
+      };
+    }
+  };
+
+  /// Delete a note by its id from a customer's notes array.
+  public func deleteCustomerNote(
+    store : CustomerStore,
+    userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
+    caller : Common.UserId,
+    customerId : Common.CustomerId,
+    noteId : Nat,
+  ) : Bool {
+    let profileKey = callerProfileKey(userStore, caller);
+    switch (store.get(customerId)) {
+      case null false;
+      case (?existing) {
+        if (existing.profile_key != profileKey) return false;
+        let updatedNotes = existing.notes.filter(func(n : CustomerTypes.CustomerNote) : Bool { n.id != noteId });
+        let now = Time.now();
+        store.add(customerId, {
+          existing with
+          notes = updatedNotes;
+          last_updated_by = caller;
+          last_update_date = now;
+        });
+        true
       };
     }
   };

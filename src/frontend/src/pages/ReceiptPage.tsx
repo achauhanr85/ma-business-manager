@@ -1,12 +1,31 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useGetProfile, useGetSaleItems } from "@/hooks/useBackend";
+import { useProfile } from "@/contexts/ProfileContext";
+import { useUserPreferences } from "@/contexts/UserPreferencesContext";
+import {
+  useGetBodyCompositionHistory,
+  useGetBodyInchesHistory,
+  useGetCustomer,
+  useGetProfile,
+  useGetSaleItems,
+  useGetUsersByProfile,
+} from "@/hooks/useBackend";
+import type { BodyInchesEntry } from "@/hooks/useBackend";
 import { useActor } from "@caffeineai/core-infrastructure";
 import { ArrowLeft, Download, MessageCircle, Printer } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createActor } from "../backend";
+import type { BodyCompositionEntry } from "../backend";
 import type { Sale, SaleItem } from "../types";
 
 interface ReceiptPageProps {
@@ -14,28 +33,24 @@ interface ReceiptPageProps {
   onNavigate: (path: string, saleId?: bigint) => void;
 }
 
-function formatTimestamp(ts: bigint): string {
-  const ms = Number(ts / BigInt(1_000_000));
-  const d = new Date(ms);
-  return d.toLocaleString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+/** Strip HTML tags for safe plain-text fallback */
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]*>/g, "").trim();
 }
 
 function buildWhatsAppText(
   sale: Sale,
   items: SaleItem[],
   businessName: string,
+  formatDateFn: (d: bigint) => string,
+  sellerName?: string,
 ): string {
   const header = `*${businessName} — Receipt*\n`;
-  const date = `Date: ${formatTimestamp(sale.timestamp)}\n`;
+  const date = `Date: ${formatDateFn(sale.timestamp)}\n`;
   const customer = sale.customer_name
-    ? `Customer: ${sale.customer_name}\n\n`
-    : "\n";
+    ? `Customer: ${sale.customer_name}\n`
+    : "";
+  const sold = sellerName ? `Sold by: ${sellerName}\n\n` : "\n";
   const itemLines = items
     .map(
       (item) =>
@@ -47,23 +62,217 @@ function buildWhatsAppText(
   const discountLine =
     discountApplied > 0 ? `\nDiscount: -₹${discountApplied.toFixed(2)}` : "";
   const totals = `\n\n*Grand Total: ₹${sale.total_revenue.toFixed(2)}*${discountLine}`;
-  return encodeURIComponent(header + date + customer + itemLines + totals);
+  const saleNoteVal = (sale as Sale & { sale_note?: string }).sale_note;
+  const noteLine = saleNoteVal ? `\n\nNote: ${saleNoteVal}` : "";
+  return encodeURIComponent(
+    header + date + customer + sold + itemLines + totals + noteLine,
+  );
 }
 
-/** Strip HTML tags for safe plain-text fallback */
-function stripHtml(html: string): string {
-  return html.replace(/<[^>]*>/g, "").trim();
+// ─── Body Composition Table ───────────────────────────────────────────────────
+
+function BodyCompositionTable({
+  entries,
+  formatDate,
+}: {
+  entries: BodyCompositionEntry[];
+  formatDate: (d: Date | bigint | number | string) => string;
+}) {
+  if (entries.length === 0) return null;
+
+  const sorted = [...entries].sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+  );
+
+  return (
+    <div className="space-y-2" data-ocid="receipt.body_composition.section">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Body Composition History
+      </p>
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="bg-muted/40 border-b border-border">
+              {[
+                "Date",
+                "Wt (kg)",
+                "Fat %",
+                "Visc.",
+                "BMR",
+                "BMI",
+                "Age",
+                "Trunk%",
+                "Muscle",
+              ].map((h) => (
+                <th
+                  key={h}
+                  className="px-2 py-1.5 text-center font-medium text-muted-foreground whitespace-nowrap"
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((entry, idx) => (
+              <tr
+                key={entry.id}
+                className={`border-b border-border/50 ${idx % 2 === 0 ? "" : "bg-muted/20"}`}
+                data-ocid={`receipt.body_comp.${idx + 1}`}
+              >
+                <td className="px-2 py-1.5 text-center font-mono whitespace-nowrap">
+                  {formatDate(entry.date)}
+                </td>
+                <td className="px-2 py-1.5 text-center tabular-nums">
+                  {entry.weight != null ? entry.weight.toFixed(1) : "—"}
+                </td>
+                <td className="px-2 py-1.5 text-center tabular-nums">
+                  {entry.body_fat != null ? entry.body_fat.toFixed(1) : "—"}
+                </td>
+                <td className="px-2 py-1.5 text-center tabular-nums">
+                  {entry.visceral_fat != null
+                    ? entry.visceral_fat.toFixed(0)
+                    : "—"}
+                </td>
+                <td className="px-2 py-1.5 text-center tabular-nums">
+                  {entry.bmr != null ? entry.bmr.toFixed(0) : "—"}
+                </td>
+                <td className="px-2 py-1.5 text-center tabular-nums">
+                  {entry.bmi != null ? entry.bmi.toFixed(1) : "—"}
+                </td>
+                <td className="px-2 py-1.5 text-center tabular-nums">
+                  {entry.body_age != null ? String(entry.body_age) : "—"}
+                </td>
+                <td className="px-2 py-1.5 text-center tabular-nums">
+                  {entry.trunk_fat != null ? entry.trunk_fat.toFixed(1) : "—"}
+                </td>
+                <td className="px-2 py-1.5 text-center tabular-nums">
+                  {entry.muscle_mass != null
+                    ? entry.muscle_mass.toFixed(1)
+                    : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 }
+
+// ─── Body Inches Table ────────────────────────────────────────────────────────
+
+function BodyInchesTable({
+  entries,
+  formatDate,
+}: {
+  entries: BodyInchesEntry[];
+  formatDate: (d: Date | bigint | number | string) => string;
+}) {
+  if (entries.length === 0) return null;
+
+  const sorted = [...entries].sort((a, b) =>
+    Number(b.entry_date - a.entry_date),
+  );
+
+  const cols = [
+    "Date",
+    "Chest",
+    "Biceps",
+    "Waist",
+    "Hips",
+    "Thighs",
+    "Calves",
+  ] as const;
+  type InchesKey = Exclude<
+    keyof BodyInchesEntry,
+    | "id"
+    | "customer_id"
+    | "profile_key"
+    | "entry_date"
+    | "created_by"
+    | "creation_date"
+  >;
+  const fields: InchesKey[] = [
+    "chest",
+    "biceps",
+    "waist",
+    "hips",
+    "thighs",
+    "calves",
+  ];
+
+  return (
+    <div className="space-y-2" data-ocid="receipt.body_inches.section">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Body Inches History
+      </p>
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="bg-muted/40 border-b border-border">
+              {cols.map((h) => (
+                <th
+                  key={h}
+                  className="px-2 py-1.5 text-center font-medium text-muted-foreground whitespace-nowrap"
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((entry, idx) => (
+              <tr
+                key={String(entry.id)}
+                className={`border-b border-border/50 ${idx % 2 === 0 ? "" : "bg-muted/20"}`}
+                data-ocid={`receipt.body_inches.${idx + 1}`}
+              >
+                <td className="px-2 py-1.5 text-center font-mono whitespace-nowrap">
+                  {formatDate(entry.entry_date)}
+                </td>
+                {fields.map((field) => (
+                  <td
+                    key={field}
+                    className="px-2 py-1.5 text-center tabular-nums"
+                  >
+                    {entry[field] != null
+                      ? `${(entry[field] as number).toFixed(1)}"`
+                      : "—"}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── Receipt Page ─────────────────────────────────────────────────────────────
 
 export function ReceiptPage({ saleId, onNavigate }: ReceiptPageProps) {
   const { actor } = useActor(createActor);
   const [sale, setSale] = useState<Sale | null>(null);
   const [loadingSale, setLoadingSale] = useState(true);
+  const { formatDate, defaultReceiptLanguage } = useUserPreferences();
+  const [receiptLang, setReceiptLang] = useState<string>(
+    defaultReceiptLanguage,
+  );
+
+  // Sync default receipt language when preferences load
+  useEffect(() => {
+    setReceiptLang(defaultReceiptLanguage);
+  }, [defaultReceiptLanguage]);
 
   const { data: saleItems = [], isLoading: loadingItems } =
     useGetSaleItems(saleId);
   const { data: profile } = useGetProfile();
+  const { userProfile } = useProfile();
+  const profileKey = userProfile?.profile_key ?? profile?.profile_key ?? "";
 
+  // Load sale data
   useEffect(() => {
     if (!actor || !saleId) {
       setLoadingSale(false);
@@ -76,7 +285,32 @@ export function ReceiptPage({ saleId, onNavigate }: ReceiptPageProps) {
       .finally(() => setLoadingSale(false));
   }, [actor, saleId]);
 
-  const businessName = profile?.business_name || "MA Herb";
+  const customerId = sale?.customer_id ?? null;
+  const { data: bodyCompHistory = [] } =
+    useGetBodyCompositionHistory(customerId);
+  const { data: bodyInchesHistory = [] } = useGetBodyInchesHistory(
+    customerId,
+    profileKey,
+  );
+  const { data: customer } = useGetCustomer(customerId);
+
+  // Fetch profile users to resolve sold_by name
+  const { data: profileUsers = [] } = useGetUsersByProfile(profileKey || null);
+  const soldByRaw = (sale as (Sale & { sold_by?: string }) | null)?.sold_by;
+  const sellerUser = soldByRaw
+    ? profileUsers.find((u) => {
+        const uid =
+          typeof u.principal?.toText === "function"
+            ? u.principal.toText()
+            : String(u.principal);
+        return uid === soldByRaw;
+      })
+    : null;
+  const sellerName =
+    sellerUser?.display_name ??
+    (soldByRaw ? `${soldByRaw.slice(0, 10)}…` : null);
+
+  const businessName = profile?.business_name || "Indi Negocio Livre";
   const isLoading = loadingSale || loadingItems;
 
   const discountApplied =
@@ -89,8 +323,19 @@ export function ReceiptPage({ saleId, onNavigate }: ReceiptPageProps) {
 
   const handleWhatsApp = () => {
     if (!sale) return;
-    const text = buildWhatsAppText(sale, saleItems, businessName);
-    window.open(`https://wa.me/?text=${text}`, "_blank", "noopener,noreferrer");
+    // Use customer phone if available, else open generic
+    const phone = customer?.phone?.replace(/\D/g, "") ?? "";
+    const text = buildWhatsAppText(
+      sale,
+      saleItems,
+      businessName,
+      formatDate,
+      sellerName ?? undefined,
+    );
+    const url = phone
+      ? `https://wa.me/${phone}?text=${text}`
+      : `https://wa.me/?text=${text}`;
+    window.open(url, "_blank", "noopener,noreferrer");
   };
 
   if (!saleId) {
@@ -127,6 +372,31 @@ export function ReceiptPage({ saleId, onNavigate }: ReceiptPageProps) {
           <ArrowLeft className="w-4 h-4 mr-2" />
           Back to Sales
         </Button>
+
+        {/* Receipt language selector */}
+        <div className="flex items-center gap-2">
+          <Label className="text-xs text-muted-foreground">Language:</Label>
+          <Select value={receiptLang} onValueChange={setReceiptLang}>
+            <SelectTrigger
+              className="h-8 text-xs w-28"
+              data-ocid="receipt.language_select"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="en" className="text-xs">
+                English
+              </SelectItem>
+              <SelectItem value="gu" className="text-xs">
+                Gujarati
+              </SelectItem>
+              <SelectItem value="hi" className="text-xs">
+                Hindi
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
         <div className="flex gap-2">
           <Button
             variant="outline"
@@ -153,7 +423,7 @@ export function ReceiptPage({ saleId, onNavigate }: ReceiptPageProps) {
 
       {/* Receipt Card */}
       <Card className="card-elevated print:shadow-none print:border-none">
-        <CardContent className="p-6 space-y-5">
+        <CardContent className="p-5 space-y-4">
           {isLoading ? (
             <div className="space-y-3">
               <Skeleton className="h-8 w-48" />
@@ -171,92 +441,139 @@ export function ReceiptPage({ saleId, onNavigate }: ReceiptPageProps) {
             </div>
           ) : (
             <>
-              {/* Header */}
-              <div className="text-center space-y-1">
-                <div className="flex items-center justify-center gap-2 mb-2">
-                  <span className="text-2xl">🌿</span>
-                  <h1 className="text-2xl font-bold text-foreground font-display">
+              {/* ── HEADER ROW: Business info left, Logo right ─────────────── */}
+              <div className="flex items-start justify-between gap-4">
+                {/* Business info — left */}
+                <div className="space-y-0.5 min-w-0">
+                  <h1 className="text-lg font-bold text-foreground font-display leading-tight">
                     {businessName}
                   </h1>
+                  {profile?.business_address && (
+                    <p className="text-xs text-muted-foreground">
+                      {profile.business_address}
+                    </p>
+                  )}
+                  {profile?.phone_number && (
+                    <p className="text-xs text-muted-foreground">
+                      📞 {profile.phone_number}
+                    </p>
+                  )}
+                  {profile?.email && (
+                    <p className="text-xs text-muted-foreground">
+                      ✉ {profile.email}
+                    </p>
+                  )}
+                  {profile?.fssai_number && (
+                    <p className="text-xs text-muted-foreground">
+                      FSSAI: {profile.fssai_number}
+                    </p>
+                  )}
+                  {(profile as typeof profile & { instagram_handle?: string })
+                    ?.instagram_handle && (
+                    <p className="text-xs text-muted-foreground">
+                      📸 @
+                      {
+                        (
+                          profile as typeof profile & {
+                            instagram_handle?: string;
+                          }
+                        ).instagram_handle
+                      }
+                    </p>
+                  )}
                 </div>
-                {profile?.fssai_number && (
-                  <p className="text-xs text-muted-foreground">
-                    FSSAI: {profile.fssai_number}
-                  </p>
-                )}
-                {profile?.business_address && (
-                  <p className="text-xs text-muted-foreground">
-                    {profile.business_address}
-                  </p>
-                )}
-                {profile?.phone_number && (
-                  <p className="text-xs text-muted-foreground">
-                    📞 {profile.phone_number}
-                  </p>
-                )}
-                {profile?.email && (
-                  <p className="text-xs text-muted-foreground">
-                    ✉ {profile.email}
-                  </p>
+                {/* Logo — right */}
+                {profile?.logo_url ? (
+                  <img
+                    src={profile.logo_url}
+                    alt={`${businessName} logo`}
+                    className="h-14 max-w-[100px] object-contain flex-shrink-0"
+                  />
+                ) : (
+                  <span className="text-3xl flex-shrink-0">🌿</span>
                 )}
               </div>
 
               <Separator />
 
-              {/* Sale Meta + Customer */}
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                  <div>
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                      Receipt ID
-                    </p>
-                    <p className="font-mono font-medium">
-                      #{sale.id.toString().padStart(6, "0")}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                      Date &amp; Time
-                    </p>
-                    <p className="font-medium">
-                      {formatTimestamp(sale.timestamp)}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Customer name */}
-                {sale.customer_name && (
-                  <div
-                    className="flex items-center gap-2 rounded-md bg-muted/40 border border-border px-3 py-2"
-                    data-ocid="receipt.customer.section"
-                  >
-                    <span className="text-xs text-muted-foreground uppercase tracking-wide w-20 flex-shrink-0">
-                      Customer
-                    </span>
-                    <span className="text-sm font-semibold text-foreground">
+              {/* ── SUB-HEADER ROW: Customer left, Receipt meta right ──────── */}
+              <div
+                className="flex flex-wrap items-start justify-between gap-3"
+                data-ocid="receipt.meta.section"
+              >
+                {/* Customer info — left */}
+                <div
+                  className="space-y-0.5 min-w-0"
+                  data-ocid="receipt.customer.section"
+                >
+                  {sale.customer_name && (
+                    <p className="text-sm font-semibold text-foreground">
                       {sale.customer_name}
-                    </span>
-                  </div>
-                )}
+                    </p>
+                  )}
+                  {customer?.phone && (
+                    <p className="text-xs text-muted-foreground">
+                      {customer.phone}
+                    </p>
+                  )}
+                  {customer?.address && (
+                    <p className="text-xs text-muted-foreground max-w-[200px]">
+                      {customer.address}
+                    </p>
+                  )}
+                  {sellerName && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Sold by:{" "}
+                      <span className="font-medium text-foreground">
+                        {sellerName}
+                      </span>
+                    </p>
+                  )}
+                </div>
+                {/* Receipt meta — right */}
+                <div className="text-right space-y-0.5">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">
+                    Receipt
+                  </p>
+                  <p className="font-mono font-semibold text-sm">
+                    #{sale.id.toString().padStart(6, "0")}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {formatDate(sale.timestamp)}
+                  </p>
+                  {sale.payment_status && (
+                    <p className="text-xs font-medium capitalize">
+                      {String(sale.payment_status).replace("_", " ")}
+                      {sale.payment_mode
+                        ? ` · ${String(sale.payment_mode)}`
+                        : ""}
+                    </p>
+                  )}
+                  {sale.payment_due_date && (
+                    <p className="text-xs text-destructive">
+                      Due: {sale.payment_due_date}
+                    </p>
+                  )}
+                </div>
               </div>
 
               <Separator />
 
-              {/* Items Table */}
+              {/* ── ITEM GRID ──────────────────────────────────────────────── */}
               <div data-ocid="receipt.items.table">
-                <table className="w-full text-sm">
+                <table className="w-full text-xs">
                   <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left py-2 text-muted-foreground font-medium text-xs uppercase tracking-wide">
-                        Product
+                    <tr className="border-b border-border bg-muted/30">
+                      <th className="text-left py-1.5 px-1 text-muted-foreground font-medium uppercase tracking-wide">
+                        Item
                       </th>
-                      <th className="text-right py-2 text-muted-foreground font-medium text-xs uppercase tracking-wide">
+                      <th className="text-right py-1.5 px-1 text-muted-foreground font-medium uppercase tracking-wide w-10">
                         Qty
                       </th>
-                      <th className="text-right py-2 text-muted-foreground font-medium text-xs uppercase tracking-wide">
+                      <th className="text-right py-1.5 px-1 text-muted-foreground font-medium uppercase tracking-wide w-16">
                         Price
                       </th>
-                      <th className="text-right py-2 text-muted-foreground font-medium text-xs uppercase tracking-wide">
+                      <th className="text-right py-1.5 px-1 text-muted-foreground font-medium uppercase tracking-wide w-16">
                         Total
                       </th>
                     </tr>
@@ -265,24 +582,26 @@ export function ReceiptPage({ saleId, onNavigate }: ReceiptPageProps) {
                     {saleItems.map((item, idx) => (
                       <tr
                         key={`${item.sale_id}-${item.product_id}`}
-                        className="border-b border-border/50"
+                        className="border-b border-border/40"
                         data-ocid={`receipt.item.${idx + 1}`}
                       >
-                        <td className="py-2.5">
-                          <p className="font-medium">
+                        <td className="py-1.5 px-1">
+                          <p className="font-medium leading-tight">
                             {item.product_name_snapshot}
                           </p>
-                          <p className="text-xs text-muted-foreground">
-                            MRP: ₹{item.mrp_snapshot.toFixed(2)}
-                          </p>
+                          {item.product_instructions && (
+                            <p className="text-muted-foreground leading-tight mt-0.5 text-xs">
+                              {item.product_instructions}
+                            </p>
+                          )}
                         </td>
-                        <td className="py-2.5 text-right tabular-nums">
+                        <td className="py-1.5 px-1 text-right tabular-nums">
                           {item.quantity.toString()}
                         </td>
-                        <td className="py-2.5 text-right tabular-nums">
+                        <td className="py-1.5 px-1 text-right tabular-nums">
                           ₹{item.actual_sale_price.toFixed(2)}
                         </td>
-                        <td className="py-2.5 text-right tabular-nums font-medium">
+                        <td className="py-1.5 px-1 text-right tabular-nums font-medium">
                           ₹
                           {(
                             Number(item.quantity) * item.actual_sale_price
@@ -294,11 +613,9 @@ export function ReceiptPage({ saleId, onNavigate }: ReceiptPageProps) {
                 </table>
               </div>
 
-              <Separator />
-
               {/* Totals */}
-              <div className="space-y-2" data-ocid="receipt.totals.section">
-                <div className="flex justify-between text-sm">
+              <div className="space-y-1" data-ocid="receipt.totals.section">
+                <div className="flex justify-between text-xs">
                   <span className="text-muted-foreground">Subtotal</span>
                   <span className="font-medium text-foreground">
                     ₹{(sale.total_revenue + discountApplied).toFixed(2)}
@@ -306,7 +623,7 @@ export function ReceiptPage({ saleId, onNavigate }: ReceiptPageProps) {
                 </div>
                 {discountApplied > 0 && (
                   <div
-                    className="flex justify-between text-sm"
+                    className="flex justify-between text-xs"
                     data-ocid="receipt.discount.section"
                   >
                     <span className="text-primary">Discount Applied</span>
@@ -315,46 +632,134 @@ export function ReceiptPage({ saleId, onNavigate }: ReceiptPageProps) {
                     </span>
                   </div>
                 )}
-                <div className="flex justify-between text-base font-bold mt-1 pt-1 border-t border-border">
+                <div className="flex justify-between text-sm font-bold mt-1 pt-1 border-t border-border">
                   <span>Grand Total</span>
                   <span className="text-primary">
                     ₹{sale.total_revenue.toFixed(2)}
                   </span>
                 </div>
+                {sale.amount_paid != null && (
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Amount Paid</span>
+                    <span>₹{sale.amount_paid.toFixed(2)}</span>
+                  </div>
+                )}
+                {sale.balance_due != null && sale.balance_due > 0 && (
+                  <div className="flex justify-between text-xs font-medium text-destructive">
+                    <span>Balance Due</span>
+                    <span>₹{sale.balance_due.toFixed(2)}</span>
+                  </div>
+                )}
               </div>
 
-              {/* Customer Information (receipt_notes) */}
+              <Separator />
+
+              {/* ── THREE NOTES SECTIONS ───────────────────────────────────── */}
+
+              {/* 1. Business Note */}
               {profile?.receipt_notes &&
                 stripHtml(profile.receipt_notes).length > 0 && (
-                  <>
-                    <Separator />
+                  <div
+                    className="space-y-1"
+                    data-ocid="receipt.business_note.section"
+                  >
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Business Note
+                    </p>
                     <div
-                      className="space-y-2"
-                      data-ocid="receipt.customer_info.section"
-                    >
-                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Customer Information
-                      </p>
-                      <div
-                        className="text-sm text-foreground prose prose-sm max-w-none receipt-notes-html"
-                        ref={(el) => {
-                          if (el && profile?.receipt_notes) {
-                            el.innerHTML = profile.receipt_notes;
-                          }
-                        }}
-                      />
-                    </div>
-                  </>
+                      className="text-xs text-foreground prose prose-sm max-w-none receipt-notes-html"
+                      ref={(el) => {
+                        if (el && profile?.receipt_notes) {
+                          el.innerHTML = profile.receipt_notes;
+                        }
+                      }}
+                    />
+                  </div>
                 )}
+
+              {/* 2. Sales Note */}
+              {(sale as Sale & { sale_note?: string }).sale_note && (
+                <div
+                  className="space-y-1"
+                  data-ocid="receipt.sale_note.section"
+                >
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Sales Note
+                  </p>
+                  <p className="text-xs text-foreground">
+                    {(sale as Sale & { sale_note?: string }).sale_note}
+                  </p>
+                </div>
+              )}
+
+              {/* 3. Customer Notes */}
+              {customer?.notes && customer.notes.length > 0 && (
+                <div
+                  className="space-y-1"
+                  data-ocid="receipt.customer_notes.section"
+                >
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Customer Notes
+                  </p>
+                  <ul className="space-y-0.5">
+                    {customer.notes.map((note, idx) => (
+                      <li
+                        key={`note-${note.text.slice(0, 20)}-${idx}`}
+                        className="text-xs text-foreground flex items-start gap-1.5"
+                      >
+                        <span className="text-muted-foreground mt-0.5 flex-shrink-0">
+                          •
+                        </span>
+                        <span className="break-words">{note.text}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* ── BODY COMPOSITION HISTORY ──────────────────────────────── */}
+              {bodyCompHistory.length > 0 && (
+                <>
+                  <Separator />
+                  <BodyCompositionTable
+                    entries={bodyCompHistory}
+                    formatDate={formatDate}
+                  />
+                </>
+              )}
+
+              {/* ── BODY INCHES HISTORY ───────────────────────────────────── */}
+              {bodyInchesHistory.length > 0 && (
+                <>
+                  <Separator />
+                  <BodyInchesTable
+                    entries={bodyInchesHistory}
+                    formatDate={formatDate}
+                  />
+                </>
+              )}
 
               <Separator />
 
               {/* Footer */}
-              <div className="text-center text-xs text-muted-foreground space-y-1">
+              <div className="text-center text-xs text-muted-foreground space-y-0.5">
                 <p className="font-medium text-foreground">
                   Thank you for your purchase!
                 </p>
                 <p>This is a computer-generated receipt</p>
+                {(profile as typeof profile & { instagram_handle?: string })
+                  ?.instagram_handle && (
+                  <p>
+                    Follow us: @
+                    {
+                      (
+                        profile as typeof profile & {
+                          instagram_handle?: string;
+                        }
+                      ).instagram_handle
+                    }
+                  </p>
+                )}
               </div>
             </>
           )}

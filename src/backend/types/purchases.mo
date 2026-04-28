@@ -40,6 +40,11 @@ module {
     warehouse_name : Common.WarehouseName;
     owner : Common.UserId;
 
+    // PO number — user-enterable or auto-generated with "PO-" prefix
+    po_number : ?Text;                   // e.g. "PO-0001" or user-defined
+    vendor_id : ?Text;                   // Reference to Vendor record id
+    vendor_name : ?Text;                 // Snapshot of vendor name at PO creation
+
     // Who-columns
     created_by : Common.UserId;
     last_updated_by : Common.UserId;
@@ -52,5 +57,8 @@ module {
     vendor : Text;
     warehouse_name : Common.WarehouseName;
     items : [PurchaseOrderItemInput];
+    po_number : ?Text;                   // Optional user-entered PO number; auto-generated if null
+    vendor_id : ?Text;                   // Optional reference to a Vendor record
+    vendor_name : ?Text;                 // Optional snapshot of vendor name
   };
 };

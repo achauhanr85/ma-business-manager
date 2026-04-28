@@ -14,6 +14,7 @@ mixin (
   userStore : ProfileLib.UserStore,
 ) {
   var nextCustomerId : Nat = 1;
+  var nextCustomerNoteId : Nat = 1;
 
   public shared query ({ caller }) func getCustomers() : async [CustomerTypes.CustomerPublic] {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
@@ -35,9 +36,31 @@ mixin (
     CustomersLib.checkDuplicate(customerStore, profileKey, name)
   };
 
+  /// Standard customer creation.
+  /// If caller is a #referralUser, customer_type is forced to #lead regardless of input.
   public shared ({ caller }) func createCustomer(input : CustomerTypes.CustomerInput) : async Common.CustomerId {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
-    let id = CustomersLib.createCustomer(customerStore, userStore, caller, nextCustomerId, input);
+    let callerRole = switch (userStore.get(caller)) {
+      case (?up) up.role;
+      case null Runtime.trap("Caller has no profile");
+    };
+    // Referral users always create leads
+    let effectiveInput = if (callerRole == #referralUser) {
+      { input with customer_type = ?#lead }
+    } else {
+      input
+    };
+    let id = CustomersLib.createCustomer(customerStore, userStore, caller, nextCustomerId, effectiveInput);
+    nextCustomerId += 1;
+    id
+  };
+
+  /// Creates a customer from the Sales page quick-add flow.
+  /// customer_type is always forced to #active for sales-page additions.
+  public shared ({ caller }) func createCustomerFromSales(input : CustomerTypes.CustomerInput) : async Common.CustomerId {
+    if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
+    let effectiveInput = { input with customer_type = ?#active };
+    let id = CustomersLib.createCustomer(customerStore, userStore, caller, nextCustomerId, effectiveInput);
     nextCustomerId += 1;
     id
   };

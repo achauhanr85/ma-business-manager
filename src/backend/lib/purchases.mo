@@ -34,6 +34,9 @@ module {
       profile_key = up.profile_key;
       warehouse_name = input.warehouse_name;
       owner = caller;
+      po_number = input.po_number;
+      vendor_id = input.vendor_id;
+      vendor_name = input.vendor_name;
       // Who-columns
       created_by = caller;
       last_updated_by = caller;

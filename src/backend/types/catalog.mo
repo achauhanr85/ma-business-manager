@@ -35,6 +35,10 @@ module {
     profile_key : Common.ProfileKey;
     owner : Common.UserId;
 
+    // Product-specific content
+    instructions : ?Text;                // Usage/preparation instructions for the product
+    serving_size : ?Text;                // e.g. "2 scoops (30g)" or "1 tablet"
+
     // Who-columns
     created_by : Common.UserId;
     last_updated_by : Common.UserId;
@@ -51,5 +55,7 @@ module {
     earn_base : Float;
     mrp : Float;
     hsn_code : Text;
+    instructions : ?Text;                // Product-specific instructions
+    serving_size : ?Text;                // Serving size / count
   };
 };

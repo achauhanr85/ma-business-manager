@@ -1,3 +1,4 @@
+import { HelpPanel } from "@/components/HelpPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +12,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -21,6 +27,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useImpersonation } from "@/contexts/ImpersonationContext";
+import type { ImpersonationRole } from "@/contexts/ImpersonationContext";
 import { useProfile } from "@/contexts/ProfileContext";
 import {
   useAssignUserRole,
@@ -29,6 +36,7 @@ import {
   useEnableProfile,
   useGetAllProfilesForAdmin,
   useGetAllUsersForAdmin,
+  useGetCanisterCyclesInfo,
   useGetSuperAdminStats,
   useGetUsersByProfile,
   useInitSuperAdmin,
@@ -49,9 +57,11 @@ import {
   Archive,
   Building2,
   Calendar,
+  CheckCircle2,
   ChevronDown,
   ChevronUp,
   HardDrive,
+  HelpCircle,
   Info,
   Key,
   Lock,
@@ -66,6 +76,8 @@ import {
   Users,
   Waypoints,
   X,
+  XCircle,
+  Zap,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -176,6 +188,15 @@ const STATUS_CONFIG: Record<
     className: "",
   },
 };
+
+function formatCycles(cycles: bigint | null | undefined): string {
+  if (cycles == null) return "—";
+  const n = Number(cycles);
+  if (n >= 1_000_000_000_000) return `${(n / 1_000_000_000_000).toFixed(2)} T`;
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)} B`;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)} M`;
+  return n.toLocaleString();
+}
 
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
 
@@ -331,6 +352,7 @@ function CreateProfileModal({ open, onClose }: CreateProfileModalProps) {
         receipt_notes: "",
         theme_color: form.theme_color,
         profile_key: form.profile_key.trim(),
+        instagram_handle: "",
       });
       toast.success(`Profile "${form.business_name}" created successfully.`);
       onClose();
@@ -564,6 +586,7 @@ interface ProfileEditForm {
   logo_url: string;
   theme_color: string;
   receipt_notes: string;
+  instagram_handle: string;
   start_date: string;
   end_date: string;
   profile_key_edit: string;
@@ -580,6 +603,7 @@ function SelectedProfilePanel({
   const updateProfileKey = useUpdateProfileKey();
   const deleteProfile = useDeleteProfile();
   const setProfileWindow = useSetProfileWindow();
+  const { startImpersonation } = useImpersonation();
 
   const [form, setForm] = useState<ProfileEditForm>({
     business_name: profile.business_name ?? "",
@@ -591,6 +615,8 @@ function SelectedProfilePanel({
     logo_url: (ext as { logo_url?: string }).logo_url ?? "",
     theme_color: (ext as { theme_color?: string }).theme_color ?? "#16a34a",
     receipt_notes: (ext as { receipt_notes?: string }).receipt_notes ?? "",
+    instagram_handle:
+      (ext as { instagram_handle?: string }).instagram_handle ?? "",
     start_date: msToDateInput(ext.start_date ?? null),
     end_date: msToDateInput(ext.end_date ?? null),
     profile_key_edit: profile.profile_key,
@@ -614,6 +640,8 @@ function SelectedProfilePanel({
       logo_url: (extP as { logo_url?: string }).logo_url ?? "",
       theme_color: (extP as { theme_color?: string }).theme_color ?? "#16a34a",
       receipt_notes: (extP as { receipt_notes?: string }).receipt_notes ?? "",
+      instagram_handle:
+        (extP as { instagram_handle?: string }).instagram_handle ?? "",
       start_date: msToDateInput(extP.start_date ?? null),
       end_date: msToDateInput(extP.end_date ?? null),
       profile_key_edit: profile.profile_key,
@@ -642,6 +670,9 @@ function SelectedProfilePanel({
     }
     setIsSaving(true);
     try {
+      // Pass the SELECTED profile's profile_key in the input so the backend
+      // can identify which profile to update. The backend updateProfile reads
+      // the input.profile_key when the caller is superAdmin.
       const success = await updateProfile.mutateAsync({
         business_name: form.business_name.trim(),
         phone_number: form.phone_number.trim(),
@@ -651,9 +682,12 @@ function SelectedProfilePanel({
         logo_url: form.logo_url.trim(),
         theme_color: form.theme_color,
         receipt_notes: form.receipt_notes,
+        instagram_handle: form.instagram_handle.trim(),
         profile_key: profile.profile_key,
       });
-      // Also update the active window if dates are set
+      // Always attempt to update the active window — backend handles this
+      // via setProfileWindow which uses the explicit profileKey parameter
+      // (not the caller's stored profile_key), so it works for Super Admin.
       if (form.start_date || form.end_date) {
         await setProfileWindow.mutateAsync({
           profileKey: profile.profile_key,
@@ -665,7 +699,9 @@ function SelectedProfilePanel({
         toast.success("Profile updated successfully.");
         await onRefresh();
       } else {
-        toast.error("Profile update was rejected by the server.");
+        toast.error(
+          "Profile update rejected. If this persists, try impersonating as Admin for this profile to save business details.",
+        );
       }
     } catch {
       toast.error("Failed to save profile.");
@@ -761,6 +797,27 @@ function SelectedProfilePanel({
           >
             {statusCfg.label}
           </Badge>
+          {/* Quick impersonate as Admin to allow profile edits */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs gap-1 hidden sm:flex"
+            onClick={() => {
+              startImpersonation(
+                profile.profile_key,
+                profile.business_name,
+                "admin",
+              );
+              toast.info(
+                `Impersonating as Admin for "${profile.business_name}". Go to Profile page to edit details.`,
+              );
+            }}
+            aria-label="Impersonate as Admin to edit profile"
+            data-ocid="super_admin.selected_profile.impersonate_admin_button"
+          >
+            <Waypoints className="w-3 h-3" />
+            Edit as Admin
+          </Button>
           <Button
             variant="ghost"
             size="icon"
@@ -1195,6 +1252,7 @@ function ProfileListRow({
   const [endInput, setEndInput] = useState(msToDateInput(endDateNs));
   const [isSavingWindow, setIsSavingWindow] = useState(false);
   const [showUsers, setShowUsers] = useState(false);
+  const [impersonatePopoverOpen, setImpersonatePopoverOpen] = useState(false);
 
   const status = getProfileStatus(profile);
   const statusCfg = STATUS_CONFIG[status];
@@ -1231,13 +1289,15 @@ function ProfileListRow({
     }
   };
 
-  const handleImpersonate = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    startImpersonation(profile.profile_key, profile.business_name);
-    toast.success(
-      `Now viewing as Staff for "${profile.business_name}". Use the banner at the top to exit.`,
-    );
-  };
+  const handleImpersonateAs =
+    (role: ImpersonationRole) => (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setImpersonatePopoverOpen(false);
+      startImpersonation(profile.profile_key, profile.business_name, role);
+      toast.success(
+        `Now viewing as ${role === "admin" ? "Admin" : "Staff"} for "${profile.business_name}". Use the banner to exit.`,
+      );
+    };
 
   return (
     <div
@@ -1302,20 +1362,56 @@ function ProfileListRow({
 
         {/* Action buttons + Expand toggle — stopPropagation handled per element */}
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-7 text-xs gap-1.5 hidden sm:flex"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleImpersonate(e);
-            }}
-            data-ocid={`super_admin.profile_impersonate.${index + 1}`}
+          {/* Impersonate — role selector popover */}
+          <Popover
+            open={impersonatePopoverOpen}
+            onOpenChange={setImpersonatePopoverOpen}
           >
-            <Waypoints className="w-3 h-3" />
-            View as Staff
-          </Button>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs gap-1.5 hidden sm:flex"
+                onClick={(e) => e.stopPropagation()}
+                data-ocid={`super_admin.profile_impersonate.${index + 1}`}
+              >
+                <Waypoints className="w-3 h-3" />
+                View As
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              className="w-44 p-2"
+              align="end"
+              onClick={(e) => e.stopPropagation()}
+              data-ocid={`super_admin.profile_impersonate_popover.${index + 1}`}
+            >
+              <p className="text-xs font-medium text-muted-foreground mb-2 px-1">
+                Impersonate as…
+              </p>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start text-xs h-8 gap-2"
+                onClick={handleImpersonateAs("admin")}
+                data-ocid={`super_admin.profile_impersonate_admin.${index + 1}`}
+              >
+                <Shield className="w-3 h-3 text-primary" />
+                Admin
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start text-xs h-8 gap-2"
+                onClick={handleImpersonateAs("staff")}
+                data-ocid={`super_admin.profile_impersonate_staff.${index + 1}`}
+              >
+                <UserCog className="w-3 h-3 text-muted-foreground" />
+                Staff
+              </Button>
+            </PopoverContent>
+          </Popover>
+
           <span
             role="presentation"
             onClick={(e) => {
@@ -1341,18 +1437,29 @@ function ProfileListRow({
         </div>
       </button>
 
-      {/* Mobile impersonate button */}
-      <div className="sm:hidden px-4 pb-2">
+      {/* Mobile impersonate — role picker */}
+      <div className="sm:hidden px-4 pb-2 flex gap-2">
         <Button
           type="button"
           size="sm"
           variant="outline"
-          className="w-full h-8 text-xs gap-1.5"
-          onClick={handleImpersonate}
-          data-ocid={`super_admin.profile_impersonate_mobile.${index + 1}`}
+          className="flex-1 h-8 text-xs gap-1.5"
+          onClick={handleImpersonateAs("admin")}
+          data-ocid={`super_admin.profile_impersonate_admin_mobile.${index + 1}`}
+        >
+          <Shield className="w-3 h-3" />
+          Admin View
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="flex-1 h-8 text-xs gap-1.5"
+          onClick={handleImpersonateAs("staff")}
+          data-ocid={`super_admin.profile_impersonate_staff_mobile.${index + 1}`}
         >
           <Waypoints className="w-3 h-3" />
-          View as Staff
+          Staff View
         </Button>
       </div>
 
@@ -1520,6 +1627,163 @@ function ProfileListRow({
         </div>
       )}
     </div>
+  );
+}
+
+// ─── Pending Profile Approval Section ────────────────────────────────────────
+
+interface PendingProfileApprovalSectionProps {
+  profiles: (ProfileStats | ProfileStatsExtended)[];
+  onRefresh: () => Promise<void>;
+}
+
+function PendingProfileApprovalSection({
+  profiles,
+  onRefresh,
+}: PendingProfileApprovalSectionProps) {
+  const enableProfile = useEnableProfile();
+  const deleteProfile = useDeleteProfile();
+  const [approvingKey, setApprovingKey] = useState<string | null>(null);
+  const [rejectingKey, setRejectingKey] = useState<string | null>(null);
+
+  // Show pending profiles — those with is_enabled === false
+  const pendingProfiles = profiles.filter((p) => {
+    const ext = p as ProfileStatsExtended;
+    return "is_enabled" in ext && !ext.is_enabled;
+  });
+
+  if (pendingProfiles.length === 0) return null;
+
+  const handleApprove = async (
+    profile: ProfileStats | ProfileStatsExtended,
+  ) => {
+    setApprovingKey(profile.profile_key);
+    try {
+      const ok = await enableProfile.mutateAsync({
+        profileKey: profile.profile_key,
+        enabled: true,
+      });
+      if (ok) {
+        toast.success(
+          `Profile "${profile.business_name}" approved and activated.`,
+        );
+        await onRefresh();
+      } else {
+        toast.error("Failed to approve profile.");
+      }
+    } catch {
+      toast.error("Failed to approve profile.");
+    } finally {
+      setApprovingKey(null);
+    }
+  };
+
+  const handleReject = async (profile: ProfileStats | ProfileStatsExtended) => {
+    setRejectingKey(profile.profile_key);
+    try {
+      const ok = await deleteProfile.mutateAsync(profile.profile_key);
+      if (ok) {
+        toast.success(
+          `Profile "${profile.business_name}" rejected and removed.`,
+        );
+        await onRefresh();
+      } else {
+        toast.error("Failed to reject profile.");
+      }
+    } catch {
+      toast.error("Failed to reject profile.");
+    } finally {
+      setRejectingKey(null);
+    }
+  };
+
+  return (
+    <Card
+      className="card-elevated border-amber-300/50 bg-amber-50/30 dark:bg-amber-950/10 dark:border-amber-800/30"
+      data-ocid="super_admin.pending_approvals_card"
+    >
+      <CardHeader className="pb-3 border-b border-amber-200/50 dark:border-amber-800/30">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-md bg-amber-500/15 flex items-center justify-center">
+            <AlertTriangle className="w-4 h-4 text-amber-600" />
+          </div>
+          <div>
+            <CardTitle className="text-base font-semibold text-foreground">
+              Pending Profile Approvals
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {pendingProfiles.length} new profile
+              {pendingProfiles.length !== 1 ? "s" : ""} awaiting approval
+            </p>
+          </div>
+          <Badge className="ml-auto text-xs bg-amber-500/15 text-amber-700 border-amber-400/30 dark:text-amber-400">
+            {pendingProfiles.length} pending
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-4 space-y-3">
+        {pendingProfiles.map((profile, idx) => {
+          const ext = profile as ProfileStatsExtended;
+          const isApproving = approvingKey === profile.profile_key;
+          const isRejecting = rejectingKey === profile.profile_key;
+          return (
+            <div
+              key={profile.profile_key}
+              className="flex items-center gap-3 p-3 rounded-lg border border-amber-200/60 bg-card dark:border-amber-800/30"
+              data-ocid={`super_admin.pending_profile.item.${idx + 1}`}
+            >
+              <div className="w-9 h-9 rounded-md bg-amber-500/10 flex items-center justify-center flex-shrink-0">
+                <Building2 className="w-4 h-4 text-amber-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-foreground truncate">
+                  {profile.business_name}
+                </p>
+                <p className="text-xs text-muted-foreground font-mono truncate">
+                  {profile.profile_key}
+                </p>
+                {(ext as { email?: string }).email && (
+                  <p className="text-xs text-muted-foreground truncate">
+                    {(ext as { email?: string }).email}
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs gap-1 border-destructive/40 text-destructive hover:bg-destructive/10"
+                  onClick={() => handleReject(profile)}
+                  disabled={isRejecting || isApproving}
+                  data-ocid={`super_admin.pending_profile.reject_button.${idx + 1}`}
+                >
+                  {isRejecting ? (
+                    <span className="w-3 h-3 border-2 border-destructive/40 border-t-destructive rounded-full animate-spin" />
+                  ) : (
+                    <XCircle className="w-3 h-3" />
+                  )}
+                  Reject
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-7 text-xs gap-1"
+                  onClick={() => handleApprove(profile)}
+                  disabled={isApproving || isRejecting}
+                  data-ocid={`super_admin.pending_profile.approve_button.${idx + 1}`}
+                >
+                  {isApproving ? (
+                    <span className="w-3 h-3 border-2 border-primary-foreground/40 border-t-primary-foreground rounded-full animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-3 h-3" />
+                  )}
+                  Approve
+                </Button>
+              </div>
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1691,6 +1955,8 @@ interface PageHeaderProps {
   isRefreshing: boolean;
   onRefresh: () => void;
   onCreateProfile: () => void;
+  onHelp: () => void;
+  onNavigateTests: () => void;
 }
 
 function PageHeader({
@@ -1698,49 +1964,87 @@ function PageHeader({
   isRefreshing,
   onRefresh,
   onCreateProfile,
+  onHelp,
+  onNavigateTests,
 }: PageHeaderProps) {
   return (
-    <div className="flex items-start justify-between gap-3">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-          <Shield className="w-5 h-5 text-primary" />
+    <div className="space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+            <Shield className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-xl font-display font-semibold text-foreground">
+              Super Admin Dashboard
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              {lastRefreshed
+                ? `Last updated at ${lastRefreshed}`
+                : "App-wide governance and monitoring"}
+            </p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-xl font-display font-semibold text-foreground">
-            Super Admin Dashboard
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {lastRefreshed
-              ? `Last updated at ${lastRefreshed}`
-              : "App-wide governance and monitoring"}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onCreateProfile}
+            className="flex items-center gap-1.5"
+            data-ocid="super_admin.create_profile_button"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">New Profile</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onRefresh}
+            disabled={isRefreshing}
+            className="flex items-center gap-1.5"
+            data-ocid="super_admin.refresh_button"
+          >
+            <RefreshCw
+              className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin" : ""}`}
+            />
+            <span className="hidden sm:inline">Refresh</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={onHelp}
+            aria-label="Open help"
+            data-ocid="super_admin.help_button"
+          >
+            <HelpCircle className="w-4 h-4 text-muted-foreground" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Regression Tests shortcut */}
+      <button
+        type="button"
+        onClick={onNavigateTests}
+        className="w-full flex items-center gap-3 px-4 py-3 rounded-lg border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors text-left"
+        data-ocid="super_admin.run_tests_button"
+      >
+        <div className="w-8 h-8 rounded-md bg-primary/15 flex items-center justify-center flex-shrink-0">
+          <Activity className="w-4 h-4 text-primary" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-foreground">
+            Run Regression Tests
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Automated QA suite — validate all modules against the master
+            checklist
           </p>
         </div>
-      </div>
-      <div className="flex items-center gap-2 flex-shrink-0">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onCreateProfile}
-          className="flex items-center gap-1.5"
-          data-ocid="super_admin.create_profile_button"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">New Profile</span>
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onRefresh}
-          disabled={isRefreshing}
-          className="flex items-center gap-1.5"
-          data-ocid="super_admin.refresh_button"
-        >
-          <RefreshCw
-            className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin" : ""}`}
-          />
-          <span className="hidden sm:inline">Refresh</span>
-        </Button>
-      </div>
+        <span className="text-xs font-medium text-primary flex-shrink-0">
+          Open →
+        </span>
+      </button>
     </div>
   );
 }
@@ -1749,7 +2053,7 @@ function PageHeader({
 
 type ActiveTab = "profiles" | "users";
 
-export function SuperAdminPage({ onNavigate: _ }: SuperAdminPageProps) {
+export function SuperAdminPage({ onNavigate }: SuperAdminPageProps) {
   const { userProfile } = useProfile();
   const {
     data: stats,
@@ -1763,6 +2067,7 @@ export function SuperAdminPage({ onNavigate: _ }: SuperAdminPageProps) {
     refetch: refetchExt,
   } = useGetAllProfilesForAdmin();
   const initSuperAdmin = useInitSuperAdmin();
+  const { data: cyclesInfo } = useGetCanisterCyclesInfo();
 
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -1770,6 +2075,7 @@ export function SuperAdminPage({ onNavigate: _ }: SuperAdminPageProps) {
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<ActiveTab>("profiles");
   const [showCreateProfile, setShowCreateProfile] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const isSuperAdmin =
     userProfile?.role != null &&
@@ -1902,6 +2208,8 @@ export function SuperAdminPage({ onNavigate: _ }: SuperAdminPageProps) {
           isRefreshing={false}
           onRefresh={handleRefresh}
           onCreateProfile={() => setShowCreateProfile(true)}
+          onHelp={() => setHelpOpen(true)}
+          onNavigateTests={() => onNavigate("/admin/tests")}
         />
         <PageSkeleton />
       </div>
@@ -1916,6 +2224,8 @@ export function SuperAdminPage({ onNavigate: _ }: SuperAdminPageProps) {
           isRefreshing={isRefreshing}
           onRefresh={handleRefresh}
           onCreateProfile={() => setShowCreateProfile(true)}
+          onHelp={() => setHelpOpen(true)}
+          onNavigateTests={() => onNavigate("/admin/tests")}
         />
         <Card className="card-elevated" data-ocid="super_admin.empty_state">
           <CardContent className="pt-10 pb-10 flex flex-col items-center text-center gap-4">
@@ -1963,11 +2273,13 @@ export function SuperAdminPage({ onNavigate: _ }: SuperAdminPageProps) {
         isRefreshing={isRefreshing}
         onRefresh={handleRefresh}
         onCreateProfile={() => setShowCreateProfile(true)}
+        onHelp={() => setHelpOpen(true)}
+        onNavigateTests={() => onNavigate("/admin/tests")}
       />
 
       {/* KPI Cards */}
       <div
-        className="grid grid-cols-1 sm:grid-cols-3 gap-4"
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
         data-ocid="super_admin.kpi_section"
       >
         <KpiCard
@@ -1991,10 +2303,75 @@ export function SuperAdminPage({ onNavigate: _ }: SuperAdminPageProps) {
           sub={`${activeProfiles} active profiles`}
           ocid="super_admin.kpi_storage"
         />
+        <KpiCard
+          label="Canister Cycles"
+          value={cyclesInfo ? formatCycles(cyclesInfo.total_cycles) : "—"}
+          icon={<Zap className="w-5 h-5 text-primary" />}
+          sub={cyclesInfo ? "Total available cycles" : "Loading…"}
+          ocid="super_admin.kpi_cycles"
+        />
       </div>
+
+      {/* Per-profile cycles breakdown */}
+      {cyclesInfo && cyclesInfo.per_profile_info.length > 0 && (
+        <Card className="card-elevated" data-ocid="super_admin.cycles_card">
+          <CardHeader className="pb-3 border-b border-border">
+            <div className="flex items-center gap-2">
+              <Zap className="w-4 h-4 text-primary" />
+              <CardTitle className="text-base font-semibold">
+                Cycles Usage by Profile
+              </CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-3">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/30">
+                    <th className="text-left py-2 px-3 font-medium text-muted-foreground">
+                      Profile
+                    </th>
+                    <th className="text-left py-2 px-3 font-medium text-muted-foreground">
+                      Profile Key
+                    </th>
+                    <th className="text-left py-2 px-3 font-medium text-muted-foreground">
+                      Cycles Note
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cyclesInfo.per_profile_info.map((info, idx) => (
+                    <tr
+                      key={info.profile_key}
+                      className={`border-b border-border/50 ${idx % 2 === 0 ? "" : "bg-muted/20"}`}
+                      data-ocid={`super_admin.cycles_row.${idx + 1}`}
+                    >
+                      <td className="py-2 px-3 font-medium text-foreground">
+                        {info.business_name}
+                      </td>
+                      <td className="py-2 px-3 font-mono text-xs text-muted-foreground">
+                        {info.profile_key}
+                      </td>
+                      <td className="py-2 px-3 text-muted-foreground text-xs">
+                        {info.cycles_note || "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Governance Info */}
       <GovernanceInfoPanel />
+
+      {/* Pending Profile Approvals — shown only when pending profiles exist */}
+      <PendingProfileApprovalSection
+        profiles={mergedProfiles}
+        onRefresh={handleRefresh}
+      />
 
       {/* Tab Switcher */}
       <div
@@ -2145,6 +2522,12 @@ export function SuperAdminPage({ onNavigate: _ }: SuperAdminPageProps) {
       <CreateProfileModal
         open={showCreateProfile}
         onClose={() => setShowCreateProfile(false)}
+      />
+
+      <HelpPanel
+        isOpen={helpOpen}
+        onClose={() => setHelpOpen(false)}
+        currentPage="superAdmin"
       />
     </div>
   );

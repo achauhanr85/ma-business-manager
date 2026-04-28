@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { useImpersonation } from "@/contexts/ImpersonationContext";
 import { useProfile } from "@/contexts/ProfileContext";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
@@ -7,10 +8,16 @@ import {
   ArrowRightLeft,
   BarChart3,
   Boxes,
+  ClipboardCheck,
   ClipboardList,
+  FlaskConical,
+  Goal,
+  HeartPulse,
   LayoutDashboard,
   Leaf,
   LogOut,
+  Package,
+  Settings,
   Shield,
   ShoppingCart,
   Tag,
@@ -26,38 +33,251 @@ interface SidebarProps {
   onClose: () => void;
 }
 
-const BASE_NAV_ITEMS = [
+/** Module key → path mapping for permission filtering */
+const MODULE_PATH_MAP: Record<string, string[]> = {
+  sales: ["/sales"],
+  po: ["/purchase-orders"],
+  customer: ["/customers", "/customer-goals", "/customer-medical-issues"],
+  product: ["/products"],
+  inventory: [
+    "/inventory",
+    "/inventory-movement",
+    "/loaner-inventory",
+    "/stage-inventory",
+  ],
+  analytics: ["/analytics"],
+};
+
+interface NavItem {
+  label: string;
+  path: string;
+  icon: React.ElementType;
+  roles: readonly string[] | null;
+  module: string | null;
+  superAdminDisabled: boolean;
+}
+
+interface NavSection {
+  id: string;
+  label: string;
+  items: NavItem[];
+}
+
+/**
+ * Nav items grouped into labeled sections.
+ * Items appear EXACTLY ONCE — no duplicates.
+ */
+const NAV_SECTIONS: NavSection[] = [
   {
-    label: "Dashboard",
-    path: "/dashboard",
-    icon: LayoutDashboard,
-    roles: null,
+    id: "main",
+    label: "Main",
+    items: [
+      {
+        label: "Dashboard",
+        path: "/dashboard",
+        icon: LayoutDashboard,
+        roles: null,
+        module: null,
+        superAdminDisabled: false,
+      },
+      {
+        label: "Profile",
+        path: "/profile",
+        icon: User,
+        roles: null,
+        module: null,
+        superAdminDisabled: false,
+      },
+    ],
   },
-  { label: "Sales", path: "/sales", icon: ShoppingCart, roles: null },
-  { label: "Inventory", path: "/inventory", icon: Boxes, roles: null },
   {
-    label: "Purchase Orders",
-    path: "/purchase-orders",
-    icon: ClipboardList,
-    roles: null,
+    id: "sales",
+    label: "Sales",
+    items: [
+      {
+        label: "Sales / Cart",
+        path: "/sales",
+        icon: ShoppingCart,
+        roles: null,
+        module: "sales",
+        superAdminDisabled: true,
+      },
+      {
+        label: "Purchase Orders",
+        path: "/purchase-orders",
+        icon: ClipboardList,
+        roles: null,
+        module: "po",
+        superAdminDisabled: true,
+      },
+    ],
   },
-  { label: "Products & Categories", path: "/products", icon: Tag, roles: null },
-  { label: "Analytics", path: "/analytics", icon: BarChart3, roles: null },
-  { label: "Customers", path: "/customers", icon: Users, roles: null },
   {
-    label: "Inventory Movement",
-    path: "/inventory-movement",
-    icon: ArrowRightLeft,
-    roles: [ROLES.STAFF, ROLES.ADMIN],
+    id: "customers",
+    label: "Customers",
+    items: [
+      {
+        label: "Customers",
+        path: "/customers",
+        icon: Users,
+        roles: null,
+        module: "customer",
+        superAdminDisabled: true,
+      },
+      {
+        label: "Customer Goals",
+        path: "/customer-goals",
+        icon: Goal,
+        roles: [ROLES.ADMIN, ROLES.STAFF],
+        module: "customer",
+        superAdminDisabled: true,
+      },
+      {
+        label: "Medical Issues",
+        path: "/customer-medical-issues",
+        icon: HeartPulse,
+        roles: [ROLES.ADMIN, ROLES.STAFF],
+        module: "customer",
+        superAdminDisabled: true,
+      },
+    ],
   },
-  { label: "Profile", path: "/profile", icon: User, roles: null },
   {
-    label: "Super Admin",
-    path: "/super-admin",
-    icon: Shield,
-    roles: [ROLES.SUPER_ADMIN],
+    id: "inventory",
+    label: "Inventory",
+    items: [
+      {
+        label: "Inventory",
+        path: "/inventory",
+        icon: Boxes,
+        roles: null,
+        module: "inventory",
+        superAdminDisabled: true,
+      },
+      {
+        label: "Inventory Movement",
+        path: "/inventory-movement",
+        icon: ArrowRightLeft,
+        roles: [ROLES.STAFF, ROLES.ADMIN],
+        module: "inventory",
+        superAdminDisabled: true,
+      },
+      {
+        label: "Loaner Inventory",
+        path: "/loaner-inventory",
+        icon: Package,
+        roles: [ROLES.STAFF, ROLES.ADMIN],
+        module: "inventory",
+        superAdminDisabled: true,
+      },
+      {
+        label: "Stage Inventory",
+        path: "/stage-inventory",
+        icon: ClipboardCheck,
+        roles: [ROLES.STAFF, ROLES.ADMIN],
+        module: "inventory",
+        superAdminDisabled: true,
+      },
+    ],
+  },
+  {
+    id: "catalog",
+    label: "Catalog",
+    items: [
+      {
+        label: "Products & Categories",
+        path: "/products",
+        icon: Tag,
+        roles: null,
+        module: "product",
+        superAdminDisabled: true,
+      },
+      {
+        label: "Analytics",
+        path: "/analytics",
+        icon: BarChart3,
+        roles: null,
+        module: "analytics",
+        superAdminDisabled: true,
+      },
+    ],
+  },
+  {
+    id: "admin",
+    label: "Admin",
+    items: [
+      {
+        label: "User Management",
+        path: "/user-management",
+        icon: Users,
+        roles: [ROLES.ADMIN],
+        module: null,
+        superAdminDisabled: false,
+      },
+      {
+        label: "Preferences",
+        path: "/user-preferences",
+        icon: Settings,
+        roles: null,
+        module: null,
+        superAdminDisabled: false,
+      },
+      {
+        label: "Super Admin",
+        path: "/super-admin",
+        icon: Shield,
+        roles: [ROLES.SUPER_ADMIN],
+        module: null,
+        superAdminDisabled: false,
+      },
+      {
+        label: "Regression Tests",
+        path: "/admin/tests",
+        icon: FlaskConical,
+        roles: [ROLES.SUPER_ADMIN],
+        module: null,
+        superAdminDisabled: false,
+      },
+    ],
   },
 ];
+
+function filterItem(
+  item: NavItem,
+  effectiveRole: string | undefined,
+  isSuperAdmin: boolean,
+  isImpersonating: boolean,
+  moduleAccess: string[] | null,
+): boolean {
+  // Referral users can ONLY see Customers
+  if (effectiveRole === "referralUser") {
+    return item.path === "/customers";
+  }
+
+  // Role-restricted items
+  if (item.roles) {
+    if (!effectiveRole) return false;
+    if (!(item.roles as readonly string[]).includes(effectiveRole))
+      return false;
+  }
+
+  // Super Admin: disable operational links unless impersonating
+  if (isSuperAdmin && !isImpersonating && item.superAdminDisabled) {
+    return false;
+  }
+
+  // Module access filtering for staff
+  if (item.module && moduleAccess !== null && effectiveRole === ROLES.STAFF) {
+    const modulePaths = MODULE_PATH_MAP[item.module] ?? [];
+    const allowed =
+      moduleAccess.some((mod) =>
+        (MODULE_PATH_MAP[mod] ?? []).some((p) => modulePaths.includes(p)),
+      ) || moduleAccess.includes(item.module);
+    if (!allowed) return false;
+  }
+
+  return true;
+}
 
 export function Sidebar({
   currentPath,
@@ -67,14 +287,23 @@ export function Sidebar({
 }: SidebarProps) {
   const { logout } = useAuth();
   const { profile, userProfile } = useProfile();
+  const { isImpersonating, impersonateAsRole } = useImpersonation();
 
   const currentRole = userProfile?.role;
+  const isSuperAdmin = currentRole === ROLES.SUPER_ADMIN;
 
-  const visibleNavItems = BASE_NAV_ITEMS.filter((item) => {
-    if (!item.roles) return true;
-    if (!currentRole) return false;
-    return (item.roles as string[]).includes(currentRole as unknown as string);
-  });
+  // Parse module_access for staff/permission filtering
+  const moduleAccess: string[] | null = userProfile?.module_access
+    ? userProfile.module_access
+        .split(",")
+        .map((m) => m.trim())
+        .filter(Boolean)
+    : null;
+
+  // Effective role during impersonation
+  const effectiveRole = isImpersonating
+    ? impersonateAsRole
+    : (currentRole as string | undefined);
 
   const handleNav = (path: string) => {
     onNavigate(path);
@@ -123,10 +352,10 @@ export function Sidebar({
             )}
             <div className="flex flex-col leading-none">
               <span className="font-display font-semibold text-foreground text-sm truncate max-w-[120px]">
-                {profile?.business_name ?? "MA Herb"}
+                {profile?.business_name ?? "Indi Negocio"}
               </span>
               <span className="text-muted-foreground text-[10px]">
-                Business Manager
+                Indi Negocio Livre
               </span>
             </div>
           </button>
@@ -154,53 +383,94 @@ export function Sidebar({
                 {userProfile.warehouse_name}
               </p>
             )}
-            <span className="inline-flex mt-1 items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary capitalize">
-              {userProfile.role === ROLES.SUPER_ADMIN
-                ? "Super Admin"
-                : userProfile.role === ROLES.ADMIN
-                  ? "Admin"
-                  : "Staff"}
-            </span>
+            <div className="flex items-center gap-1.5 mt-1">
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary capitalize">
+                {currentRole === ROLES.SUPER_ADMIN
+                  ? "Super Admin"
+                  : currentRole === ROLES.ADMIN
+                    ? "Admin"
+                    : "Staff"}
+              </span>
+              {isImpersonating && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 capitalize">
+                  as {impersonateAsRole}
+                </span>
+              )}
+              {userProfile.approval_status === "pending" && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-yellow-500/10 text-yellow-700">
+                  Pending
+                </span>
+              )}
+            </div>
           </div>
         )}
 
-        {/* Nav items */}
+        {/* Nav sections */}
         <nav
-          className="flex-1 py-3 overflow-y-auto"
+          className="flex-1 py-2 overflow-y-auto"
           aria-label="Main navigation"
         >
-          <ul className="space-y-0.5 px-2">
-            {visibleNavItems.map((item) => {
-              const Icon = item.icon;
-              const isActive =
-                currentPath === item.path ||
-                currentPath.startsWith(`${item.path}/`);
-              return (
-                <li key={item.path}>
-                  <button
-                    type="button"
-                    onClick={() => handleNav(item.path)}
-                    data-ocid={`sidebar.nav.${item.label.toLowerCase().replace(/[^a-z0-9]/gu, "_")}_link`}
-                    className={cn(
-                      "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-smooth text-left",
-                      isActive
-                        ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                    )}
-                    aria-current={isActive ? "page" : undefined}
+          {NAV_SECTIONS.map((section) => {
+            // Filter items visible to current role
+            const visibleItems = section.items.filter((item) =>
+              filterItem(
+                item,
+                effectiveRole,
+                isSuperAdmin,
+                isImpersonating,
+                moduleAccess,
+              ),
+            );
+            // Hide entire section when no items are visible
+            if (visibleItems.length === 0) return null;
+
+            return (
+              <div key={section.id} className="mb-1">
+                {/* Section label */}
+                <div className="px-4 pt-3 pb-1">
+                  <span
+                    className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/55"
+                    data-ocid={`sidebar.section.${section.id}`}
                   >
-                    <Icon
-                      className={cn(
-                        "w-4 h-4 flex-shrink-0",
-                        isActive && "text-primary",
-                      )}
-                    />
-                    {item.label}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+                    {section.label}
+                  </span>
+                </div>
+                {/* Section items */}
+                <ul className="space-y-0.5 px-2">
+                  {visibleItems.map((item) => {
+                    const Icon = item.icon;
+                    const isActive =
+                      currentPath === item.path ||
+                      currentPath.startsWith(`${item.path}/`);
+                    return (
+                      <li key={item.path}>
+                        <button
+                          type="button"
+                          onClick={() => handleNav(item.path)}
+                          data-ocid={`sidebar.nav.${item.label.toLowerCase().replace(/[^a-z0-9]/gu, "_")}_link`}
+                          className={cn(
+                            "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-smooth text-left",
+                            isActive
+                              ? "bg-primary/10 text-primary"
+                              : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                          )}
+                          aria-current={isActive ? "page" : undefined}
+                        >
+                          <Icon
+                            className={cn(
+                              "w-4 h-4 flex-shrink-0",
+                              isActive && "text-primary",
+                            )}
+                          />
+                          {item.label}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            );
+          })}
         </nav>
 
         {/* Logout */}

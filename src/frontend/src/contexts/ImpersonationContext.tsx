@@ -6,31 +6,42 @@ import {
   useState,
 } from "react";
 
+export type ImpersonationRole = "admin" | "staff";
+
 export interface ImpersonationState {
   isImpersonating: boolean;
   profileKey: string;
   profileName: string;
   originalRole: string;
+  /** The role Super Admin is impersonating as */
+  impersonateAsRole: ImpersonationRole;
 }
 
 interface ImpersonationContextValue extends ImpersonationState {
-  startImpersonation: (profileKey: string, profileName: string) => void;
+  startImpersonation: (
+    profileKey: string,
+    profileName: string,
+    role?: ImpersonationRole,
+  ) => void;
   stopImpersonation: () => void;
+  setImpersonationRole: (role: ImpersonationRole) => void;
 }
 
-const STORAGE_KEY = "ma_herb_impersonation";
+const STORAGE_KEY = "indi_negocio_impersonation";
 
 const defaultState: ImpersonationState = {
   isImpersonating: false,
   profileKey: "",
   profileName: "",
   originalRole: "superAdmin",
+  impersonateAsRole: "admin",
 };
 
 const ImpersonationContext = createContext<ImpersonationContextValue>({
   ...defaultState,
   startImpersonation: () => {},
   stopImpersonation: () => {},
+  setImpersonationRole: () => {},
 });
 
 export function ImpersonationProvider({
@@ -58,12 +69,17 @@ export function ImpersonationProvider({
   }, [state]);
 
   const startImpersonation = useCallback(
-    (profileKey: string, profileName: string) => {
+    (
+      profileKey: string,
+      profileName: string,
+      role: ImpersonationRole = "admin",
+    ) => {
       setState({
         isImpersonating: true,
         profileKey,
         profileName,
         originalRole: "superAdmin",
+        impersonateAsRole: role,
       });
     },
     [],
@@ -73,9 +89,18 @@ export function ImpersonationProvider({
     setState(defaultState);
   }, []);
 
+  const setImpersonationRole = useCallback((role: ImpersonationRole) => {
+    setState((prev) => ({ ...prev, impersonateAsRole: role }));
+  }, []);
+
   return (
     <ImpersonationContext.Provider
-      value={{ ...state, startImpersonation, stopImpersonation }}
+      value={{
+        ...state,
+        startImpersonation,
+        stopImpersonation,
+        setImpersonationRole,
+      }}
     >
       {children}
     </ImpersonationContext.Provider>

@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -30,23 +31,31 @@ import {
   useMarkPurchaseOrderReceived,
 } from "@/hooks/useBackend";
 import { downloadCsvTemplate, exportToCsv, parseCsvFile } from "@/lib/csvUtils";
-import type { Category, PurchaseOrder, PurchaseOrderItemInput } from "@/types";
+import type {
+  Category,
+  PurchaseOrder,
+  PurchaseOrderItemInput,
+  Vendor,
+} from "@/types";
 import { POStatus } from "@/types";
 import { useActor } from "@caffeineai/core-infrastructure";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronDown,
   ChevronUp,
   Download,
   Package,
+  Pencil,
   Plus,
   ShoppingCart,
   Trash2,
   Upload,
+  Users,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { createActor } from "../backend";
+import type { VendorInput } from "../backend";
 
 interface PurchaseOrdersPageProps {
   onNavigate: (path: string, saleId?: bigint) => void;
@@ -95,7 +104,83 @@ function formatDate(ts: bigint): string {
   });
 }
 
-// Hook to fetch PO items for a specific PO id
+// ── Vendor Hooks ──────────────────────────────────────────────────────────────
+
+function useGetVendors(profileKey: string | null) {
+  const { actor, isFetching } = useActor(createActor);
+  return useQuery<Vendor[]>({
+    queryKey: ["vendors", profileKey],
+    queryFn: async () => {
+      if (!actor || !profileKey) return [];
+      if (typeof actor.getVendors !== "function") return [];
+      return actor.getVendors(profileKey);
+    },
+    enabled: !!actor && !isFetching && !!profileKey,
+  });
+}
+
+function useCreateVendor() {
+  const { actor } = useActor(createActor);
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      input,
+      profileKey,
+    }: {
+      input: VendorInput;
+      profileKey: string;
+    }) => {
+      if (!actor) throw new Error("Actor not ready");
+      if (typeof actor.createVendor !== "function")
+        throw new Error("createVendor not available");
+      return actor.createVendor(input, profileKey);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["vendors"] });
+    },
+  });
+}
+
+function useUpdateVendor() {
+  const { actor } = useActor(createActor);
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      vendorId,
+      input,
+    }: {
+      vendorId: string;
+      input: VendorInput;
+    }) => {
+      if (!actor) throw new Error("Actor not ready");
+      if (typeof actor.updateVendor !== "function")
+        throw new Error("updateVendor not available");
+      return actor.updateVendor(vendorId, input);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["vendors"] });
+    },
+  });
+}
+
+function useDeleteVendor() {
+  const { actor } = useActor(createActor);
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (vendorId: string) => {
+      if (!actor) throw new Error("Actor not ready");
+      if (typeof actor.deleteVendor !== "function")
+        throw new Error("deleteVendor not available");
+      return actor.deleteVendor(vendorId);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["vendors"] });
+    },
+  });
+}
+
+// ── PO Items hook ─────────────────────────────────────────────────────────────
+
 function useGetPOItems(poId: bigint) {
   const { actor, isFetching } = useActor(createActor);
   return useQuery({
@@ -107,6 +192,8 @@ function useGetPOItems(poId: bigint) {
     enabled: !!actor && !isFetching,
   });
 }
+
+// ── PO Items Expander ─────────────────────────────────────────────────────────
 
 function POItemsExpander({
   poId,
@@ -171,6 +258,8 @@ function POItemsExpander({
   );
 }
 
+// ── PO Row ────────────────────────────────────────────────────────────────────
+
 interface PORowProps {
   po: PurchaseOrder;
   index: number;
@@ -184,6 +273,9 @@ function PORow({ po, index, onMarkReceived, isReceiving }: PORowProps) {
 
   const getProductName = (productId: bigint) =>
     products?.find((p) => p.id === productId)?.name ?? `#${productId}`;
+
+  const displayName = po.vendor_name ?? po.vendor ?? "—";
+  const poNumber = po.po_number ?? "—";
 
   return (
     <div
@@ -200,7 +292,14 @@ function PORow({ po, index, onMarkReceived, isReceiving }: PORowProps) {
           <ShoppingCart className="w-4 h-4 text-primary" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="font-semibold text-foreground truncate">{po.vendor}</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="font-semibold text-foreground truncate">
+              {displayName}
+            </p>
+            <span className="text-xs font-mono text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded">
+              {poNumber}
+            </span>
+          </div>
           <p className="text-xs text-muted-foreground mt-0.5">
             {formatDate(po.timestamp)}
           </p>
@@ -236,7 +335,7 @@ function PORow({ po, index, onMarkReceived, isReceiving }: PORowProps) {
   );
 }
 
-// ── Quick Create Product/Category Dialog ─────────────────────────────────────
+// ── Quick Create Product/Category Dialog ──────────────────────────────────────
 
 interface QuickCreateDialogProps {
   open: boolean;
@@ -334,6 +433,8 @@ function QuickCreateDialog({
         earn_base: Number(prodForm.earn_base) || 0,
         mrp: Number(prodForm.mrp),
         hsn_code: prodForm.hsn_code.trim(),
+        instructions: "",
+        serving_size: "",
       });
       if (newId == null) {
         toast.error("SKU already exists. Use a different SKU.");
@@ -599,6 +700,369 @@ function QuickCreateDialog({
   );
 }
 
+// ── Vendor Form Dialog ────────────────────────────────────────────────────────
+
+interface VendorFormDialogProps {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  vendor?: Vendor | null;
+  profileKey: string;
+}
+
+const emptyVendorForm = {
+  name: "",
+  contact_name: "",
+  phone: "",
+  email: "",
+  address: "",
+  is_default: false,
+};
+
+function VendorFormDialog({
+  open,
+  onOpenChange,
+  vendor,
+  profileKey,
+}: VendorFormDialogProps) {
+  const createVendor = useCreateVendor();
+  const updateVendor = useUpdateVendor();
+  const isEdit = !!vendor;
+
+  const [form, setForm] = useState(emptyVendorForm);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (open) {
+      setForm(
+        vendor
+          ? {
+              name: vendor.name,
+              contact_name: vendor.contact_name ?? "",
+              phone: vendor.phone ?? "",
+              email: vendor.email ?? "",
+              address: vendor.address ?? "",
+              is_default: vendor.is_default,
+            }
+          : emptyVendorForm,
+      );
+      setErrors({});
+    }
+  }, [open, vendor]);
+
+  const setField = (
+    field: keyof typeof emptyVendorForm,
+    value: string | boolean,
+  ) => setForm((f) => ({ ...f, [field]: value }));
+
+  const handleSave = async () => {
+    const errs: Record<string, string> = {};
+    if (!form.name.trim()) errs.name = "Vendor name is required";
+    setErrors(errs);
+    if (Object.keys(errs).length > 0) return;
+
+    const input: VendorInput = {
+      name: form.name.trim(),
+      contact_name: form.contact_name.trim() || undefined,
+      phone: form.phone.trim() || undefined,
+      email: form.email.trim() || undefined,
+      address: form.address.trim() || undefined,
+      is_default: form.is_default,
+    };
+
+    try {
+      if (isEdit && vendor) {
+        await updateVendor.mutateAsync({ vendorId: vendor.id, input });
+        toast.success("Vendor updated");
+      } else {
+        await createVendor.mutateAsync({ input, profileKey });
+        toast.success("Vendor created");
+      }
+      onOpenChange(false);
+    } catch {
+      toast.error(`Failed to ${isEdit ? "update" : "create"} vendor`);
+    }
+  };
+
+  const isPending = createVendor.isPending || updateVendor.isPending;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="max-w-md"
+        data-ocid="purchase_orders.vendor_form.dialog"
+      >
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Users className="w-4 h-4 text-primary" />
+            {isEdit ? "Edit Vendor" : "Add Vendor"}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 py-1">
+          <div className="space-y-1.5">
+            <Label htmlFor="vf-name" className="text-xs">
+              Vendor Name <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="vf-name"
+              placeholder="e.g. Nature's Herbs Supplier"
+              value={form.name}
+              onChange={(e) => setField("name", e.target.value)}
+              className={errors.name ? "border-destructive" : ""}
+              data-ocid="purchase_orders.vendor_form.name.input"
+            />
+            {errors.name && (
+              <p
+                className="text-xs text-destructive"
+                data-ocid="purchase_orders.vendor_form.name.field_error"
+              >
+                {errors.name}
+              </p>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="vf-contact" className="text-xs">
+                Contact Name
+              </Label>
+              <Input
+                id="vf-contact"
+                placeholder="e.g. Rajan Sharma"
+                value={form.contact_name}
+                onChange={(e) => setField("contact_name", e.target.value)}
+                data-ocid="purchase_orders.vendor_form.contact_name.input"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="vf-phone" className="text-xs">
+                Phone
+              </Label>
+              <Input
+                id="vf-phone"
+                placeholder="+91 98xxx xxxxx"
+                value={form.phone}
+                onChange={(e) => setField("phone", e.target.value)}
+                data-ocid="purchase_orders.vendor_form.phone.input"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="vf-email" className="text-xs">
+              Email
+            </Label>
+            <Input
+              id="vf-email"
+              type="email"
+              placeholder="vendor@example.com"
+              value={form.email}
+              onChange={(e) => setField("email", e.target.value)}
+              data-ocid="purchase_orders.vendor_form.email.input"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="vf-address" className="text-xs">
+              Address
+            </Label>
+            <Input
+              id="vf-address"
+              placeholder="Vendor address"
+              value={form.address}
+              onChange={(e) => setField("address", e.target.value)}
+              data-ocid="purchase_orders.vendor_form.address.input"
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="vf-default"
+              checked={form.is_default}
+              onCheckedChange={(v) => setField("is_default", !!v)}
+              data-ocid="purchase_orders.vendor_form.is_default.checkbox"
+            />
+            <Label htmlFor="vf-default" className="text-xs cursor-pointer">
+              Set as default vendor
+            </Label>
+          </div>
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => onOpenChange(false)}
+            data-ocid="purchase_orders.vendor_form.cancel_button"
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={handleSave}
+            disabled={isPending}
+            data-ocid="purchase_orders.vendor_form.save_button"
+          >
+            {isPending ? "Saving…" : isEdit ? "Update Vendor" : "Add Vendor"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Manage Vendors Dialog ─────────────────────────────────────────────────────
+
+interface ManageVendorsDialogProps {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  profileKey: string;
+}
+
+function ManageVendorsDialog({
+  open,
+  onOpenChange,
+  profileKey,
+}: ManageVendorsDialogProps) {
+  const { data: vendors = [], isLoading } = useGetVendors(profileKey);
+  const deleteVendor = useDeleteVendor();
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
+
+  const handleEdit = (v: Vendor) => {
+    setEditingVendor(v);
+    setFormOpen(true);
+  };
+
+  const handleAdd = () => {
+    setEditingVendor(null);
+    setFormOpen(true);
+  };
+
+  const handleDelete = async (v: Vendor) => {
+    try {
+      await deleteVendor.mutateAsync(v.id);
+      toast.success(`Vendor "${v.name}" deleted`);
+    } catch {
+      toast.error("Failed to delete vendor");
+    }
+  };
+
+  return (
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent
+          className="max-w-lg max-h-[80vh] flex flex-col"
+          data-ocid="purchase_orders.manage_vendors.dialog"
+        >
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="w-4 h-4 text-primary" />
+              Manage Vendors
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto space-y-3 py-2">
+            {isLoading ? (
+              <div className="space-y-2">
+                <Skeleton className="h-14 rounded-lg" />
+                <Skeleton className="h-14 rounded-lg" />
+              </div>
+            ) : vendors.length === 0 ? (
+              <div
+                className="text-center py-8 text-muted-foreground text-sm"
+                data-ocid="purchase_orders.vendors.empty_state"
+              >
+                No vendors yet. Add your first vendor.
+              </div>
+            ) : (
+              vendors.map((v, idx) => (
+                <div
+                  key={v.id}
+                  className="flex items-center gap-3 p-3 border border-border rounded-lg bg-card"
+                  data-ocid={`purchase_orders.vendor_item.${idx + 1}`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-sm text-foreground truncate">
+                        {v.name}
+                      </p>
+                      {v.is_default && (
+                        <Badge className="text-[10px] px-1.5 py-0 bg-primary/10 text-primary border-primary/20">
+                          Default
+                        </Badge>
+                      )}
+                    </div>
+                    {(v.contact_name || v.phone) && (
+                      <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                        {[v.contact_name, v.phone].filter(Boolean).join(" · ")}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0"
+                      onClick={() => handleEdit(v)}
+                      aria-label="Edit vendor"
+                      data-ocid={`purchase_orders.vendor_edit_button.${idx + 1}`}
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                      onClick={() => handleDelete(v)}
+                      disabled={deleteVendor.isPending}
+                      aria-label="Delete vendor"
+                      data-ocid={`purchase_orders.vendor_delete_button.${idx + 1}`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <DialogFooter className="gap-2 pt-2 border-t border-border">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              data-ocid="purchase_orders.manage_vendors.close_button"
+            >
+              Close
+            </Button>
+            <Button
+              type="button"
+              onClick={handleAdd}
+              className="gap-1.5"
+              data-ocid="purchase_orders.manage_vendors.add_button"
+            >
+              <Plus className="w-4 h-4" />
+              Add Vendor
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <VendorFormDialog
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        vendor={editingVendor}
+        profileKey={profileKey}
+      />
+    </>
+  );
+}
+
 // ── Bulk Upload: Purchase Orders ──────────────────────────────────────────────
 
 interface POUploadRow {
@@ -675,7 +1139,6 @@ function BulkPOUploadDialog({ open, onClose }: BulkPOUploadDialogProps) {
     const valid = rows.filter((r) => !r.error);
     if (valid.length === 0) return;
     setImporting(true);
-    // Group all rows into one PO
     const items: PurchaseOrderItemInput[] = [];
     for (const row of valid) {
       const prod = products.find(
@@ -858,30 +1321,59 @@ function BulkPOUploadDialog({ open, onClose }: BulkPOUploadDialogProps) {
   );
 }
 
-// ── Create PO Dialog ────────────────────────────────────────────────────────
+// ── Create PO Dialog ──────────────────────────────────────────────────────────
 
 interface CreatePODialogProps {
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  totalOrderCount: number;
 }
 
-function CreatePODialog({ open, onOpenChange }: CreatePODialogProps) {
+function CreatePODialog({
+  open,
+  onOpenChange,
+  totalOrderCount,
+}: CreatePODialogProps) {
   const { data: products } = useGetProducts();
   const { data: categories } = useGetCategories();
   const createPO = useCreatePurchaseOrder();
   const { data: userProfile } = useGetUserProfile();
 
-  const [vendor, setVendor] = useState("");
+  const profileKey = userProfile?.profile_key ?? null;
+  const { data: vendors = [] } = useGetVendors(profileKey);
+
+  const [poNumber, setPoNumber] = useState("");
+  const [selectedVendorId, setSelectedVendorId] = useState("");
   const [items, setItems] = useState<DraftItem[]>([newDraftItem()]);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [manageVendorsOpen, setManageVendorsOpen] = useState(false);
 
   const [quickCreateOpen, setQuickCreateOpen] = useState(false);
   const [quickCreateTargetUid, setQuickCreateTargetUid] = useState<
     string | null
   >(null);
 
+  // Auto-generate PO number when dialog opens
+  useEffect(() => {
+    if (open) {
+      const nextNum = (totalOrderCount + 1).toString().padStart(4, "0");
+      setPoNumber(`PO-${nextNum}`);
+    }
+  }, [open, totalOrderCount]);
+
+  // Auto-select vendor when exactly one exists
+  useEffect(() => {
+    if (open && vendors.length === 1) {
+      setSelectedVendorId(vendors[0].id);
+    } else if (open && vendors.length > 0) {
+      const defaultVendor = vendors.find((v) => v.is_default);
+      if (defaultVendor) setSelectedVendorId(defaultVendor.id);
+    }
+  }, [open, vendors]);
+
   const resetForm = () => {
-    setVendor("");
+    setPoNumber("");
+    setSelectedVendorId("");
     setItems([newDraftItem()]);
     setErrors({});
   };
@@ -915,7 +1407,7 @@ function CreatePODialog({ open, onOpenChange }: CreatePODialogProps) {
 
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
-    if (!vendor.trim()) newErrors.vendor = "Vendor name is required";
+    if (!poNumber.trim()) newErrors.po_number = "PO number is required";
     if (items.length === 0) newErrors.items = "At least one item is required";
     for (const item of items) {
       if (!item.product_id) newErrors[`${item.uid}-product_id`] = "Required";
@@ -930,14 +1422,22 @@ function CreatePODialog({ open, onOpenChange }: CreatePODialogProps) {
 
   const handleSubmit = async () => {
     if (!validate()) return;
+
+    const selectedVendor = vendors.find((v) => v.id === selectedVendorId);
+    const vendorDisplayName = selectedVendor?.name ?? "Unknown Vendor";
+
     const poItems: PurchaseOrderItemInput[] = items.map((item) => ({
       product_id: BigInt(item.product_id),
       quantity: BigInt(Math.round(Number(item.quantity))),
       unit_cost: Number(item.unit_cost),
     }));
+
     try {
       await createPO.mutateAsync({
-        vendor: vendor.trim(),
+        vendor: vendorDisplayName,
+        vendor_id: selectedVendorId || undefined,
+        vendor_name: selectedVendor?.name,
+        po_number: poNumber.trim(),
         items: poItems,
         warehouse_name: userProfile?.warehouse_name ?? "Main",
       });
@@ -969,32 +1469,93 @@ function CreatePODialog({ open, onOpenChange }: CreatePODialogProps) {
           </DialogHeader>
 
           <div className="space-y-5 py-2">
+            {/* PO Number */}
             <div className="space-y-1.5">
-              <Label htmlFor="po-vendor">Vendor *</Label>
+              <Label htmlFor="po-number">
+                PO Number <span className="text-destructive">*</span>
+              </Label>
               <Input
-                id="po-vendor"
-                placeholder="e.g. Nature's Herbs Supplier"
-                value={vendor}
+                id="po-number"
+                placeholder="PO-0001"
+                value={poNumber}
                 onChange={(e) => {
-                  setVendor(e.target.value);
-                  if (errors.vendor)
-                    setErrors((prev) => ({ ...prev, vendor: "" }));
+                  setPoNumber(e.target.value);
+                  if (errors.po_number)
+                    setErrors((prev) => ({ ...prev, po_number: "" }));
                 }}
-                data-ocid="purchase_orders.vendor_input"
+                className={`font-mono ${errors.po_number ? "border-destructive" : ""}`}
+                data-ocid="purchase_orders.po_number_input"
               />
-              {errors.vendor && (
+              {errors.po_number && (
                 <p
                   className="text-xs text-destructive"
-                  data-ocid="purchase_orders.vendor_input.field_error"
+                  data-ocid="purchase_orders.po_number_input.field_error"
                 >
-                  {errors.vendor}
+                  {errors.po_number}
                 </p>
               )}
             </div>
 
+            {/* Vendor Selector */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="po-vendor">Vendor</Label>
+                <button
+                  type="button"
+                  className="text-xs text-primary hover:underline flex items-center gap-1"
+                  onClick={() => setManageVendorsOpen(true)}
+                  data-ocid="purchase_orders.manage_vendors_link"
+                >
+                  <Users className="w-3 h-3" />
+                  Manage Vendors
+                </button>
+              </div>
+              {vendors.length > 0 ? (
+                <Select
+                  value={selectedVendorId}
+                  onValueChange={setSelectedVendorId}
+                >
+                  <SelectTrigger
+                    id="po-vendor"
+                    data-ocid="purchase_orders.vendor_select"
+                  >
+                    <SelectValue placeholder="Select vendor…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {vendors.map((v) => (
+                      <SelectItem key={v.id} value={v.id}>
+                        <span className="font-medium">{v.name}</span>
+                        {v.is_default && (
+                          <span className="ml-1.5 text-xs text-muted-foreground">
+                            (default)
+                          </span>
+                        )}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div className="flex items-center gap-2 p-2.5 border border-dashed border-border rounded-md bg-muted/20">
+                  <p className="text-sm text-muted-foreground flex-1">
+                    No vendors defined yet.
+                  </p>
+                  <button
+                    type="button"
+                    className="text-xs text-primary hover:underline font-medium"
+                    onClick={() => setManageVendorsOpen(true)}
+                  >
+                    Add vendor
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Items */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <Label>Items *</Label>
+                <Label>
+                  Items <span className="text-destructive">*</span>
+                </Label>
                 <Button
                   type="button"
                   variant="outline"
@@ -1207,11 +1768,19 @@ function CreatePODialog({ open, onOpenChange }: CreatePODialogProps) {
         categories={categories ?? []}
         onProductCreated={handleProductCreated}
       />
+
+      {profileKey && (
+        <ManageVendorsDialog
+          open={manageVendorsOpen}
+          onOpenChange={setManageVendorsOpen}
+          profileKey={profileKey}
+        />
+      )}
     </>
   );
 }
 
-// ── Main Page ───────────────────────────────────────────────────────────────
+// ── Main Page ─────────────────────────────────────────────────────────────────
 
 export function PurchaseOrdersPage({
   onNavigate: _onNavigate,
@@ -1220,6 +1789,14 @@ export function PurchaseOrdersPage({
   const markReceived = useMarkPurchaseOrderReceived();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+
+  // Auto-open create dialog when ?create=true is in the URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("create") === "true") {
+      setDialogOpen(true);
+    }
+  }, []);
 
   const sortedOrders = [...(orders ?? [])].sort((a, b) =>
     Number(b.timestamp - a.timestamp),
@@ -1240,8 +1817,9 @@ export function PurchaseOrdersPage({
 
   function handleExport() {
     const data = sortedOrders.map((o) => ({
+      po_number: o.po_number ?? "",
       id: o.id.toString(),
-      vendor: o.vendor,
+      vendor: o.vendor_name ?? o.vendor,
       status: o.status === POStatus.Received ? "Received" : "Pending",
       created_date: formatDate(o.timestamp),
     }));
@@ -1366,7 +1944,11 @@ export function PurchaseOrdersPage({
         </div>
       )}
 
-      <CreatePODialog open={dialogOpen} onOpenChange={setDialogOpen} />
+      <CreatePODialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        totalOrderCount={sortedOrders.length}
+      />
       <BulkPOUploadDialog open={bulkOpen} onClose={() => setBulkOpen(false)} />
     </div>
   );

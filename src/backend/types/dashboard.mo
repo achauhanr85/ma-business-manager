@@ -7,6 +7,10 @@ module {
     monthly_profit : Float;
     total_inventory_value : Float;
     recent_sales : [Sales.Sale];
+    // Customer status counts
+    lead_count : Nat;
+    active_count : Nat;
+    inactive_count : Nat;
   };
 
   public type MonthlySalesTrend = {

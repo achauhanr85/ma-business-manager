@@ -1,7 +1,12 @@
+import { createActor } from "@/backend";
+import type { ProfilePublic } from "@/backend";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/useAuth";
+import { useActor } from "@caffeineai/core-infrastructure";
 import { Leaf, Shield, TrendingUp, Zap } from "lucide-react";
+import { useEffect, useState } from "react";
 
 const FEATURES = [
   {
@@ -21,8 +26,74 @@ const FEATURES = [
   },
 ];
 
+function useBackendActorForLogin() {
+  return useActor(createActor);
+}
+
+/** Attempts to load the first available profile logo for the login screen.
+ * Gracefully fails to nothing if no profile or no logo is set. */
+function ProfileLogoDisplay() {
+  const { actor, isFetching } = useBackendActorForLogin();
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [checked, setChecked] = useState(false);
+
+  useEffect(() => {
+    if (!actor || isFetching) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        if (typeof actor.getAllProfilesForAdmin === "function") {
+          const profiles: ProfilePublic[] =
+            await actor.getAllProfilesForAdmin();
+          if (!cancelled && profiles.length > 0) {
+            const logo = profiles[0]?.logo_url;
+            setLogoUrl(logo && logo.trim() !== "" ? logo : null);
+          }
+        }
+      } catch {
+        // silently degrade — no logo shown on any error
+      } finally {
+        if (!cancelled) setChecked(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [actor, isFetching]);
+
+  // Still loading
+  if (!checked && !logoUrl) return null;
+
+  if (!logoUrl) return null;
+
+  return (
+    <div className="flex justify-center mb-2">
+      <img
+        src={logoUrl}
+        alt="Company logo"
+        className="max-h-20 max-w-[180px] w-auto object-contain rounded-lg border border-border shadow-sm bg-card p-1"
+        onError={(e) => {
+          (e.currentTarget as HTMLImageElement).style.display = "none";
+        }}
+        data-ocid="login.business_logo"
+      />
+    </div>
+  );
+}
+
 export function LoginPage() {
   const { login, isLoading } = useAuth();
+  const { actor, isFetching } = useBackendActorForLogin();
+  const [logoChecking, setLogoChecking] = useState(true);
+
+  // Track when actor is ready so we can show/hide logo skeleton
+  useEffect(() => {
+    if (actor && !isFetching) {
+      // Give a moment for the ProfileLogoDisplay to fetch
+      const t = setTimeout(() => setLogoChecking(false), 1500);
+      return () => clearTimeout(t);
+    }
+  }, [actor, isFetching]);
 
   return (
     <div
@@ -36,7 +107,7 @@ export function LoginPage() {
         </div>
         <div className="flex flex-col leading-none">
           <span className="font-display font-semibold text-foreground text-sm">
-            MA Herb
+            Indi Negocio Livre
           </span>
           <span className="text-muted-foreground text-[10px]">
             Business Manager
@@ -49,20 +120,29 @@ export function LoginPage() {
         <div className="w-full max-w-md space-y-8">
           {/* Brand mark */}
           <div className="text-center space-y-4">
+            {/* Company logo — displayed above login if a profile logo_url is stored */}
+            {logoChecking ? (
+              <div className="flex justify-center">
+                <Skeleton className="h-16 w-32 rounded-lg" />
+              </div>
+            ) : (
+              <ProfileLogoDisplay />
+            )}
+
             <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-primary/10 border border-primary/20 mx-auto">
               <Leaf className="w-10 h-10 text-primary" />
             </div>
             <div>
               <h1 className="text-3xl font-display font-bold text-foreground">
-                MA Herb
+                Indi Negocio Livre
               </h1>
               <p className="text-muted-foreground text-sm mt-1">
                 Business Manager
               </p>
             </div>
             <p className="text-foreground/70 text-sm max-w-xs mx-auto leading-relaxed">
-              Manage your herbal products distribution — sales, inventory,
-              purchase orders, and analytics all in one place.
+              Manage your business distribution — sales, inventory, purchase
+              orders, and analytics all in one place.
             </p>
           </div>
 

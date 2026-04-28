@@ -187,6 +187,8 @@ const EMPTY_PRODUCT: ProductInput = {
   earn_base: 0,
   mrp: 0,
   hsn_code: "",
+  instructions: "",
+  serving_size: "",
 };
 
 function ProductDialog({
@@ -212,6 +214,8 @@ function ProductDialog({
               earn_base: editing.earn_base,
               mrp: editing.mrp,
               hsn_code: editing.hsn_code,
+              instructions: editing.instructions ?? "",
+              serving_size: editing.serving_size ?? "",
             }
           : EMPTY_PRODUCT,
       );
@@ -275,6 +279,33 @@ function ProductDialog({
           <DialogTitle>{editing ? "Edit Product" : "Add Product"}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Category — first field (Item 38) */}
+          <div className="space-y-1.5">
+            <Label htmlFor="prod-category">Category *</Label>
+            <Select
+              value={
+                form.category_id !== BigInt(0)
+                  ? form.category_id.toString()
+                  : ""
+              }
+              onValueChange={(v) => setField("category_id", BigInt(v))}
+            >
+              <SelectTrigger
+                id="prod-category"
+                data-ocid="product.category.select"
+              >
+                <SelectValue placeholder="Select category" />
+              </SelectTrigger>
+              <SelectContent>
+                {categories.map((cat) => (
+                  <SelectItem key={cat.id.toString()} value={cat.id.toString()}>
+                    {cat.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="prod-name">Product Name *</Label>
@@ -307,32 +338,6 @@ function ProductDialog({
                 </p>
               )}
             </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="prod-category">Category *</Label>
-            <Select
-              value={
-                form.category_id !== BigInt(0)
-                  ? form.category_id.toString()
-                  : ""
-              }
-              onValueChange={(v) => setField("category_id", BigInt(v))}
-            >
-              <SelectTrigger
-                id="prod-category"
-                data-ocid="product.category.select"
-              >
-                <SelectValue placeholder="Select category" />
-              </SelectTrigger>
-              <SelectContent>
-                {categories.map((cat) => (
-                  <SelectItem key={cat.id.toString()} value={cat.id.toString()}>
-                    {cat.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -389,15 +394,41 @@ function ProductDialog({
             </div>
           </div>
 
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="prod-hsn">HSN Code *</Label>
+              <Input
+                id="prod-hsn"
+                data-ocid="product.hsn_code.input"
+                value={form.hsn_code}
+                onChange={(e) => setField("hsn_code", e.target.value)}
+                placeholder="e.g. 1211"
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              {/* Item 40 — Serving Size */}
+              <Label htmlFor="prod-serving">Serving Size / Count</Label>
+              <Input
+                id="prod-serving"
+                data-ocid="product.serving_size.input"
+                value={form.serving_size ?? ""}
+                onChange={(e) => setField("serving_size", e.target.value)}
+                placeholder="e.g. 30 servings / 500g"
+              />
+            </div>
+          </div>
+
+          {/* Item 39 — Instructions */}
           <div className="space-y-1.5">
-            <Label htmlFor="prod-hsn">HSN Code *</Label>
-            <Input
-              id="prod-hsn"
-              data-ocid="product.hsn_code.input"
-              value={form.hsn_code}
-              onChange={(e) => setField("hsn_code", e.target.value)}
-              placeholder="e.g. 1211"
-              required
+            <Label htmlFor="prod-instructions">Product Instructions</Label>
+            <Textarea
+              id="prod-instructions"
+              data-ocid="product.instructions.textarea"
+              value={form.instructions ?? ""}
+              onChange={(e) => setField("instructions", e.target.value)}
+              placeholder="Usage instructions, dosage, or preparation notes…"
+              rows={3}
             />
           </div>
 
@@ -662,6 +693,8 @@ interface ProdUploadRow {
   earn_base: string;
   mrp: string;
   hsn_code: string;
+  serving_size: string;
+  instructions: string;
   error?: string;
 }
 
@@ -722,6 +755,8 @@ function BulkProductUploadDialog({
       earn_base: row.earn_base?.trim() ?? "0",
       mrp: mrpRaw,
       hsn_code: row.hsn_code?.trim() ?? "",
+      serving_size: row.serving_size?.trim() ?? "",
+      instructions: row.instructions?.trim() ?? "",
       error: errors.length > 0 ? errors.join("; ") : undefined,
     };
   }
@@ -761,6 +796,8 @@ function BulkProductUploadDialog({
           earn_base: Number.parseFloat(row.earn_base) || 0,
           mrp: Number.parseFloat(row.mrp) || 0,
           hsn_code: row.hsn_code,
+          serving_size: row.serving_size || undefined,
+          instructions: row.instructions || undefined,
         });
         if (result === null) errors++;
         else imported++;
@@ -784,6 +821,8 @@ function BulkProductUploadDialog({
     "earn_base",
     "mrp",
     "hsn_code",
+    "serving_size",
+    "instructions",
   ];
 
   return (
@@ -1221,6 +1260,8 @@ function ProductsTab({
       earn_base: p.earn_base,
       mrp: p.mrp,
       hsn_code: p.hsn_code,
+      serving_size: p.serving_size ?? "",
+      instructions: p.instructions ?? "",
     }));
     exportToCsv("products.csv", data);
     toast.success("Products exported");
@@ -1376,6 +1417,19 @@ function ProductsTab({
                           <p className="text-xs text-muted-foreground font-mono">
                             {product.sku}
                           </p>
+                          {product.serving_size && (
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {product.serving_size}
+                            </p>
+                          )}
+                          {product.instructions && (
+                            <p
+                              className="text-xs text-muted-foreground/70 mt-0.5 max-w-[200px] truncate"
+                              title={product.instructions}
+                            >
+                              {product.instructions}
+                            </p>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3">

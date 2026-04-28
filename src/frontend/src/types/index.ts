@@ -3,6 +3,7 @@ import type {
   CartItem,
   CustomerId,
   CustomerInput,
+  CustomerNote,
   CustomerPublic,
   DiscountType,
   ProductId,
@@ -46,6 +47,7 @@ export type {
   UserProfilePublic,
   UserProfileInput,
   CustomerPublic,
+  CustomerNote,
   CustomerId,
   CustomerInput,
   CustomerOrderDetail,
@@ -58,29 +60,54 @@ export type {
   Timestamp,
   UserId,
   WarehouseName,
+  Vendor,
+  VendorInput,
+  LocationMasterEntry,
+  Notification,
 } from "../backend";
 
-export { POStatus, UserRole, PaymentMode, PaymentStatus } from "../backend";
+export {
+  POStatus,
+  UserRole,
+  PaymentMode,
+  PaymentStatus,
+  LoanedItemStatus,
+} from "../backend";
+
+export interface InventoryBatchInput {
+  product_id: bigint;
+  quantity: bigint;
+  unit_cost: number;
+  loaned_source?: string;
+}
+
+// ─── User Preferences ─────────────────────────────────────────────────────────
+
+export interface UserPreferences {
+  language: "en" | "gu" | "hi";
+  dateFormat: string;
+  defaultReceiptLanguage: string;
+}
 
 // ─── Discount type helper ─────────────────────────────────────────────────────
 
-// DiscountType is a backend enum with values "Percentage" | "Fixed"
-// Re-exported above so all pages can use: import type { DiscountType } from "@/types"
-
-/** Extends CustomerPublic — notes field overridden to single string for UI display.
- * Use notes[0] from CustomerPublic to populate; use notesText for UI forms. */
+/** Extends CustomerPublic — adds UI-only helper fields.
+ * notes keeps the backend CustomerNote[] type; notesText is a flattened display string. */
 export interface CustomerPublicWithDiscount
-  extends Omit<CustomerPublic, "notes"> {
-  notes: string[]; // keep backend type
-  notesText?: string; // flattened display string for UI
+  extends Omit<CustomerPublic, never> {
+  notesText?: string; // flattened display string for UI forms
+  referred_by?: string; // referral user display name
+  referral_commission_amount?: number; // commission for referral
 }
 
 /** Extends CustomerInput with optional discount and notes fields for UI forms.
- * notes field maps to backend CustomerInput.note (single string) */
-export interface CustomerInputExtended extends CustomerInput {
+ * notes field (string) maps to backend CustomerInput.note (single string) */
+export interface CustomerInputExtended extends Omit<CustomerInput, "notes"> {
   discount_applicable?: DiscountType;
   discount_value?: number;
   notes?: string; // UI form field; maps to backend CustomerInput.note
+  referred_by?: string; // Display name of referral user
+  referral_commission_amount?: number; // Commission amount for referral user
 }
 
 // ─── Extended Sale Input / Update types ──────────────────────────────────────
@@ -98,6 +125,8 @@ export interface SaleInputExtended {
   payment_mode?: string;
   payment_status?: string;
   amount_paid?: number;
+  sale_note?: string;
+  payment_due_date?: string;
 }
 
 /** Frontend UpdateSale input — uses string payment fields (mapped to enums in hook) */
@@ -107,6 +136,8 @@ export interface UpdateSaleInputUI {
   payment_mode?: string;
   payment_status?: string;
   amount_paid?: number;
+  sale_note?: string;
+  payment_due_date?: string;
 }
 
 // ─── Extended Sale fields ─────────────────────────────────────────────────────
@@ -140,6 +171,8 @@ export interface CustomerOrderFlat {
   payment_status?: string;
   amount_paid?: number;
   balance_due?: number;
+  sale_note?: string;
+  payment_due_date?: string;
 }
 
 export interface NavItem {
@@ -167,6 +200,8 @@ export const ROLES = {
   SUPER_ADMIN: "superAdmin",
   ADMIN: "admin",
   STAFF: "staff",
+  REFERRAL_USER: "referralUser",
+  REGULAR_USER: "regularUser",
 } as const;
 
 export type RoleKey = (typeof ROLES)[keyof typeof ROLES];
@@ -178,6 +213,7 @@ export interface ImpersonationState {
   profileKey: string;
   profileName: string;
   originalRole: string;
+  impersonateAsRole: "admin" | "staff";
 }
 
 // ─── User Profile Public (mirrors backend UserProfilePublic) ─────────────────
@@ -191,6 +227,8 @@ export interface UserProfilePublicExtended {
   warehouse_name: string;
   display_name: string;
   joined_at: bigint;
+  approval_status?: string;
+  module_access?: string;
 }
 
 // ─── Super Admin extended view ─────────────────────────────────────────────────
@@ -235,14 +273,14 @@ export interface BodyCompositionEntry {
   visceral_fat?: number;
   bmr?: number;
   bmi?: number;
-  body_age?: number;
+  body_age?: bigint;
   trunk_fat?: number;
   muscle_mass?: number;
   created_by: string;
   creation_date: bigint;
 }
 
-export interface BodyCompositionInput {
+export interface BodyCompositionInputUI {
   date: string;
   weight?: number;
   body_fat?: number;
@@ -258,3 +296,10 @@ export interface BodyCompositionInput {
 // Declare as used to avoid lint errors
 type _SaleItemRef = SaleItem;
 type _UserIdRef = UserId;
+type _CartItemRef = CartItem;
+type _SaleInputRef = SaleInput;
+type _CustomerInputRef = CustomerInput;
+type _CustomerPublicRef = CustomerPublic;
+type _ProfilePublicRef = ProfilePublic;
+type _ProfileKeyRef = ProfileKey;
+type _CustomerNoteRef = CustomerNote;

@@ -1,14 +1,46 @@
 type WarehouseName = text;
+type VendorInput = 
+ record {
+   address: opt text;
+   contact_name: opt text;
+   email: opt text;
+   is_default: bool;
+   name: text;
+   phone: opt text;
+ };
+type Vendor = 
+ record {
+   address: opt text;
+   contact_name: opt text;
+   created_by: UserId;
+   creation_date: Timestamp;
+   email: opt text;
+   id: text;
+   is_default: bool;
+   last_update_date: Timestamp;
+   last_updated_by: UserId;
+   name: text;
+   phone: opt text;
+   profile_key: text;
+ };
 type UserRole = 
  variant {
    admin;
+   referralUser;
+   regularUser;
    staff;
    superAdmin;
  };
 type UserProfilePublic = 
  record {
+   approval_status: opt text;
+   date_format: text;
+   default_receipt_language: text;
    display_name: text;
+   email: opt text;
    joined_at: Timestamp;
+   language_preference: text;
+   module_access: opt text;
    "principal": UserId;
    profile_key: ProfileKey;
    role: UserRole;
@@ -16,18 +48,33 @@ type UserProfilePublic =
  };
 type UserProfileInput = 
  record {
+   approval_status: opt text;
+   date_format: opt text;
+   default_receipt_language: opt text;
    display_name: text;
+   email: opt text;
+   language_preference: opt text;
+   module_access: opt text;
    profile_key: ProfileKey;
    warehouse_name: WarehouseName;
+ };
+type UserPreferences = 
+ record {
+   dateFormat: text;
+   defaultReceiptLanguage: text;
+   language: text;
+   whatsappNumber: text;
  };
 type UserId = principal;
 type UpdateSaleInput = 
  record {
    amount_paid: opt float64;
    items: vec CartItem;
+   payment_due_date: opt text;
    payment_mode: opt PaymentMode;
    payment_status: opt PaymentStatus;
    sale_id: SaleId;
+   sale_note: opt text;
  };
 type Timestamp = int;
 type SuperAdminStats = 
@@ -36,15 +83,23 @@ type SuperAdminStats =
    total_profiles: nat;
    total_users: nat;
  };
+type StagedBatchStatus = 
+ variant {
+   accepted;
+   pending;
+   rejected;
+ };
 type SaleItem = 
  record {
    actual_sale_price: float64;
    created_by: UserId;
    creation_date: Timestamp;
+   is_loaned_item: bool;
    last_update_date: Timestamp;
    last_updated_by: UserId;
    mrp_snapshot: float64;
    product_id: ProductId;
+   product_instructions: opt text;
    product_name_snapshot: text;
    quantity: nat;
    sale_id: SaleId;
@@ -56,8 +111,12 @@ type SaleInput =
    amount_paid: opt float64;
    cart_items: vec CartItem;
    customer_id: CustomerId;
+   order_type: opt OrderType;
+   payment_due_date: opt text;
    payment_mode: opt PaymentMode;
    payment_status: opt PaymentStatus;
+   return_of_sale_id: opt SaleId;
+   sale_note: opt text;
  };
 type SaleId = nat;
 type Sale = 
@@ -73,16 +132,51 @@ type Sale =
    id: SaleId;
    last_update_date: Timestamp;
    last_updated_by: UserId;
+   order_type: opt OrderType;
    original_subtotal: opt float64;
    owner: UserId;
+   payment_due_date: opt text;
+   payment_history: vec PaymentEntry;
    payment_mode: opt PaymentMode;
    payment_status: opt PaymentStatus;
    profile_key: ProfileKey;
+   return_of_sale_id: opt SaleId;
+   sale_note: opt text;
    sold_by: UserId;
    timestamp: Timestamp;
    total_profit: float64;
    total_revenue: float64;
    total_volume_points: float64;
+ };
+type RoutingStatus = 
+ variant {
+   active;
+   noprofile;
+   pending_approval;
+   profile_pending_super_admin;
+   superAdmin;
+ };
+type ReturnOrderResult = 
+ record {
+   error: opt text;
+   return_order_id: opt SaleId;
+   success: bool;
+ };
+type ReturnItem = 
+ record {
+   is_usable: bool;
+   product_id: ProductId;
+   qty: nat;
+   unit_price: float64;
+ };
+type ReferralCommissionEntry = 
+ record {
+   customer_count: nat;
+   month: text;
+   profile_key: ProfileKey;
+   referral_user_display_name: text;
+   referral_user_principal: UserId;
+   total_commission: float64;
  };
 type PurchaseOrderItemInput = 
  record {
@@ -104,7 +198,10 @@ type PurchaseOrderItem =
 type PurchaseOrderInput = 
  record {
    items: vec PurchaseOrderItemInput;
+   po_number: opt text;
    vendor: text;
+   vendor_id: opt text;
+   vendor_name: opt text;
    warehouse_name: WarehouseName;
  };
 type PurchaseOrderId = nat;
@@ -116,10 +213,13 @@ type PurchaseOrder =
    last_update_date: Timestamp;
    last_updated_by: UserId;
    owner: UserId;
+   po_number: opt text;
    profile_key: ProfileKey;
    status: POStatus;
    timestamp: Timestamp;
    vendor: text;
+   vendor_id: opt text;
+   vendor_name: opt text;
    warehouse_name: WarehouseName;
  };
 type ProfileStatus = 
@@ -127,6 +227,7 @@ type ProfileStatus =
    end_date: opt Timestamp;
    is_enabled: bool;
    is_within_window: bool;
+   profile_approval_status: ProfileApprovalStatus;
    start_date: opt Timestamp;
  };
 type ProfileStats = 
@@ -150,11 +251,13 @@ type ProfilePublic =
    email: text;
    end_date: opt Timestamp;
    fssai_number: text;
+   instagram_handle: text;
    is_archived: bool;
    is_enabled: bool;
    logo_url: text;
    owner: UserId;
    phone_number: text;
+   profile_approval_status: ProfileApprovalStatus;
    profile_key: ProfileKey;
    receipt_notes: text;
    start_date: opt Timestamp;
@@ -167,19 +270,34 @@ type ProfileInput =
    business_name: text;
    email: text;
    fssai_number: text;
+   instagram_handle: text;
    logo_url: text;
    phone_number: text;
    profile_key: ProfileKey;
    receipt_notes: text;
    theme_color: text;
  };
+type ProfileCyclesEntry = 
+ record {
+   business_name: text;
+   estimated_cycles: nat;
+   profile_key: ProfileKey;
+ };
+type ProfileApprovalStatus = 
+ variant {
+   approved;
+   pending_super_admin_approval;
+   suspended;
+ };
 type ProductInput = 
  record {
    category_id: CategoryId;
    earn_base: float64;
    hsn_code: text;
+   instructions: opt text;
    mrp: float64;
    name: text;
+   serving_size: opt text;
    sku: text;
    volume_points: float64;
  };
@@ -192,12 +310,14 @@ type Product =
    earn_base: float64;
    hsn_code: text;
    id: ProductId;
+   instructions: opt text;
    last_update_date: Timestamp;
    last_updated_by: UserId;
    mrp: float64;
    name: text;
    owner: UserId;
    profile_key: ProfileKey;
+   serving_size: opt text;
    sku: text;
    volume_points: float64;
  };
@@ -215,10 +335,34 @@ type PaymentMode =
    Check;
    Other;
  };
+type PaymentEntry = 
+ record {
+   amount: float64;
+   id: text;
+   payment_date: Timestamp;
+   payment_method: text;
+   recorded_by: text;
+ };
 type POStatus = 
  variant {
    Pending;
    Received;
+ };
+type OrderType = 
+ variant {
+   return;
+   standard;
+ };
+type Notification = 
+ record {
+   created_at: Timestamp;
+   id: text;
+   is_read: bool;
+   message: text;
+   notification_type: text;
+   profile_key: text;
+   related_id: opt text;
+   target_role: text;
  };
 type MovementId = nat;
 type MonthlySalesTrend = 
@@ -227,9 +371,42 @@ type MonthlySalesTrend =
    total_revenue: float64;
    total_volume_points: float64;
  };
+type MedicalIssueMasterPublic__1 = 
+ record {
+   description: text;
+   id: nat;
+   name: text;
+ };
+type MedicalIssueMasterPublic = 
+ record {
+   creation_date: Timestamp;
+   description: text;
+   id: nat;
+   last_update_date: Timestamp;
+   name: text;
+ };
+type MedicalIssueMasterInput = 
+ record {
+   description: text;
+   name: text;
+ };
+type LocationMasterEntry = 
+ record {
+   entry_type: text;
+   id: text;
+   name: text;
+   parent_id: opt text;
+ };
+type LoanedItemStatus = 
+ variant {
+   active;
+   archived;
+ };
 type InventoryMovementInput = 
  record {
    from_warehouse: WarehouseName;
+   is_loaned_move: opt bool;
+   loaned_source: opt text;
    product_id: ProductId;
    quantity: nat;
    to_warehouse: WarehouseName;
@@ -240,6 +417,7 @@ type InventoryMovement =
    creation_date: Timestamp;
    from_warehouse: WarehouseName;
    id: MovementId;
+   is_loaned_move: bool;
    last_update_date: Timestamp;
    last_updated_by: UserId;
    moved_at: Timestamp;
@@ -259,11 +437,38 @@ type InventoryBatchPublic =
  record {
    date_received: Timestamp;
    id: BatchId;
+   is_loaned: bool;
+   loaned_source: opt text;
+   loaned_status: opt LoanedItemStatus;
    product_id: ProductId;
    profile_key: ProfileKey;
    quantity_remaining: nat;
+   return_order_id: opt SaleId;
+   staged_status: opt StagedBatchStatus;
    unit_cost: float64;
    warehouse_name: WarehouseName;
+ };
+type GoalMasterPublic__1 = 
+ record {
+   description: text;
+   id: nat;
+   name: text;
+   product_bundle: vec ProductId;
+ };
+type GoalMasterPublic = 
+ record {
+   creation_date: Timestamp;
+   description: text;
+   id: nat;
+   last_update_date: Timestamp;
+   name: text;
+   product_bundle: vec ProductId;
+ };
+type GoalMasterInput = 
+ record {
+   description: text;
+   name: text;
+   product_bundle: vec ProductId;
  };
 type DuplicateCheckResult = 
  record {
@@ -277,27 +482,56 @@ type DiscountType =
  };
 type DashboardStats = 
  record {
+   active_count: nat;
+   inactive_count: nat;
+   lead_count: nat;
    monthly_profit: float64;
    monthly_volume_points: float64;
    recent_sales: vec Sale;
    total_inventory_value: float64;
  };
+type CyclesInfo = 
+ record {
+   profiles_cycles: vec ProfileCyclesEntry;
+   total_cycles: nat;
+ };
 type CustomerPublic = 
  record {
    address: text;
+   address_line1: opt text;
+   address_line2: opt text;
+   age: opt nat;
+   city: opt text;
+   country: opt text;
    created_at: Timestamp;
+   customer_created_by: opt UserId;
+   customer_type: variant {
+                    active;
+                    inactive;
+                    lead;
+                  };
    date_of_birth: opt text;
    discount_applicable: opt DiscountType;
    discount_value: opt float64;
    email: text;
    gender: opt text;
+   height: opt text;
    id: CustomerId;
    last_purchase_at: Timestamp;
+   lead_follow_up_date: opt int;
+   lead_notes: opt text;
+   lead_to_active_datetime: opt Timestamp;
    lifetime_revenue: float64;
+   medical_issue_ids: vec nat;
    name: text;
-   notes: vec text;
+   notes: vec CustomerNote;
    phone: text;
+   pin_code: opt text;
+   primary_goal_ids: vec nat;
    profile_key: ProfileKey;
+   referral_commission_amount: opt float64;
+   referred_by: opt text;
+   state: opt text;
    total_sales: nat;
  };
 type CustomerOrderDetail = 
@@ -305,17 +539,53 @@ type CustomerOrderDetail =
    items: vec SaleItem;
    sale: Sale;
  };
+type CustomerNoteInput = 
+ record {
+   note_date: Timestamp;
+   "text": text;
+ };
+type CustomerNote = 
+ record {
+   created_by: text;
+   creation_date: Timestamp;
+   id: nat;
+   note_date: Timestamp;
+   "text": text;
+ };
 type CustomerInput = 
  record {
    address: text;
+   address_line1: opt text;
+   address_line2: opt text;
+   age: opt nat;
+   body_composition: opt vec BodyCompositionInput;
+   city: opt text;
+   country: opt text;
+   customer_created_by: opt UserId;
+   customer_type: opt variant {
+                        active;
+                        inactive;
+                        lead;
+                      };
    date_of_birth: opt text;
    discount_applicable: opt DiscountType;
    discount_value: opt float64;
    email: text;
    gender: opt text;
+   height: opt text;
+   lead_follow_up_date: opt int;
+   lead_notes: opt text;
+   lead_to_active_datetime: opt Timestamp;
+   medical_issue_ids: opt vec nat;
    name: text;
    note: opt text;
+   notes: opt vec CustomerNoteInput;
    phone: text;
+   pin_code: opt text;
+   primary_goal_ids: opt vec nat;
+   referral_commission_amount: opt float64;
+   referred_by: opt text;
+   state: opt text;
  };
 type CustomerId = nat;
 type CategoryInput = 
@@ -339,8 +609,35 @@ type Category =
 type CartItem = 
  record {
    actual_sale_price: float64;
+   is_loaned_item: opt bool;
    product_id: ProductId;
+   product_instructions: opt text;
    quantity: nat;
+ };
+type BodyInchesPublic = 
+ record {
+   biceps: opt float64;
+   calves: opt float64;
+   chest: opt float64;
+   created_by: text;
+   creation_date: Timestamp;
+   customer_id: nat;
+   entry_date: Timestamp;
+   hips: opt float64;
+   id: nat;
+   profile_key: ProfileKey;
+   thighs: opt float64;
+   waist: opt float64;
+ };
+type BodyInchesInput = 
+ record {
+   biceps: opt float64;
+   calves: opt float64;
+   chest: opt float64;
+   entry_date: Timestamp;
+   hips: opt float64;
+   thighs: opt float64;
+   waist: opt float64;
  };
 type BodyCompositionInput = 
  record {
@@ -373,8 +670,19 @@ type BodyCompositionEntry =
  };
 type BatchId = nat;
 service : {
+  addCustomerNote: (customerId: CustomerId, input: CustomerNoteInput) ->
+   (opt CustomerNote);
+  addLoanerBatch: (product_id: ProductId, quantity: nat, unit_cost: float64,
+   loaned_source: text) -> (opt BatchId);
+  addLocationEntry: (entry: LocationMasterEntry) -> (bool);
+  addPaymentEntry: (sale_id: SaleId, amount: float64, payment_method:
+   text) -> (bool);
+  approveProfile: (profile_key: ProfileKey) -> (bool);
+  approveUser: (userId: UserId, approved: bool) -> (bool);
+  archiveLoanedBatch: (batch_id: BatchId) -> (bool);
   assignUserRole: (targetUserId: UserId, newRole: UserRole, profile_key:
    ProfileKey) -> (bool);
+  checkAndCreateNotifications: (profileKey: text) -> (nat);
   checkCustomerDuplicate: (name: text) -> (DuplicateCheckResult) query;
   /// Claim or re-claim superAdmin role.
   claimSuperAdmin: () -> (bool);
@@ -383,33 +691,84 @@ service : {
   clearAllData: () -> ();
   createBodyCompositionEntry: (customerId: CustomerId, input:
    BodyCompositionInput) -> (opt BodyCompositionEntry);
+  createBodyInchesEntry: (customerId: CustomerId, input: BodyInchesInput) ->
+   (BodyInchesPublic);
   createCategory: (input: CategoryInput) -> (CategoryId);
   createCustomer: (input: CustomerInput) -> (CustomerId);
+  createCustomerFromSales: (input: CustomerInput) -> (CustomerId);
+  createGoal: (input: GoalMasterInput) -> (nat);
+  createGoalMaster: (profileKey: ProfileKey, name: text, description:
+   text) -> (GoalMasterPublic__1);
+  createMedicalIssue: (input: MedicalIssueMasterInput) -> (nat);
+  createMedicalIssueMaster: (profileKey: ProfileKey, name: text, description:
+   text) -> (MedicalIssueMasterPublic__1);
   createProduct: (input: ProductInput) -> (opt ProductId);
   createProfile: (input: ProfileInput) -> (bool);
   createPurchaseOrder: (input: PurchaseOrderInput) -> (opt PurchaseOrderId);
+  createReferralUser: (profile_key: ProfileKey, display_name: text) -> (bool);
+  createReturnOrder: (original_sale_id: SaleId, return_items:
+   vec ReturnItem) -> (ReturnOrderResult);
   createSale: (input: SaleInput) -> (opt SaleId);
+  createVendor: (input: VendorInput, profileKey: text) -> (opt Vendor);
   deleteBodyCompositionEntry: (id: text) -> (bool);
+  deleteBodyInchesEntry: (id: nat) -> (bool);
   deleteCategory: (id: CategoryId) -> (bool);
   deleteCustomer: (id: CustomerId) -> (bool);
+  deleteCustomerNote: (noteId: nat, customerId: CustomerId) -> (bool);
+  deleteGoal: (id: nat) -> (bool);
+  deleteGoalMaster: (id: nat) -> (bool);
+  deleteMedicalIssue: (id: nat) -> (bool);
+  deleteMedicalIssueMaster: (id: nat) -> (bool);
   deleteProduct: (id: ProductId) -> (bool);
   deleteProfile: (profile_key: ProfileKey) -> (bool);
+  deleteVendor: (vendorId: text) -> (bool);
+  /// Returns true if a Super Admin has already been registered (superAdminPrincipal is set).
+  /// This is a public, unauthenticated query — used by the frontend to decide whether
+  /// a new anonymous user should see the first-time setup screen or the onboarding screen.
+  doesSuperAdminExist: () -> (bool) query;
   enableProfile: (profile_key: ProfileKey, enabled: bool) -> (bool);
   getAllProfilesForAdmin: () -> (vec ProfilePublic) query;
   getAllUsersForAdmin: () -> (vec UserProfilePublic) query;
   getBodyCompositionHistory: (customerId: CustomerId) ->
    (vec BodyCompositionEntry) query;
+  getCanisterCyclesInfo: () ->
+   (record {
+      per_profile_info:
+       vec record {
+             business_name: text;
+             cycles_note: text;
+             profile_key: text;
+           };
+      total_cycles: nat;
+    });
   getCategories: () -> (vec Category) query;
+  getCitiesByState: (stateId: text) -> (vec LocationMasterEntry) query;
+  getCountries: () -> (vec LocationMasterEntry) query;
   getCustomer: (id: CustomerId) -> (opt CustomerPublic) query;
   getCustomerOrders: (customer_id: CustomerId) ->
    (vec CustomerOrderDetail) query;
   getCustomers: () -> (vec CustomerPublic) query;
+  getCyclesInfo: () -> (CyclesInfo);
   getDashboardStats: () -> (DashboardStats) query;
+  getGoal: (id: nat) -> (opt GoalMasterPublic) query;
+  getGoalMasterData: (profileKey: ProfileKey) ->
+   (vec GoalMasterPublic__1) query;
   getInventoryBatches: (product_id: ProductId) ->
    (vec InventoryBatchPublic) query;
   getInventoryLevels: () -> (vec InventoryLevel) query;
   getInventoryMovements: () -> (vec InventoryMovement) query;
+  getLastSaleForCustomer: (customer_id: CustomerId) ->
+   (opt CustomerOrderDetail) query;
+  getMedicalIssue: (id: nat) -> (opt MedicalIssueMasterPublic) query;
+  getMedicalIssueMasterData: (profileKey: ProfileKey) ->
+   (vec MedicalIssueMasterPublic__1) query;
   getMonthlySalesTrend: () -> (vec MonthlySalesTrend) query;
+  getNotifications: (profileKey: text, targetRole: text) ->
+   (vec Notification) query;
+  getNotificationsForUser: () -> (vec Notification) query;
+  getPaymentHistory: (sale_id: SaleId) -> (vec PaymentEntry) query;
+  getPendingApprovalUsers: (profile_key: ProfileKey) ->
+   (vec UserProfilePublic) query;
   getProducts: () -> (vec Product) query;
   getProfile: () -> (opt ProfilePublic) query;
   getProfileByKey: (profile_key: ProfileKey) -> (opt ProfilePublic) query;
@@ -417,28 +776,65 @@ service : {
   getPurchaseOrderItems: (po_id: PurchaseOrderId) ->
    (vec PurchaseOrderItem) query;
   getPurchaseOrders: () -> (vec PurchaseOrder) query;
+  getReferralCommissionByMonth: () -> (vec ReferralCommissionEntry) query;
+  getReferralUsers: (profile_key: ProfileKey) ->
+   (vec UserProfilePublic) query;
+  getRoutingStatus: () -> (RoutingStatus);
   getSale: (sale_id: SaleId) -> (opt Sale) query;
-  /// Helper: upsert userStore entry with #superAdmin role for the given principal.
   getSaleItems: (sale_id: SaleId) -> (vec SaleItem) query;
+  getSaleWithItems: (sale_id: SaleId) -> (opt CustomerOrderDetail) query;
   getSales: () -> (vec Sale) query;
   getSalesByCustomer: (customer_id: CustomerId) -> (vec Sale) query;
+  getStagedInventory: () -> (vec InventoryBatchPublic) query;
+  getStates: () -> (vec LocationMasterEntry) query;
+  getSuperAdminActiveProfile: () -> (opt ProfileKey) query;
   getSuperAdminStats: () -> (SuperAdminStats) query;
+  getUserPreferences: () -> (UserPreferences) query;
   getUserProfile: () -> (opt UserProfilePublic) query;
   getUsersByProfile: (profile_key: ProfileKey) ->
    (vec UserProfilePublic) query;
+  getVendor: (vendorId: text) -> (opt Vendor) query;
+  getVendors: (profileKey: text) -> (vec Vendor) query;
   /// One-time bootstrap: first caller becomes super admin (if not already set).
   initSuperAdmin: () -> (bool);
   joinProfile: (profile_key: ProfileKey, display_name: text, warehouse_name:
    WarehouseName) -> (bool);
+  listBodyInchesHistory: (customerId: CustomerId) ->
+   (vec BodyInchesPublic) query;
+  listCustomerNotes: (customerId: CustomerId) -> (vec CustomerNote) query;
+  listGoals: () -> (vec GoalMasterPublic) query;
+  listMedicalIssues: () -> (vec MedicalIssueMasterPublic) query;
+  markNotificationRead: (notificationId: text) -> (bool);
   markPurchaseOrderReceived: (po_id: PurchaseOrderId) -> (bool);
   moveInventory: (input: InventoryMovementInput) -> (opt MovementId);
+  moveLoanerToStaff: (product_id: ProductId, quantity: nat, to_warehouse:
+   WarehouseName) -> (opt MovementId);
+  rejectProfile: (profile_key: ProfileKey) -> (bool);
+  returnToSource: (batch_id: BatchId, quantity: nat) -> (opt MovementId);
+  reviewStagedItem: (batch_id: BatchId, action: variant {
+                                                  accept;
+                                                  reject;
+                                                }) -> (bool);
+  runBackgroundChecks: () -> (nat);
   setProfileWindow: (profile_key: ProfileKey, start_date: opt Timestamp,
    end_date: opt Timestamp) -> (bool);
+  setSuperAdminActiveProfile: (profile_key: ProfileKey) -> (bool);
   updateCategory: (id: CategoryId, input: CategoryInput) -> (bool);
   updateCustomer: (id: CustomerId, input: CustomerInput) -> (bool);
+  updateGoal: (id: nat, input: GoalMasterInput) -> (bool);
+  updateGoalMaster: (id: nat, name: text, description: text, productBundle:
+   vec ProductId) -> (bool);
+  updateMedicalIssue: (id: nat, input: MedicalIssueMasterInput) -> (bool);
+  updateMedicalIssueMaster: (id: nat, name: text, description: text) ->
+   (bool);
+  updatePaymentStatus: (saleId: SaleId, paymentStatus: PaymentStatus,
+   amountPaid: opt float64, paymentDueDate: opt text) -> (bool);
   updateProduct: (id: ProductId, input: ProductInput) -> (bool);
   updateProfile: (input: ProfileInput) -> (bool);
   updateProfileKey: (oldKey: ProfileKey, newKey: ProfileKey) -> (bool);
   updateSale: (input: UpdateSaleInput) -> (bool);
+  updateUserPreferences: (language: text, dateFormat: text,
+   defaultReceiptLanguage: text, whatsappNumber: text) -> (bool);
   updateUserProfile: (input: UserProfileInput) -> (bool);
+  updateVendor: (vendorId: text, input: VendorInput) -> (bool);
 }
