@@ -1169,7 +1169,7 @@ export function useCreateVendor() {
       if (!actor) throw new Error("Actor not ready");
       if (typeof actor.createVendor !== "function")
         throw new Error("createVendor not available");
-      return actor.createVendor(input, profileKey);
+      return actor.createVendor(profileKey, input);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["vendors"] });
@@ -2252,5 +2252,80 @@ export function useDeleteCustomerNote() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["customers"] });
     },
+  });
+}
+
+// ─── Data Inspector Hooks (Super Admin) ───────────────────────────────────────
+//
+// These hooks provide raw record access for the Super Admin Data Inspector page.
+// They call backend methods that return unfiltered arrays of records for any
+// data type, scoped to a specific profile key.
+//
+// Both hooks gracefully degrade if the backend method is not available yet —
+// they return an empty array rather than crashing.
+
+/**
+ * useGetAllUsersRaw — fetches all user profiles for a given profile key.
+ * Used in the Data Inspector to show raw user records for Super Admin.
+ *
+ * @param profileKey - the profile to fetch users for (null = query disabled)
+ */
+export function useGetAllUsersRaw(profileKey: string | null) {
+  const { actor, isFetching } = useBackendActor();
+  return useQuery<import("../backend").UserProfilePublic[]>({
+    queryKey: ["data-inspector-users", profileKey],
+    queryFn: async () => {
+      if (!actor || !profileKey) return [];
+      // TODO: Once backend bindgen is run, getAllUsersRaw(profileKey) will be in the IDL.
+      // Remove the duck-type check and fallback below — call actor.getAllUsersRaw(profileKey) directly.
+      // Prefer getAllUsersRaw if available; fall back to getUsersByProfile
+      const a = actor as unknown as Record<string, unknown>;
+      if (typeof a.getAllUsersRaw === "function") {
+        const result = await (
+          a.getAllUsersRaw as (
+            pk: string,
+          ) => Promise<import("../backend").UserProfilePublic[]>
+        )(profileKey);
+        return result ?? [];
+      }
+      // Fallback: getUsersByProfile returns the same data for the given profile
+      if (typeof actor.getUsersByProfile === "function") {
+        return actor.getUsersByProfile(profileKey);
+      }
+      return [];
+    },
+    enabled: !!actor && !isFetching && !!profileKey,
+  });
+}
+
+/**
+ * useGetAllProfilesRaw — fetches the raw list of all profiles in the canister.
+ * Used in the Data Inspector to show raw profile records for Super Admin.
+ * No profile key required — Super Admin sees all profiles.
+ */
+export function useGetAllProfilesRaw() {
+  const { actor, isFetching } = useBackendActor();
+  return useQuery({
+    queryKey: ["data-inspector-profiles"],
+    queryFn: async () => {
+      if (!actor) return [];
+      // TODO: Once backend bindgen is run, getAllProfilesRaw() will be in the IDL.
+      // Remove the duck-type check and fallback below — call actor.getAllProfilesRaw() directly.
+      // Prefer getAllProfilesRaw if available; fall back to getAllProfilesForAdmin
+      const a = actor as unknown as Record<string, unknown>;
+      if (typeof a.getAllProfilesRaw === "function") {
+        const result = await (
+          a.getAllProfilesRaw as () => Promise<unknown[]>
+        )();
+        return result ?? [];
+      }
+      // Fallback: getAllProfilesForAdmin returns extended profile info
+      if (typeof actor.getAllProfilesForAdmin === "function") {
+        return actor.getAllProfilesForAdmin();
+      }
+      return [];
+    },
+    enabled: !!actor && !isFetching,
+    staleTime: 30_000,
   });
 }

@@ -20,11 +20,13 @@
  *   App.tsx — both AppContent and SuperAdminApp wrap their content in Layout
  */
 
+import { DiagnosticsPanel } from "@/components/DiagnosticsPanel";
 import { HelpPanel } from "@/components/HelpPanel";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Toaster } from "@/components/ui/sonner";
 import { useImpersonation } from "@/contexts/ImpersonationContext";
 import { useProfile } from "@/contexts/ProfileContext";
+import { useUserPreferences } from "@/contexts/UserPreferencesContext";
 import { useRunBackgroundChecks } from "@/hooks/useBackend";
 import { hexToOklch } from "@/lib/color";
 import { useActor } from "@caffeineai/core-infrastructure";
@@ -132,9 +134,10 @@ function pathToHelpPage(path: string): string {
     "/super-admin": "superAdmin",
     "/loaner-inventory": "inventory",
     "/stage-inventory": "inventory",
-    "/customer-goals": "customers",
-    "/customer-medical-issues": "customers",
-    "/user-preferences": "dashboard",
+    "/customer-goals": "customerGoals",
+    "/customer-medical-issues": "customerMedicalIssues",
+    "/user-preferences": "preferences",
+    "/admin/tests": "adminTests",
   };
   return map[path] ?? "dashboard";
 }
@@ -159,6 +162,8 @@ export function Layout({
   const { profile, isLoadingProfile, userProfile } = useProfile();
   const { isImpersonating, profileName, impersonateAsRole, stopImpersonation } =
     useImpersonation();
+  // Read diagnostics toggle from preferences — renders panel at bottom when true
+  const { diagnosticsEnabled } = useUserPreferences();
 
   // Derive the profile key and target role for notification queries.
   // `profile.profile_key` is preferred (business profile); fallback to user profile key.
@@ -308,6 +313,11 @@ export function Layout({
 
       {/* Toast notification stack — positioned top-right, auto-dismisses */}
       <Toaster richColors position="top-right" />
+
+      {/* Diagnostics Panel — fixed bottom overlay, visible when diagnostics is enabled.
+          Renders log entries from lib/logger.ts for debugging backend calls and navigation.
+          Adds bottom padding to the page when visible so content is not obscured. */}
+      {diagnosticsEnabled && <DiagnosticsPanel />}
     </div>
   );
 }

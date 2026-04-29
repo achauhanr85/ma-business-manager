@@ -22,6 +22,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { useImpersonation } from "@/contexts/ImpersonationContext";
 import { useProfile } from "@/contexts/ProfileContext";
 import {
   useCreateVendor,
@@ -262,7 +263,13 @@ function VendorDialog({
 
 export function VendorsPage({ onNavigate: _onNavigate }: VendorsPageProps) {
   const { userProfile } = useProfile();
-  const profileKey = userProfile?.profile_key ?? null;
+  // IMPERSONATION FIX: When Super Admin impersonates, userProfile.profile_key is null.
+  // Fall back to the impersonation context's profileKey so vendors load correctly.
+  const { isImpersonating, profileKey: impersonatedProfileKey } =
+    useImpersonation();
+  const profileKey = isImpersonating
+    ? impersonatedProfileKey || userProfile?.profile_key || null
+    : (userProfile?.profile_key ?? null);
 
   const { data: vendors = [], isLoading } = useGetVendors(profileKey);
   const deleteVendor = useDeleteVendor();

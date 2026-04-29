@@ -318,6 +318,9 @@ export const mockBackend: backendInterface = {
   closeLead: async () => true,
   deleteLead: async () => true,
   // Notifications
+  getAllNotificationsRaw: async () => [],
+  getAllProfilesRaw: async () => [],
+  getAllUsersRaw: async () => [],
   getNotificationsForUser: async () => [
     { id: "notif-1", message: "Welcome to Indi Negocio Livre!", notification_type: "welcome", is_read: false, created_at: NOW_NS, profile_key: PROFILE_KEY, target_role: "admin" },
     { id: "notif-2", message: "New user Ravi Kumar has joined the profile.", notification_type: "new_user", is_read: false, created_at: NOW_NS, profile_key: PROFILE_KEY, target_role: "admin" },

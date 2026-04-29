@@ -60,6 +60,12 @@ export const ROUTES = {
   // ── Catalog ─────────────────────────────────────────────────────────────────
   /** Product and category management */
   products: "/products",
+  /**
+   * Category management — categories live on the products page as a tab.
+   * Navigating to this route opens /products with the categories tab pre-selected
+   * via the URL query param ?tab=categories.
+   */
+  categories: "/products?tab=categories",
   /** Sales analytics, KPI charts, referral commission */
   analytics: "/analytics",
 
@@ -76,6 +82,8 @@ export const ROUTES = {
   adminTests: "/admin/tests",
   /** Raw backend data browser (Super Admin only) */
   dataInspector: "/data-inspector",
+  /** Profile approval queue — Super Admin approves or rejects new profiles */
+  profileApprovals: "/profile-approvals",
 } as const;
 
 /** Union type of all valid route path strings */

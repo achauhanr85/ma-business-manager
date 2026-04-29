@@ -737,7 +737,7 @@ service : {
   createReturnOrder: (original_sale_id: SaleId, return_items:
    vec ReturnItem) -> (ReturnOrderResult);
   createSale: (input: SaleInput) -> (opt SaleId);
-  createVendor: (input: VendorInput, profileKey: text) -> (opt Vendor);
+  createVendor: (profileKey: text, input: VendorInput) -> (opt Vendor);
   deleteBodyCompositionEntry: (id: text) -> (bool);
   deleteBodyInchesEntry: (id: nat) -> (bool);
   deleteCategory: (id: CategoryId) -> (bool);
@@ -756,8 +756,11 @@ service : {
   /// (superAdminPrincipal is null) or the normal onboarding screen (it is set).
   doesSuperAdminExist: () -> (bool) query;
   enableProfile: (profile_key: ProfileKey, enabled: bool) -> (bool);
+  getAllNotificationsRaw: (profileKey: text) -> (vec Notification) query;
   getAllProfilesForAdmin: () -> (vec ProfilePublic) query;
+  getAllProfilesRaw: () -> (vec ProfilePublic) query;
   getAllUsersForAdmin: () -> (vec UserProfilePublic) query;
+  getAllUsersRaw: (profileKey: ProfileKey) -> (vec UserProfilePublic) query;
   getBodyCompositionHistory: (customerId: CustomerId) ->
    (vec BodyCompositionEntry) query;
   getCanisterCyclesInfo: () ->

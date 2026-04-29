@@ -675,7 +675,7 @@ export interface _SERVICE {
     ReturnOrderResult
   >,
   'createSale' : ActorMethod<[SaleInput], [] | [SaleId]>,
-  'createVendor' : ActorMethod<[VendorInput, string], [] | [Vendor]>,
+  'createVendor' : ActorMethod<[string, VendorInput], [] | [Vendor]>,
   'deleteBodyCompositionEntry' : ActorMethod<[string], boolean>,
   'deleteBodyInchesEntry' : ActorMethod<[bigint], boolean>,
   'deleteCategory' : ActorMethod<[CategoryId], boolean>,
@@ -696,8 +696,11 @@ export interface _SERVICE {
    */
   'doesSuperAdminExist' : ActorMethod<[], boolean>,
   'enableProfile' : ActorMethod<[ProfileKey, boolean], boolean>,
+  'getAllNotificationsRaw' : ActorMethod<[string], Array<Notification>>,
   'getAllProfilesForAdmin' : ActorMethod<[], Array<ProfilePublic>>,
+  'getAllProfilesRaw' : ActorMethod<[], Array<ProfilePublic>>,
   'getAllUsersForAdmin' : ActorMethod<[], Array<UserProfilePublic>>,
+  'getAllUsersRaw' : ActorMethod<[ProfileKey], Array<UserProfilePublic>>,
   'getBodyCompositionHistory' : ActorMethod<
     [CustomerId],
     Array<BodyCompositionEntry>

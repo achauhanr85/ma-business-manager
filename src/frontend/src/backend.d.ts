@@ -677,7 +677,7 @@ export interface backendInterface {
     createReferralUser(profile_key: ProfileKey, display_name: string): Promise<boolean>;
     createReturnOrder(original_sale_id: SaleId, return_items: Array<ReturnItem>): Promise<ReturnOrderResult>;
     createSale(input: SaleInput): Promise<SaleId | null>;
-    createVendor(input: VendorInput, profileKey: string): Promise<Vendor | null>;
+    createVendor(profileKey: string, input: VendorInput): Promise<Vendor | null>;
     deleteBodyCompositionEntry(id: string): Promise<boolean>;
     deleteBodyInchesEntry(id: bigint): Promise<boolean>;
     deleteCategory(id: CategoryId): Promise<boolean>;
@@ -698,8 +698,11 @@ export interface backendInterface {
      */
     doesSuperAdminExist(): Promise<boolean>;
     enableProfile(profile_key: ProfileKey, enabled: boolean): Promise<boolean>;
+    getAllNotificationsRaw(profileKey: string): Promise<Array<Notification>>;
     getAllProfilesForAdmin(): Promise<Array<ProfilePublic>>;
+    getAllProfilesRaw(): Promise<Array<ProfilePublic>>;
     getAllUsersForAdmin(): Promise<Array<UserProfilePublic>>;
+    getAllUsersRaw(profileKey: ProfileKey): Promise<Array<UserProfilePublic>>;
     getBodyCompositionHistory(customerId: CustomerId): Promise<Array<BodyCompositionEntry>>;
     getCanisterCyclesInfo(): Promise<{
         per_profile_info: Array<{

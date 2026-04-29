@@ -18,7 +18,10 @@ mixin (
     VendorsLib.getVendor(vendorStore, vendorId)
   };
 
-  public shared ({ caller }) func createVendor(input : VendorTypes.VendorInput, profileKey : Text) : async ?VendorTypes.Vendor {
+  // NOTE — parameter order: profileKey first, then input.
+  // The frontend (PO page and Vendor page) calls createVendor(profileKey, input).
+  // Keeping profileKey as the first argument matches the frontend call convention.
+  public shared ({ caller }) func createVendor(profileKey : Text, input : VendorTypes.VendorInput) : async ?VendorTypes.Vendor {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
     VendorsLib.createVendor(vendorStore, userStore, caller, input, profileKey)
   };

@@ -1,6 +1,31 @@
+/**
+ * UserPreferencesPage.tsx — User-facing preferences form.
+ *
+ * WHAT THIS FILE DOES:
+ * Allows users to configure:
+ *   - UI Theme (Dark, Herbal, Minimalist, Punk) — live preview, saved on Save
+ *   - Language (English, Gujarati, Hindi) — saved on Save, logout required to apply
+ *   - Date Format — saved on Save
+ *   - Default Receipt Language — saved on Save
+ *   - Diagnostics Panel toggle — IN-MEMORY ONLY, takes effect immediately, not saved
+ *
+ * SAVE BEHAVIOUR:
+ * All saved preferences (theme, language, date format, receipt language) require
+ * clicking the Save button. After saving, the user is automatically logged out so
+ * the new language/theme can reload cleanly.
+ *
+ * EXCEPTION — Diagnostics:
+ * The diagnostics toggle is the one auto-apply exception. It is stored in memory only
+ * (resets on refresh) and takes effect the moment it is toggled — no Save button needed.
+ *
+ * WHO USES THIS:
+ *   App.tsx — rendered when route === ROUTES.userPreferences
+ */
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import {
   DATE_FORMAT_OPTIONS,
   UserPreferencesContext,
@@ -9,6 +34,7 @@ import type { ThemeName } from "@/contexts/UserPreferencesContext";
 import { useAuth } from "@/hooks/useAuth";
 import { useTranslation } from "@/translations";
 import {
+  Bug,
   Calendar,
   CheckCircle2,
   Globe,
@@ -34,7 +60,7 @@ const LANGUAGES = [
 
 type Language = "en" | "gu" | "hi";
 
-/** Visual theme options */
+/** Visual theme options with emoji and translation key */
 const THEMES: { value: ThemeName; emoji: string; descKey: string }[] = [
   { value: "dark", emoji: "🌑", descKey: "themeDark" },
   { value: "herbal", emoji: "🌿", descKey: "themeHerbal" },
@@ -56,6 +82,8 @@ export function UserPreferencesPage({
     updateDefaultReceiptLanguage,
     saveAllPreferences,
     isLoading,
+    diagnosticsEnabled,
+    setDiagnosticsEnabled,
   } = useContext(UserPreferencesContext);
 
   const { logout } = useAuth();
@@ -63,6 +91,7 @@ export function UserPreferencesPage({
   const [isSaving, setIsSaving] = useState(false);
   const logoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Clean up logout timer on unmount to avoid calling logout after navigation
   useEffect(() => {
     return () => {
       if (logoutTimerRef.current !== null) {
@@ -71,13 +100,17 @@ export function UserPreferencesPage({
     };
   }, []);
 
+  /**
+   * handleSave — persists all saveable preferences to the backend.
+   * On success, auto-logs out after 1.8s so the new language/theme take effect.
+   * NOTE: diagnosticsEnabled is NOT saved here — it is in-memory only.
+   */
   const handleSave = async () => {
     setIsSaving(true);
     try {
       const ok = await saveAllPreferences();
       if (ok) {
         toast.success(t.userPreferences.preferencesSaved, { duration: 5000 });
-        // Short delay so the user can read the toast, then logout
         logoutTimerRef.current = setTimeout(() => {
           logout();
         }, 1800);
@@ -110,7 +143,7 @@ export function UserPreferencesPage({
 
   return (
     <div className="space-y-6 max-w-xl pb-8" data-ocid="user_preferences.page">
-      {/* Header */}
+      {/* ── Header ── */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
@@ -127,7 +160,7 @@ export function UserPreferencesPage({
         </div>
       </div>
 
-      {/* Theme selector */}
+      {/* ── Theme selector ── */}
       <Card data-ocid="user_preferences.theme_section">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
@@ -181,7 +214,7 @@ export function UserPreferencesPage({
 
       <Separator />
 
-      {/* Language */}
+      {/* ── Language ── */}
       <Card data-ocid="user_preferences.language_section">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
@@ -223,7 +256,7 @@ export function UserPreferencesPage({
             ))}
           </div>
 
-          {/* Language info note */}
+          {/* Language change note */}
           <div className="rounded-lg border border-amber-300/50 bg-amber-50/60 dark:bg-amber-950/20 dark:border-amber-800/30 px-3 py-2.5">
             <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
               <strong>Note:</strong> After saving, you will be logged out
@@ -232,7 +265,7 @@ export function UserPreferencesPage({
             </p>
           </div>
 
-          {/* Refresh button — re-applies saved language to current session */}
+          {/* Refresh button — re-applies saved language without logging out */}
           <Button
             type="button"
             variant="outline"
@@ -249,7 +282,7 @@ export function UserPreferencesPage({
 
       <Separator />
 
-      {/* Date Format */}
+      {/* ── Date Format ── */}
       <Card data-ocid="user_preferences.date_format_section">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
@@ -294,7 +327,7 @@ export function UserPreferencesPage({
 
       <Separator />
 
-      {/* Default Receipt Language */}
+      {/* ── Default Receipt Language ── */}
       <Card data-ocid="user_preferences.receipt_language_section">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
@@ -344,7 +377,49 @@ export function UserPreferencesPage({
         </CardContent>
       </Card>
 
-      {/* Save Button */}
+      <Separator />
+
+      {/* ── Diagnostics Panel toggle ──────────────────────────────────────────
+          This is the ONLY preference that auto-applies and is NOT saved to the
+          backend. It resets to OFF on every page refresh. Useful for debugging
+          backend calls and navigation events in the browser.
+      ── */}
+      <Card data-ocid="user_preferences.diagnostics_section">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <Bug className="w-4 h-4 text-primary" />
+            Diagnostics
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex-1">
+              <p className="text-sm font-medium text-foreground">
+                Enable Diagnostics Panel
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Shows a debug log panel at the bottom of the screen. Logs
+                backend API calls, navigation events, and errors in real time.
+              </p>
+            </div>
+            <Switch
+              checked={diagnosticsEnabled}
+              onCheckedChange={setDiagnosticsEnabled}
+              data-ocid="user_preferences.diagnostics_toggle"
+              aria-label="Enable diagnostics panel"
+            />
+          </div>
+          <div className="rounded-lg border border-blue-200/60 bg-blue-50/40 dark:bg-blue-950/20 dark:border-blue-800/30 px-3 py-2.5">
+            <p className="text-xs text-blue-700 dark:text-blue-400 leading-relaxed">
+              <strong>Developer tool:</strong> This setting is in-memory only —
+              it resets to OFF when you refresh the page. It is not saved to
+              your account and does not affect other users.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Save Button ── */}
       <div
         className="sticky bottom-4 pt-2"
         data-ocid="user_preferences.save_section"

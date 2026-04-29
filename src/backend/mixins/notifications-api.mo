@@ -132,4 +132,25 @@ mixin (
     };
     totalCount
   };
+
+  // ── Data Inspector — Super Admin only ────────────────────────────────────
+
+  /// Returns ALL notifications (read and unread) across all profiles.
+  /// Used by the Super Admin Data Inspector page to browse raw notification records.
+  /// Pass profileKey="" to get every notification; non-empty profileKey filters to that profile.
+  public shared query ({ caller }) func getAllNotificationsRaw(profileKey : Text) : async [NotificationsLib.Notification] {
+    if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
+    switch (userStore.get(caller)) {
+      case (?up) {
+        if (up.role != #superAdmin) Runtime.trap("Super Admin only");
+      };
+      case null Runtime.trap("Caller has no profile");
+    };
+    notificationsStore.entries()
+      .filter(func((_id, n) : (Text, NotificationsLib.Notification)) : Bool {
+        profileKey == "" or n.profile_key == profileKey
+      })
+      .map(func((_id, n) : (Text, NotificationsLib.Notification)) : NotificationsLib.Notification { n })
+      .toArray()
+  };
 };

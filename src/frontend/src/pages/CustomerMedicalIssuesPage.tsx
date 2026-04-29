@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { useImpersonation } from "@/contexts/ImpersonationContext";
 import { useProfile } from "@/contexts/ProfileContext";
 import {
   useCreateMedicalIssueMaster,
@@ -202,10 +203,18 @@ function downloadIssueTemplate() {
 export function CustomerMedicalIssuesPage({
   onNavigate: _onNavigate,
 }: CustomerMedicalIssuesPageProps) {
-  const { userProfile } = useProfile();
+  const { userProfile, superAdminActiveProfileKey, profile } = useProfile();
+  const { isImpersonating, profileKey: impersonatedProfileKey } =
+    useImpersonation();
 
-  // Profile key — Super Admin may not have one
-  const profileKey = userProfile?.profile_key ?? null;
+  // IMPERSONATION FIX: Super Admin has no profile_key on their own userProfile record.
+  // When impersonating, use the impersonatedProfileKey from ImpersonationContext first
+  // (set when they click "View As" on a profile), then fall back to
+  // superAdminActiveProfileKey (set from backend on SA login), then userProfile/profile.
+  // Priority: impersonation key > superAdminActiveProfileKey > userProfile.profile_key
+  const profileKey = isImpersonating
+    ? impersonatedProfileKey || superAdminActiveProfileKey
+    : (userProfile?.profile_key ?? profile?.profile_key ?? null);
 
   const {
     data: issues = [],
@@ -287,8 +296,12 @@ export function CustomerMedicalIssuesPage({
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  // No profile key
+  // No profile key — show a helpful message.
+  // Distinguish impersonation with no profile selected vs. normal user with no profile.
   if (!profileKey) {
+    const message = isImpersonating
+      ? "No profile selected for impersonation. Please select a profile from the Super Admin dashboard."
+      : "Select a business profile to manage medical issues.";
     return (
       <div className="space-y-4" data-ocid="medical_issues.page">
         <div className="flex items-center gap-2">
@@ -302,9 +315,7 @@ export function CustomerMedicalIssuesPage({
           data-ocid="medical_issues.empty_state"
         >
           <Activity className="w-12 h-12 opacity-20" />
-          <p className="text-sm text-muted-foreground">
-            Select a business profile to manage medical issues.
-          </p>
+          <p className="text-sm text-muted-foreground">{message}</p>
         </div>
       </div>
     );

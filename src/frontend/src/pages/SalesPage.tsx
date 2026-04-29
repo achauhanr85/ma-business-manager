@@ -23,6 +23,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { useImpersonation } from "@/contexts/ImpersonationContext";
 import { useProfile } from "@/contexts/ProfileContext";
 import {
   useAddPaymentEntry,
@@ -3017,9 +3018,15 @@ function OrderHistoryPanel({
 // ─── Sales Page ───────────────────────────────────────────────────────────────
 
 export function SalesPage({ onNavigate }: SalesPageProps) {
-  const { userProfile, profile } = useProfile();
+  const { userProfile, profile, superAdminActiveProfileKey } = useProfile();
+  const { isImpersonating } = useImpersonation();
   const warehouseName = userProfile?.warehouse_name ?? "";
-  const profileKey = userProfile?.profile_key ?? profile?.profile_key ?? "";
+
+  // IMPERSONATION FIX: Super Admin has no profile_key on their own userProfile record.
+  // When impersonating, use superAdminActiveProfileKey (the profile selected on the SA dashboard).
+  const profileKey = isImpersonating
+    ? (superAdminActiveProfileKey ?? "")
+    : (userProfile?.profile_key ?? profile?.profile_key ?? "");
 
   const canEdit =
     userProfile?.role === UserRole.admin ||

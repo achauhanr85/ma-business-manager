@@ -170,9 +170,47 @@ module {
       .toArray()
   };
 
+  /// Alias used by the Data Inspector page — returns every profile record.
+  /// This is the same as getAllProfilesForAdmin() but with a name that makes
+  /// its purpose explicit when called from the Super Admin data inspector.
+  /// Super Admin only — enforced in the mixin caller check.
+  public func getAllProfilesRaw(store : Store) : [ProfileTypes.ProfilePublic] {
+    getAllProfilesForAdmin(store)
+  };
+
   /// Returns all UserProfiles across every profile — Super Admin only
   public func getAllUsersForAdmin(userStore : UserStore) : [UserTypes.UserProfilePublic] {
     userStore.entries()
+      .map(func((_k, up) : (Common.UserId, UserTypes.UserProfile)) : UserTypes.UserProfilePublic {
+        {
+          principal = up.principal;
+          profile_key = up.profile_key;
+          role = up.role;
+          warehouse_name = up.warehouse_name;
+          display_name = up.display_name;
+          email = up.email;
+          joined_at = up.joined_at;
+          approval_status = up.approval_status;
+          module_access = up.module_access;
+          language_preference = up.language_preference;
+          date_format = up.date_format;
+          default_receipt_language = up.default_receipt_language;
+          theme = up.theme;
+        }
+      })
+      .toArray()
+  };
+
+  /// Alias used by the Data Inspector page — returns every user record.
+  /// This is the same as getAllUsersForAdmin() but with a name that makes
+  /// its purpose explicit when called from the Super Admin data inspector.
+  /// profileKey="" returns ALL users; non-empty profileKey filters to that profile.
+  /// Super Admin only — enforced in the mixin caller check.
+  public func getAllUsersRaw(userStore : UserStore, profileKey : Common.ProfileKey) : [UserTypes.UserProfilePublic] {
+    userStore.entries()
+      .filter(func((_k, up) : (Common.UserId, UserTypes.UserProfile)) : Bool {
+        profileKey == "" or up.profile_key == profileKey
+      })
       .map(func((_k, up) : (Common.UserId, UserTypes.UserProfile)) : UserTypes.UserProfilePublic {
         {
           principal = up.principal;
@@ -305,13 +343,18 @@ module {
           last_update_date = now;
         };
         userStore.add(caller, up);
-        // Notify Super Admin that a new profile is pending approval
+        // Notify Super Admin that a new profile is pending approval.
+        // profile_key is set to "superadmin" (sentinel — no real profile key).
+        // related_id is null because this is a system-level notification scoped
+        // only to the Super Admin principal; it must NOT carry the new profile's key
+        // or the notification will be filtered out when Super Admin queries with
+        // a different active profile_key selected.
         let _ = NotificationsLib.createNotification(
           notificationsStore,
           "superadmin",
           "NewProfilePendingApproval",
           "New business profile '" # input.business_name # "' (key: " # input.profile_key # ") is pending Super Admin approval.",
-          ?input.profile_key,
+          null,
           "superAdmin",
         );
         true
@@ -825,16 +868,19 @@ module {
   };
 
   /// Returns all UserProfile entries for the profile where approval_status = "pending" — Admin/SuperAdmin only.
+  /// Super Admin can pass profileKey="" to get ALL pending users across ALL profiles.
+  /// Admin must pass their own profile_key to get pending users for their profile.
   public func getPendingApprovalUsers(userStore : UserStore, caller : Common.UserId, profileKey : Common.ProfileKey) : [UserTypes.UserProfilePublic] {
-    switch (userStore.get(caller)) {
+    let callerRole = switch (userStore.get(caller)) {
       case null return [];
-      case (?up) {
-        if (up.role != #admin and up.role != #superAdmin) return [];
-      };
+      case (?up) up.role;
     };
+    if (callerRole != #admin and callerRole != #superAdmin) return [];
+    // Super Admin with empty profileKey → return ALL pending users across all profiles
+    let filterByProfile = callerRole != #superAdmin or profileKey != "";
     userStore.entries()
       .filter(func((_k, up) : (Common.UserId, UserTypes.UserProfile)) : Bool {
-        up.profile_key == profileKey and up.approval_status == ?"pending"
+        (not filterByProfile or up.profile_key == profileKey) and up.approval_status == ?"pending"
       })
       .map(func((_k, up) : (Common.UserId, UserTypes.UserProfile)) : UserTypes.UserProfilePublic {
         {

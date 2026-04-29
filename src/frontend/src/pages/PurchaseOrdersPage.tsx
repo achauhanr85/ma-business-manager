@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useImpersonation } from "@/contexts/ImpersonationContext";
 import {
   useCreateCategory,
   useCreateProduct,
@@ -133,7 +134,7 @@ function useCreateVendor() {
       if (!actor) throw new Error("Actor not ready");
       if (typeof actor.createVendor !== "function")
         throw new Error("createVendor not available");
-      return actor.createVendor(input, profileKey);
+      return actor.createVendor(profileKey, input);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["vendors"] });
@@ -1339,7 +1340,13 @@ function CreatePODialog({
   const createPO = useCreatePurchaseOrder();
   const { data: userProfile } = useGetUserProfile();
 
-  const profileKey = userProfile?.profile_key ?? null;
+  // IMPERSONATION FIX: Super Admin impersonating has no profile_key on their userProfile.
+  // Fall back to the impersonation context's profileKey so vendor queries work correctly.
+  const { isImpersonating, profileKey: impersonatedProfileKey } =
+    useImpersonation();
+  const profileKey = isImpersonating
+    ? impersonatedProfileKey || userProfile?.profile_key || null
+    : (userProfile?.profile_key ?? null);
   const { data: vendors = [] } = useGetVendors(profileKey);
 
   const [poNumber, setPoNumber] = useState("");

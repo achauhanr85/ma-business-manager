@@ -1642,11 +1642,13 @@ function ProfileListRow({
 interface PendingProfileApprovalSectionProps {
   profiles: (ProfileStats | ProfileStatsExtended)[];
   onRefresh: () => Promise<void>;
+  onNavigateApprovals: () => void;
 }
 
 function PendingProfileApprovalSection({
   profiles,
   onRefresh,
+  onNavigateApprovals,
 }: PendingProfileApprovalSectionProps) {
   const enableProfile = useEnableProfile();
   const deleteProfile = useDeleteProfile();
@@ -1727,6 +1729,15 @@ function PendingProfileApprovalSection({
             {pendingProfiles.length} pending
           </Badge>
         </div>
+        {/* Link to the dedicated Profile Approvals page */}
+        <button
+          type="button"
+          onClick={onNavigateApprovals}
+          className="text-xs text-primary hover:underline mt-1 text-left"
+          data-ocid="super_admin.view_all_approvals_link"
+        >
+          View all approvals →
+        </button>
       </CardHeader>
       <CardContent className="pt-4 space-y-3">
         {pendingProfiles.map((profile, idx) => {
@@ -2692,6 +2703,7 @@ export function SuperAdminPage({ onNavigate }: SuperAdminPageProps) {
       <PendingProfileApprovalSection
         profiles={mergedProfiles}
         onRefresh={handleRefresh}
+        onNavigateApprovals={() => onNavigate("/profile-approvals")}
       />
 
       {/* Tab Switcher */}

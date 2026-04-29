@@ -13,6 +13,8 @@ import {
 } from "@/components/ui/table";
 import { useProfile } from "@/contexts/ProfileContext";
 import {
+  useGetAllProfilesRaw,
+  useGetAllUsersRaw,
   useGetBodyCompositionHistory,
   useGetCategories,
   useGetCustomers,
@@ -52,7 +54,9 @@ type DataType =
   | "medicalIssues"
   | "bodyComposition"
   | "stageInventory"
-  | "leads";
+  | "leads"
+  | "users"
+  | "profiles";
 
 interface DataTypeConfig {
   label: string;
@@ -73,6 +77,8 @@ const DATA_TYPES: DataTypeConfig[] = [
   { label: "Body Composition", key: "bodyComposition" },
   { label: "Stage Inventory", key: "stageInventory" },
   { label: "Leads", key: "leads" },
+  { label: "Users (Profile)", key: "users" },
+  { label: "All Profiles", key: "profiles" },
 ];
 
 // ─── Value rendering helpers ──────────────────────────────────────────────────
@@ -390,6 +396,10 @@ function useDataForType(dataType: DataType, profileKey: string | null) {
   const bodyComp = useGetBodyCompositionHistory(null);
   const stageInventory = useGetStagedInventory(profileKey);
   const leads = useGetLeads();
+  // Raw Super Admin views — uses getAllUsersRaw (falls back to getUsersByProfile)
+  const users = useGetAllUsersRaw(profileKey);
+  // Raw profile list — uses getAllProfilesRaw (falls back to getAllProfilesForAdmin)
+  const profiles = useGetAllProfilesRaw();
 
   const map = {
     customers,
@@ -405,6 +415,8 @@ function useDataForType(dataType: DataType, profileKey: string | null) {
     bodyComposition: bodyComp,
     stageInventory,
     leads,
+    users,
+    profiles,
   } as const;
 
   return map[dataType];
@@ -500,6 +512,11 @@ export function DataInspectorPage() {
                 {selectedType === "bodyComposition" && (
                   <Badge variant="outline" className="text-[10px]">
                     Requires customer context
+                  </Badge>
+                )}
+                {selectedType === "users" && !profileKey && (
+                  <Badge variant="outline" className="text-[10px]">
+                    Select a profile first
                   </Badge>
                 )}
               </div>

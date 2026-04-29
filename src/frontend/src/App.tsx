@@ -61,6 +61,7 @@ import { LoanerInventoryPage } from "@/pages/LoanerInventoryPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { OnboardingPage } from "@/pages/OnboardingPage";
 import { ProductsPage } from "@/pages/ProductsPage";
+import { ProfileApprovalPage } from "@/pages/ProfileApprovalPage";
 import { ProfilePage } from "@/pages/ProfilePage";
 import { PurchaseOrdersPage } from "@/pages/PurchaseOrdersPage";
 import { ReceiptPage } from "@/pages/ReceiptPage";
@@ -103,7 +104,8 @@ type AppPath =
   // The spec and 148-item QA checklist reference "/tests" throughout;
   // the actual ROUTES constant is "/admin/tests". Both must work.
   | "/tests"
-  | "/data-inspector";
+  | "/data-inspector"
+  | "/profile-approvals";
 
 // ── Page title map ─────────────────────────────────────────────────────────────
 // Maps each route path to a human-readable page title shown in the header.
@@ -130,6 +132,7 @@ function getPageTitle(path: string): string {
     [ROUTES.userPreferences]: "User Preferences",
     [ROUTES.adminTests]: "Regression Tests",
     [ROUTES.dataInspector]: "Data Inspector",
+    [ROUTES.profileApprovals]: "Profile Approvals",
   };
   return titles[path] ?? "Indi Negocio Livre";
 }
@@ -142,15 +145,25 @@ function getPageTitle(path: string): string {
  * PendingApprovalGate — shown to Staff or Referral Users whose Admin has not
  * yet approved their account. The user is logged out so they cannot retry
  * without a real login. Shown when routingStatus = pending_approval.
+ *
+ * FIX: We track whether logout has been called with local state so this
+ * component can call logout once on mount and then STAY rendered showing
+ * the "approval pending" message. Without this, the logout causes an
+ * auth state change that unmounts the component before the user sees it.
  */
 function PendingApprovalGate() {
   const { logout } = useAuth();
+  // Track whether we have already called logout so we don't call it repeatedly
+  const [hasLoggedOut, setHasLoggedOut] = useState(false);
 
-  // Log the user out so they must log in again next time — they should not
-  // retain an active session while their account is blocked.
+  // Call logout once on mount — but keep this component rendered afterwards
+  // so the user still sees the "Approval Pending" message after their session ends.
   useEffect(() => {
-    logout();
-  }, [logout]);
+    if (!hasLoggedOut) {
+      setHasLoggedOut(true);
+      logout();
+    }
+  }, [hasLoggedOut, logout]);
 
   return (
     <div
@@ -193,6 +206,15 @@ function PendingApprovalGate() {
             </li>
           </ul>
         </div>
+        {/* "Try logging in again" button — does not auto-redirect, user must click */}
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="w-full py-2 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+          data-ocid="pending_approval.retry_button"
+        >
+          Try logging in again
+        </button>
         <p className="text-xs text-muted-foreground">
           © {new Date().getFullYear()}. Built with love using{" "}
           <a
@@ -213,14 +235,22 @@ function PendingApprovalGate() {
  * ProfilePendingApprovalGate — shown to the Admin of a newly created profile
  * that the Super Admin has not yet approved. Logs the user out immediately.
  * Shown when routingStatus = profile_pending_super_admin.
+ *
+ * FIX: Same pattern as PendingApprovalGate — track logout with local state
+ * so the component stays mounted and the message remains visible.
  */
 export function ProfilePendingApprovalGate() {
   const { logout } = useAuth();
+  const [hasLoggedOut, setHasLoggedOut] = useState(false);
 
-  // Log the user out so they must re-authenticate after profile approval
+  // Call logout once on mount — keep this component rendered afterwards
+  // so the user still sees the "Profile Under Review" message.
   useEffect(() => {
-    logout();
-  }, [logout]);
+    if (!hasLoggedOut) {
+      setHasLoggedOut(true);
+      logout();
+    }
+  }, [hasLoggedOut, logout]);
 
   return (
     <div
@@ -261,6 +291,15 @@ export function ProfilePendingApprovalGate() {
             <li>Once approved, log back in to access your full profile</li>
           </ul>
         </div>
+        {/* "Try logging in again" button — does not auto-redirect, user must click */}
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="w-full py-2 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+          data-ocid="profile_pending_approval.retry_button"
+        >
+          Try logging in again
+        </button>
         <p className="text-xs text-muted-foreground">
           © {new Date().getFullYear()}. Built with love using{" "}
           <a
@@ -572,6 +611,9 @@ function SuperAdminApp() {
       case ROUTES.dataInspector:
         // Raw data browser — Super Admin only
         return <DataInspectorPage />;
+      case ROUTES.profileApprovals:
+        // Profile approval queue — Super Admin only
+        return <ProfileApprovalPage onNavigate={navigate} />;
       default:
         return <SuperAdminPage onNavigate={navigate} />;
     }

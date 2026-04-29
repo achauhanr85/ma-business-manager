@@ -345,7 +345,10 @@ export function ReceiptPage({ saleId, onNavigate }: ReceiptPageProps) {
         data-ocid="receipt.empty_state"
       >
         <Printer className="w-12 h-12 mb-4 opacity-30" />
-        <p className="text-base font-medium">No sale selected</p>
+        <p className="text-base font-medium">Please confirm a sale first</p>
+        <p className="text-sm mt-1 text-muted-foreground">
+          Confirm a sale from the Sales page and the receipt will appear here.
+        </p>
         <Button
           variant="outline"
           className="mt-4"

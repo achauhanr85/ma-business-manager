@@ -301,6 +301,16 @@ export const Vendor = IDL.Record({
   'profile_key' : IDL.Text,
   'creation_date' : Timestamp,
 });
+export const Notification = IDL.Record({
+  'id' : IDL.Text,
+  'is_read' : IDL.Bool,
+  'created_at' : Timestamp,
+  'notification_type' : IDL.Text,
+  'related_id' : IDL.Opt(IDL.Text),
+  'message' : IDL.Text,
+  'profile_key' : IDL.Text,
+  'target_role' : IDL.Text,
+});
 export const ProfileApprovalStatus = IDL.Variant({
   'approved' : IDL.Null,
   'suspended' : IDL.Null,
@@ -500,16 +510,6 @@ export const MonthlySalesTrend = IDL.Record({
   'total_revenue' : IDL.Float64,
   'total_volume_points' : IDL.Float64,
 });
-export const Notification = IDL.Record({
-  'id' : IDL.Text,
-  'is_read' : IDL.Bool,
-  'created_at' : Timestamp,
-  'notification_type' : IDL.Text,
-  'related_id' : IDL.Opt(IDL.Text),
-  'message' : IDL.Text,
-  'profile_key' : IDL.Text,
-  'target_role' : IDL.Text,
-});
 export const Product = IDL.Record({
   'id' : ProductId,
   'mrp' : IDL.Float64,
@@ -706,7 +706,7 @@ export const idlService = IDL.Service({
       [],
     ),
   'createSale' : IDL.Func([SaleInput], [IDL.Opt(SaleId)], []),
-  'createVendor' : IDL.Func([VendorInput, IDL.Text], [IDL.Opt(Vendor)], []),
+  'createVendor' : IDL.Func([IDL.Text, VendorInput], [IDL.Opt(Vendor)], []),
   'deleteBodyCompositionEntry' : IDL.Func([IDL.Text], [IDL.Bool], []),
   'deleteBodyInchesEntry' : IDL.Func([IDL.Nat], [IDL.Bool], []),
   'deleteCategory' : IDL.Func([CategoryId], [IDL.Bool], []),
@@ -722,8 +722,19 @@ export const idlService = IDL.Service({
   'deleteVendor' : IDL.Func([IDL.Text], [IDL.Bool], []),
   'doesSuperAdminExist' : IDL.Func([], [IDL.Bool], ['query']),
   'enableProfile' : IDL.Func([ProfileKey, IDL.Bool], [IDL.Bool], []),
+  'getAllNotificationsRaw' : IDL.Func(
+      [IDL.Text],
+      [IDL.Vec(Notification)],
+      ['query'],
+    ),
   'getAllProfilesForAdmin' : IDL.Func([], [IDL.Vec(ProfilePublic)], ['query']),
+  'getAllProfilesRaw' : IDL.Func([], [IDL.Vec(ProfilePublic)], ['query']),
   'getAllUsersForAdmin' : IDL.Func([], [IDL.Vec(UserProfilePublic)], ['query']),
+  'getAllUsersRaw' : IDL.Func(
+      [ProfileKey],
+      [IDL.Vec(UserProfilePublic)],
+      ['query'],
+    ),
   'getBodyCompositionHistory' : IDL.Func(
       [CustomerId],
       [IDL.Vec(BodyCompositionEntry)],
@@ -1245,6 +1256,16 @@ export const idlFactory = ({ IDL }) => {
     'profile_key' : IDL.Text,
     'creation_date' : Timestamp,
   });
+  const Notification = IDL.Record({
+    'id' : IDL.Text,
+    'is_read' : IDL.Bool,
+    'created_at' : Timestamp,
+    'notification_type' : IDL.Text,
+    'related_id' : IDL.Opt(IDL.Text),
+    'message' : IDL.Text,
+    'profile_key' : IDL.Text,
+    'target_role' : IDL.Text,
+  });
   const ProfileApprovalStatus = IDL.Variant({
     'approved' : IDL.Null,
     'suspended' : IDL.Null,
@@ -1444,16 +1465,6 @@ export const idlFactory = ({ IDL }) => {
     'total_revenue' : IDL.Float64,
     'total_volume_points' : IDL.Float64,
   });
-  const Notification = IDL.Record({
-    'id' : IDL.Text,
-    'is_read' : IDL.Bool,
-    'created_at' : Timestamp,
-    'notification_type' : IDL.Text,
-    'related_id' : IDL.Opt(IDL.Text),
-    'message' : IDL.Text,
-    'profile_key' : IDL.Text,
-    'target_role' : IDL.Text,
-  });
   const Product = IDL.Record({
     'id' : ProductId,
     'mrp' : IDL.Float64,
@@ -1651,7 +1662,7 @@ export const idlFactory = ({ IDL }) => {
         [],
       ),
     'createSale' : IDL.Func([SaleInput], [IDL.Opt(SaleId)], []),
-    'createVendor' : IDL.Func([VendorInput, IDL.Text], [IDL.Opt(Vendor)], []),
+    'createVendor' : IDL.Func([IDL.Text, VendorInput], [IDL.Opt(Vendor)], []),
     'deleteBodyCompositionEntry' : IDL.Func([IDL.Text], [IDL.Bool], []),
     'deleteBodyInchesEntry' : IDL.Func([IDL.Nat], [IDL.Bool], []),
     'deleteCategory' : IDL.Func([CategoryId], [IDL.Bool], []),
@@ -1667,13 +1678,24 @@ export const idlFactory = ({ IDL }) => {
     'deleteVendor' : IDL.Func([IDL.Text], [IDL.Bool], []),
     'doesSuperAdminExist' : IDL.Func([], [IDL.Bool], ['query']),
     'enableProfile' : IDL.Func([ProfileKey, IDL.Bool], [IDL.Bool], []),
+    'getAllNotificationsRaw' : IDL.Func(
+        [IDL.Text],
+        [IDL.Vec(Notification)],
+        ['query'],
+      ),
     'getAllProfilesForAdmin' : IDL.Func(
         [],
         [IDL.Vec(ProfilePublic)],
         ['query'],
       ),
+    'getAllProfilesRaw' : IDL.Func([], [IDL.Vec(ProfilePublic)], ['query']),
     'getAllUsersForAdmin' : IDL.Func(
         [],
+        [IDL.Vec(UserProfilePublic)],
+        ['query'],
+      ),
+    'getAllUsersRaw' : IDL.Func(
+        [ProfileKey],
         [IDL.Vec(UserProfilePublic)],
         ['query'],
       ),

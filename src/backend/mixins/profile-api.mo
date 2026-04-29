@@ -309,4 +309,33 @@ mixin (
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
     ProfileLib.approveUser(userStore, caller, userId, approved)
   };
+
+  // ── Data Inspector functions — Super Admin only ───────────────────────────
+
+  /// Returns all users, optionally filtered by profileKey.
+  /// Pass profileKey="" to get every user across all profiles.
+  /// Used by the Super Admin Data Inspector page.
+  public shared query ({ caller }) func getAllUsersRaw(profileKey : Common.ProfileKey) : async [UserTypes.UserProfilePublic] {
+    if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
+    switch (userStore.get(caller)) {
+      case (?up) {
+        if (up.role != #superAdmin) Runtime.trap("Super Admin only");
+      };
+      case null Runtime.trap("Caller has no profile");
+    };
+    ProfileLib.getAllUsersRaw(userStore, profileKey)
+  };
+
+  /// Returns all profiles.
+  /// Used by the Super Admin Data Inspector page.
+  public shared query ({ caller }) func getAllProfilesRaw() : async [ProfileTypes.ProfilePublic] {
+    if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
+    switch (userStore.get(caller)) {
+      case (?up) {
+        if (up.role != #superAdmin) Runtime.trap("Super Admin only");
+      };
+      case null Runtime.trap("Caller has no profile");
+    };
+    ProfileLib.getAllProfilesRaw(profileStore)
+  };
 };

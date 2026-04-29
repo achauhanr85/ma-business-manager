@@ -56,8 +56,8 @@ const DATE_FORMAT_OPTIONS = [
 
 export type DateFormat = (typeof DATE_FORMAT_OPTIONS)[number];
 
-/** Fall back to "dark" if no saved theme exists */
-const DEFAULT_THEME: ThemeName = "dark";
+/** Fall back to "herbal" if no saved theme exists (first-time users get the herbal theme) */
+const DEFAULT_THEME: ThemeName = "herbal";
 
 /** Everything exposed by the context */
 interface UserPreferencesContextValue {
@@ -83,6 +83,14 @@ interface UserPreferencesContextValue {
   formatDate: (dateInput: Date | bigint | number | string) => string;
   /** true while preferences are being fetched — AuthenticatedApp blocks render until false */
   isLoading: boolean;
+  /**
+   * Whether the diagnostics panel is enabled.
+   * Controlled via the Preferences page → Diagnostics toggle.
+   * When true, DiagnosticsPanel renders at the bottom of the screen.
+   */
+  diagnosticsEnabled: boolean;
+  /** Toggle diagnostics panel on/off */
+  setDiagnosticsEnabled: (enabled: boolean) => void;
 }
 
 // Create the context with safe defaults for components rendered outside the provider
@@ -100,6 +108,8 @@ export const UserPreferencesContext =
     saveAllPreferences: async () => false,
     formatDate: (d) => String(d),
     isLoading: false, // outside provider — treat as loaded
+    diagnosticsEnabled: false,
+    setDiagnosticsEnabled: () => {},
   });
 
 /**
@@ -178,6 +188,17 @@ export function UserPreferencesProvider({
   const [dateFormat, setDateFormat] = useState<DateFormat>("DD/MM/YYYY");
   const [defaultReceiptLanguage, setDefaultReceiptLanguage] =
     useState<Language>("en");
+
+  // `diagnosticsEnabled` — when true, the DiagnosticsPanel renders at the bottom
+  // of the screen and shows live log entries. Controlled from the Preferences page.
+  // Persisted to localStorage so it survives page refreshes within a session.
+  const [diagnosticsEnabled, setDiagnosticsEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("inl_diagnostics") === "true";
+    } catch {
+      return false;
+    }
+  });
 
   // `isPrefsLoading` — true until the backend preference fetch completes.
   // App.tsx reads this via `isLoading` to block rendering (BUG-15 fix).
@@ -314,6 +335,16 @@ export function UserPreferencesProvider({
         formatDate,
         // Expose `isPrefsLoading` as `isLoading` — the public API name
         isLoading: isPrefsLoading,
+        // Diagnostics panel toggle — persisted to localStorage
+        diagnosticsEnabled,
+        setDiagnosticsEnabled: (enabled: boolean) => {
+          setDiagnosticsEnabled(enabled);
+          try {
+            localStorage.setItem("inl_diagnostics", String(enabled));
+          } catch {
+            // localStorage unavailable — ignore
+          }
+        },
       }}
     >
       {children}
