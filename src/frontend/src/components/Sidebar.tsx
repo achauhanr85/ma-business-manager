@@ -40,6 +40,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   Database,
+  FileText,
   FlaskConical,
   Goal,
   Grid3X3,
@@ -70,7 +71,7 @@ interface SidebarProps {
  * Used to check whether a Staff member's module_access grants them a specific nav item.
  */
 const MODULE_PATH_MAP: Record<string, string[]> = {
-  sales: [ROUTES.sales],
+  sales: [ROUTES.sales, ROUTES.salesSummary],
   po: [ROUTES.purchaseOrders, ROUTES.vendors],
   customer: [
     ROUTES.customers,
@@ -145,6 +146,15 @@ const NAV_SECTIONS: NavSection[] = [
         labelKey: "nav.sales",
         path: ROUTES.sales,
         icon: ShoppingCart,
+        roles: [ROLES.ADMIN, ROLES.STAFF],
+        module: "sales",
+        superAdminDisabled: true,
+      },
+      {
+        // Sales Summary — payment status and history for all orders
+        labelKey: "nav.salesSummary",
+        path: ROUTES.salesSummary,
+        icon: FileText,
         roles: [ROLES.ADMIN, ROLES.STAFF],
         module: "sales",
         superAdminDisabled: true,

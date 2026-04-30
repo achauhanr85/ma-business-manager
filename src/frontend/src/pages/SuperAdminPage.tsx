@@ -30,6 +30,7 @@ import { useImpersonation } from "@/contexts/ImpersonationContext";
 import type { ImpersonationRole } from "@/contexts/ImpersonationContext";
 import { useProfile } from "@/contexts/ProfileContext";
 import {
+  useApproveProfile,
   useAssignUserRole,
   useCloseLead,
   useCreateProfile,
@@ -43,6 +44,7 @@ import {
   useGetSuperAdminStats,
   useGetUsersByProfile,
   useInitSuperAdmin,
+  useRejectProfile,
   useSetProfileWindow,
   useUpdateProfile,
   useUpdateProfileKey,
@@ -1645,20 +1647,44 @@ interface PendingProfileApprovalSectionProps {
   onNavigateApprovals: () => void;
 }
 
+/**
+ * PendingProfileApprovalSection — dashboard card showing profiles that need approval.
+ *
+ * FILTER: Profiles with profile_approval_status === "pending_super_admin_approval"
+ * (the Motoko variant #pending_super_admin_approval serializes to this string).
+ * DO NOT use is_enabled === false — that is a separate field used for enable/disable,
+ * not for tracking initial approval state.
+ *
+ * APPROVE ACTION: calls useApproveProfile → actor.approveProfile(profileKey)
+ * Sets approval_status to #approved on the backend. The Admin can then log in.
+ *
+ * REJECT ACTION: calls useRejectProfile → actor.rejectProfile(profileKey)
+ * Sets approval_status to #suspended. Profile record is preserved for audit purposes.
+ * DO NOT use deleteProfile for rejection — that destroys all data permanently.
+ */
 function PendingProfileApprovalSection({
   profiles,
   onRefresh,
   onNavigateApprovals,
 }: PendingProfileApprovalSectionProps) {
-  const enableProfile = useEnableProfile();
-  const deleteProfile = useDeleteProfile();
+  // Use the correct dedicated hooks for approval and rejection
+  const approveProfile = useApproveProfile();
+  const rejectProfile = useRejectProfile();
   const [approvingKey, setApprovingKey] = useState<string | null>(null);
   const [rejectingKey, setRejectingKey] = useState<string | null>(null);
 
-  // Show pending profiles — those with is_enabled === false
+  // Filter to profiles with the correct pending approval status.
+  // The backend Motoko variant #pending_super_admin_approval serializes to
+  // "pending_super_admin_approval" as a string when returned via Candid.
   const pendingProfiles = profiles.filter((p) => {
-    const ext = p as ProfileStatsExtended;
-    return "is_enabled" in ext && !ext.is_enabled;
+    const ext = p as ProfileStatsExtended & {
+      profile_approval_status?: string;
+    };
+    return (
+      ext.profile_approval_status === "pending_super_admin_approval" ||
+      // Also catch the shorter "pending" status for backward compatibility
+      ext.profile_approval_status === "pending"
+    );
   });
 
   if (pendingProfiles.length === 0) return null;
@@ -1668,20 +1694,20 @@ function PendingProfileApprovalSection({
   ) => {
     setApprovingKey(profile.profile_key);
     try {
-      const ok = await enableProfile.mutateAsync({
-        profileKey: profile.profile_key,
-        enabled: true,
-      });
+      // approveProfile sets approval_status to #approved — correct backend function
+      const ok = await approveProfile.mutateAsync(profile.profile_key);
       if (ok) {
         toast.success(
-          `Profile "${profile.business_name}" approved and activated.`,
+          `Profile "${profile.business_name}" approved. The Admin can now log in.`,
         );
         await onRefresh();
       } else {
         toast.error("Failed to approve profile.");
       }
     } catch {
-      toast.error("Failed to approve profile.");
+      toast.error(
+        "Failed to approve profile. approveProfile may not be deployed yet.",
+      );
     } finally {
       setApprovingKey(null);
     }
@@ -1690,17 +1716,20 @@ function PendingProfileApprovalSection({
   const handleReject = async (profile: ProfileStats | ProfileStatsExtended) => {
     setRejectingKey(profile.profile_key);
     try {
-      const ok = await deleteProfile.mutateAsync(profile.profile_key);
+      // rejectProfile sets approval_status to #suspended — NOT deleteProfile
+      const ok = await rejectProfile.mutateAsync(profile.profile_key);
       if (ok) {
         toast.success(
-          `Profile "${profile.business_name}" rejected and removed.`,
+          `Profile "${profile.business_name}" rejected. Creator has been notified.`,
         );
         await onRefresh();
       } else {
         toast.error("Failed to reject profile.");
       }
     } catch {
-      toast.error("Failed to reject profile.");
+      toast.error(
+        "Failed to reject profile. rejectProfile may not be deployed yet.",
+      );
     } finally {
       setRejectingKey(null);
     }

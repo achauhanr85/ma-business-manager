@@ -22,6 +22,7 @@ export const gu = {
     vendors: "વેન્ડર્સ",
     productsOnly: "ઉત્પાદન",
     categories: "શ્રેણીઓ",
+    salesSummary: "વેચાણ સારાંશ",
     help: "મદદ",
     logout: "લૉગ આઉટ",
   },

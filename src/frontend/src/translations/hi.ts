@@ -22,6 +22,7 @@ export const hi = {
     vendors: "विक्रेता",
     productsOnly: "उत्पाद",
     categories: "श्रेणियाँ",
+    salesSummary: "बिक्री सारांश",
     help: "सहायता",
     logout: "लॉग आउट",
   },

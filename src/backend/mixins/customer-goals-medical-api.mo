@@ -1,6 +1,6 @@
 /*
  * mixins/customer-goals-medical-api.mo — ACTIVE Goals, Medical Issues, Body Inches,
- *                                        Customer Notes, and Cycles Public API
+ *                                        Customer Notes, Customer Assignments, and Cycles Public API
  *
  * STATUS: Active — all current frontend calls for goals/medical/inches/notes use these functions.
  *
@@ -8,25 +8,37 @@
  *   Exposes public canister functions for:
  *     - Goal master CRUD (listGoals, getGoal, createGoal, updateGoal, deleteGoal)
  *     - Medical issue master CRUD (listMedicalIssues, getMedicalIssue, createMedicalIssue, etc.)
+ *     - Customer ↔ Goal assignments (addGoalToCustomer, removeGoalFromCustomer, getCustomerGoals)
+ *     - Customer ↔ Medical Issue assignments (addMedicalIssueToCustomer, removeMedicalIssueFromCustomer,
+ *       getCustomerMedicalIssues)
  *     - Customer body inches entries (createBodyInchesEntry, listBodyInchesHistory, deleteBodyInchesEntry)
  *     - Customer notes (addCustomerNote, listCustomerNotes, deleteCustomerNote)
  *     - Canister cycles info for Super Admin (getCyclesInfo)
  *
  * WHO USES IT:
  *   The frontend's Goals page, Medical Issues page, Customer body inches tab,
- *   Customer notes section, and Super Admin dashboard all call functions from here.
+ *   Customer notes section, Customer detail goals/medical tab, and Super Admin
+ *   dashboard all call functions from here.
  *
  * HOW IT DIFFERS FROM THE LEGACY goals-api.mo:
  *   - No profileKey parameter — auto-derived from the caller's userStore entry
  *   - Uses GoalMasterInput / MedicalIssueMasterInput (structured input types)
  *   - Returns timestamps in public types
  *   - Notes flow through CustomersLib (stored on customer record) not a separate noteStore
+ *   - Provides assignment functions to link goals/medical issues to specific customers
  *
  * NOTE ON SUPER ADMIN RECORDS:
  *   Super Admin does not have a profile_key in their userStore entry by default.
  *   When Super Admin impersonates a profile via setSuperAdminActiveProfile(), their
  *   profile_key is updated — and all create/list calls will then scope to that profile.
  *   This is how Super Admin records become visible to Admin/Staff of that profile.
+ *
+ * NOTE ON CUSTOMER ASSIGNMENT FUNCTIONS:
+ *   addGoalToCustomer / removeGoalFromCustomer / getCustomerGoals manage the
+ *   primary_goal_ids array on the Customer record. These IDs reference GoalMaster entries.
+ *   addMedicalIssueToCustomer / removeMedicalIssueFromCustomer / getCustomerMedicalIssues
+ *   manage the medical_issue_ids array in the same pattern.
+ *   Both are idempotent — duplicate assignments and no-op removals are safe.
  */
 
 import Runtime "mo:core/Runtime";
@@ -160,6 +172,71 @@ mixin (
     GoalMedicalLib.deleteMedicalIssue(medicalIssueStore, userStore, caller, id)
   };
 
+  // ── Customer ↔ Goal Assignment API ───────────────────────────────────────
+  // These functions manage which goals from the profile's master list are
+  // assigned to a specific customer. The assignment is stored in the customer
+  // record's primary_goal_ids array.
+  //
+  // Usage:
+  //   1. Call listGoals() to get all available goals for the profile.
+  //   2. Call addGoalToCustomer(customerId, goalId) to assign a goal.
+  //   3. Call removeGoalFromCustomer(customerId, goalId) to unassign.
+  //   4. Call getCustomerGoals(customerId) to get the full goal objects (name, description, etc.)
+
+  /// Assigns a goal (by goalId) to a customer's primary_goal_ids list.
+  /// Both goal and customer must belong to the caller's active profile.
+  /// Idempotent — calling with an already-assigned goal ID is safe (returns true).
+  /// Returns false if goal or customer not found, or profile mismatch.
+  public shared ({ caller }) func addGoalToCustomer(customerId : Common.CustomerId, goalId : Nat) : async Bool {
+    if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
+    GoalMedicalLib.addGoalToCustomer(goalMasterStore, customerStore, userStore, caller, customerId, goalId)
+  };
+
+  /// Removes a goal assignment from a customer's primary_goal_ids list.
+  /// Idempotent — returns true even if the goalId was not assigned.
+  /// Returns false if customer not found or profile mismatch.
+  public shared ({ caller }) func removeGoalFromCustomer(customerId : Common.CustomerId, goalId : Nat) : async Bool {
+    if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
+    GoalMedicalLib.removeGoalFromCustomer(customerStore, userStore, caller, customerId, goalId)
+  };
+
+  /// Returns the full GoalMasterPublic records for all goals assigned to this customer.
+  /// Resolves IDs from customer.primary_goal_ids against the goal master store.
+  /// Goals that have been deleted from the master are silently excluded.
+  public shared query ({ caller }) func getCustomerGoals(customerId : Common.CustomerId) : async [GoalMedicalTypes.GoalMasterPublic] {
+    if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
+    GoalMedicalLib.getCustomerGoals(goalMasterStore, customerStore, userStore, caller, customerId)
+  };
+
+  // ── Customer ↔ Medical Issue Assignment API ───────────────────────────────
+  // Same pattern as goal assignments above, but for medical issues.
+  // Manages the medical_issue_ids array on the customer record.
+
+  /// Assigns a medical issue (by issueId) to a customer's medical_issue_ids list.
+  /// Both medical issue and customer must belong to the caller's active profile.
+  /// Idempotent — returns true if already assigned.
+  /// Returns false if issue or customer not found, or profile mismatch.
+  public shared ({ caller }) func addMedicalIssueToCustomer(customerId : Common.CustomerId, issueId : Nat) : async Bool {
+    if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
+    GoalMedicalLib.addMedicalIssueToCustomer(medicalIssueStore, customerStore, userStore, caller, customerId, issueId)
+  };
+
+  /// Removes a medical issue assignment from a customer's medical_issue_ids list.
+  /// Idempotent — returns true even if not assigned.
+  /// Returns false if customer not found or profile mismatch.
+  public shared ({ caller }) func removeMedicalIssueFromCustomer(customerId : Common.CustomerId, issueId : Nat) : async Bool {
+    if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
+    GoalMedicalLib.removeMedicalIssueFromCustomer(customerStore, userStore, caller, customerId, issueId)
+  };
+
+  /// Returns the full MedicalIssueMasterPublic records for all medical issues assigned
+  /// to this customer. Resolves IDs from customer.medical_issue_ids against the master store.
+  /// Deleted medical issues are silently excluded.
+  public shared query ({ caller }) func getCustomerMedicalIssues(customerId : Common.CustomerId) : async [GoalMedicalTypes.MedicalIssueMasterPublic] {
+    if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
+    GoalMedicalLib.getCustomerMedicalIssues(medicalIssueStore, customerStore, userStore, caller, customerId)
+  };
+
   // ── Body Inches API ───────────────────────────────────────────────────────
 
   /// Creates a new body inches measurement entry for a customer.
@@ -239,7 +316,10 @@ mixin (
 
   /// Permanently removes a note from the customer's embedded notes array by noteId.
   /// Returns true on success, false if customer not found or wrong profile.
-  public shared ({ caller }) func deleteCustomerNote(noteId : Nat, customerId : Common.CustomerId) : async Bool {
+  /// NOTE: Renamed to deleteCustomerNoteEmbedded to avoid collision with
+  /// customer-notes-api.mo which exposes deleteCustomerNote for the new
+  /// separate-store notes system. The frontend should prefer the V2 store.
+  public shared ({ caller }) func deleteCustomerNoteEmbedded(noteId : Nat, customerId : Common.CustomerId) : async Bool {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
     // Delegate to CustomersLib which filters the note out of customer.notes
     CustomersLib.deleteCustomerNote(customerStore, userStore, caller, customerId, noteId)

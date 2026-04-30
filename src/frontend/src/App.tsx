@@ -46,6 +46,7 @@ import {
   useUserPreferences,
 } from "@/contexts/UserPreferencesContext";
 import { useAuth } from "@/hooks/useAuth";
+import { logNav } from "@/lib/logger";
 import { ROUTES } from "@/lib/routes";
 import { AdminTestsPage } from "@/pages/AdminTestsPage";
 import { AnalyticsPage } from "@/pages/AnalyticsPage";
@@ -66,6 +67,7 @@ import { ProfilePage } from "@/pages/ProfilePage";
 import { PurchaseOrdersPage } from "@/pages/PurchaseOrdersPage";
 import { ReceiptPage } from "@/pages/ReceiptPage";
 import { SalesPage } from "@/pages/SalesPage";
+import { SalesSummaryPage } from "@/pages/SalesSummaryPage";
 import { StageInventoryPage } from "@/pages/StageInventoryPage";
 import { SuperAdminPage } from "@/pages/SuperAdminPage";
 import { SuperAdminSetupPage } from "@/pages/SuperAdminSetupPage";
@@ -105,7 +107,8 @@ type AppPath =
   // the actual ROUTES constant is "/admin/tests". Both must work.
   | "/tests"
   | "/data-inspector"
-  | "/profile-approvals";
+  | "/profile-approvals"
+  | "/sales-summary";
 
 // ── Page title map ─────────────────────────────────────────────────────────────
 // Maps each route path to a human-readable page title shown in the header.
@@ -133,6 +136,7 @@ function getPageTitle(path: string): string {
     [ROUTES.adminTests]: "Regression Tests",
     [ROUTES.dataInspector]: "Data Inspector",
     [ROUTES.profileApprovals]: "Profile Approvals",
+    [ROUTES.salesSummary]: "Sales Summary",
   };
   return titles[path] ?? "Indi Negocio Livre";
 }
@@ -455,6 +459,9 @@ function renderSharedPage(
       return <ProductsPage onNavigate={navigate} />;
     case ROUTES.analytics:
       return <AnalyticsPage onNavigate={navigate} />;
+    // Sales Summary — payment history and status for all orders
+    case ROUTES.salesSummary:
+      return <SalesSummaryPage onNavigate={navigate} />;
 
     // ── Admin / Settings ─────────────────────────────────────────────────────
     case ROUTES.profile:
@@ -490,10 +497,14 @@ function AppContent() {
 
   /**
    * navigate() — called by any page or header icon to switch pages.
+   * Also logs the navigation event to the diagnostics panel (if enabled).
    * @param path   - Target route (e.g. ROUTES.customers)
    * @param saleId - Optional; only needed when navigating to /receipt
    */
   const navigate = (path: string, saleId?: bigint) => {
+    // Log the nav transition: "NAV: /from-path → /to-path"
+    // logNav() is a no-op when diagnostics is disabled — zero overhead.
+    logNav(`NAV: ${currentPath} → ${path}`);
     setCurrentPath(path as AppPath);
     if (saleId !== undefined) setReceiptSaleId(saleId);
     // Scroll to top so the new page starts at the beginning
@@ -555,9 +566,12 @@ function SuperAdminApp() {
   const [receiptSaleId, setReceiptSaleId] = useState<bigint | null>(null);
 
   /**
-   * navigate() — same pattern as AppContent's navigate; updates path state
+   * navigate() — same pattern as AppContent's navigate; updates path state.
+   * Also logs the navigation event to the diagnostics panel (if enabled).
    */
   const navigate = (path: string, saleId?: bigint) => {
+    // Log the nav transition for the Super Admin session
+    logNav(`NAV: ${currentPath} → ${path}`);
     setCurrentPath(path as AppPath);
     if (saleId !== undefined) setReceiptSaleId(saleId);
     window.scrollTo({ top: 0, behavior: "smooth" });

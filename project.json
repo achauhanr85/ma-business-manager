@@ -1,29 +1,27 @@
 {
-  "overview": "Indi Negocio Livre is a comprehensive, multi-tenant, mobile-first business management web app for herbal product distributors. It features inventory management, sales tracking, customer management with body composition history, purchase orders, and a public marketing page — all built on the Internet Computer with Motoko backend and React frontend.",
+  "overview": "Indi Negocio Livre (MA Herb Business Manager) is a comprehensive, multi-tenant, mobile-first business management web app for herbal product distributors. Built with React + TypeScript + Tailwind CSS and Motoko on the Internet Computer.",
   "features": [
-    "Multi-tenant business profiles with strict data isolation",
-    "Role-based access (Super Admin, Admin, Staff, Referral User)",
-    "Inventory management with FIFO, multi-warehouse, loaner stock",
-    "Sales and purchase order management with return flows",
-    "Customer management with body composition, goals, medical issues",
-    "Receipt PDF generation with WhatsApp sharing",
-    "Public marketing page with demo lead form",
-    "4 selectable UI themes (Dark, Minimalist, Herbal, Punk)",
-    "Multi-lingual UI (English, Gujarati, Hindi)",
-    "Notification system with background jobs",
-    "KPI dashboard and analytics",
+    "Multi-tenant business profile management",
+    "Role-based access control (Super Admin, Admin, Staff, Referral User)",
+    "Customer management with body composition tracking",
+    "Sales order management with FIFO inventory",
+    "Purchase order and vendor management",
+    "Customer goals and medical issues tracking",
+    "Diagnostics panel for debugging",
+    "Super Admin data inspector",
+    "Multi-language support (English, Gujarati, Hindi)",
+    "4 selectable UI themes",
     "Automated regression test suite"
   ],
-  "category": "business-management",
+  "category": "business",
   "tags": [
     "business",
     "inventory",
-    "sales",
     "multi-tenant",
+    "crm",
     "herbal",
-    "mobile-first",
-    "motoko",
-    "internet-computer"
+    "sales",
+    "mobile-first"
   ],
-  "last_updated": "2026-04-28T10:40:22.757Z"
+  "last_updated": "2026-04-29T15:44:25.735Z"
 }

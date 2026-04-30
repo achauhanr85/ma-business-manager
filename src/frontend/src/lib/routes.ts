@@ -68,6 +68,8 @@ export const ROUTES = {
   categories: "/products?tab=categories",
   /** Sales analytics, KPI charts, referral commission */
   analytics: "/analytics",
+  /** Sales Summary — payment status and history for all orders */
+  salesSummary: "/sales-summary",
 
   // ── Admin ───────────────────────────────────────────────────────────────────
   /** Team member list, role assignment, module access control */

@@ -37,22 +37,34 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useProfile } from "@/contexts/ProfileContext";
 import {
-  useAddCustomerNote as useAddCustomerNoteBackend,
+  useAddCustomerNoteV2,
+  useAddGoalToCustomer,
+  useAddMedicalIssueToCustomer,
   useCheckCustomerDuplicate,
   useCreateBodyInchesEntry as useCreateBodyInchesEntryBackend,
   useCreateCustomer,
   useCreateGoalMaster as useCreateGoalMasterBackend,
   useCreateMedicalIssueMaster as useCreateMedicalIssueMasterBackend,
   useDeleteCustomer,
-  useDeleteCustomerNote as useDeleteCustomerNoteBackend,
+  useDeleteCustomerNoteV2,
   useGetBodyInchesHistory as useGetBodyInchesHistoryBackend,
+  useGetCustomerGoals,
+  useGetCustomerMedicalIssues,
+  useGetCustomerNotes,
   useGetCustomerOrders,
   useGetCustomers,
   useGetGoalMasterData,
   useGetMedicalIssueMasterData,
   useGetReferralUsers,
   useGetUsersByProfile,
+  useRemoveGoalFromCustomer,
+  useRemoveMedicalIssueFromCustomer,
   useUpdateCustomer,
+  useUpdateCustomerNote,
+} from "@/hooks/useBackend";
+import type {
+  GoalMasterPublic,
+  MedicalIssueMasterPublic,
 } from "@/hooks/useBackend";
 import {
   clearStoredCustomerDiscount,
@@ -617,16 +629,6 @@ function useDeleteBodyCompositionEntry() {
       });
     },
   });
-}
-
-// ─── Customer Note Type (multi-note) ─────────────────────────────────────────
-
-interface CustomerNote {
-  id: bigint;
-  text: string;
-  note_date: bigint;
-  created_by: string;
-  creation_date: bigint;
 }
 
 // ─── Body Inches Hooks (re-exported from useBackend with profile-aware wrapper) ─
@@ -1382,60 +1384,78 @@ function BodyInchesTab({
   );
 }
 
-// ─── Multi-Note Panel (used in Info tab and create form) ─────────────────────
+// ─── Multi-Note Panel (used in Notes tab of customer detail sheet) ────────────
+//
+// MIGRATION: This component was previously reading notes from customer.notes[]
+// (an embedded array on the customer record). It now uses useGetCustomerNotes()
+// which queries the separate customerNotesStore backend.
+//
+// WHY: The old approach required a full getCustomers() refetch after every note
+// add/delete. The new approach targets only the note store and is more efficient.
+//
+// The profileKey passed here MUST come from the active profile context (not the
+// raw userProfile.profile_key), so impersonation works correctly for Super Admin.
 
 interface NotesManagerProps {
+  /** The customer whose notes we are managing */
   customer: CustomerPublicWithDiscount;
+  /** Whether the current user can add/edit/delete notes */
   canEdit: boolean;
+  /** Active profile key — impersonation-aware from ProfileContext */
   profileKey: string;
 }
 
 function NotesManager({ customer, canEdit, profileKey }: NotesManagerProps) {
-  const addNote = useAddCustomerNoteBackend();
-  const deleteNote = useDeleteCustomerNoteBackend();
+  // ── V2 hooks — read from and write to the separate customerNotesStore ────────
+  // useGetCustomerNotes fetches from the separate store (not customer.notes[]).
+  // On any mutation, the query key ['customer-notes', customerId, profileKey] is
+  // invalidated, triggering a re-fetch so the list refreshes automatically.
+  const { data: rawNotes = [], isLoading: notesLoading } = useGetCustomerNotes(
+    customer.id,
+    profileKey || null,
+  );
+  const addNoteV2 = useAddCustomerNoteV2();
+  const updateNote = useUpdateCustomerNote();
+  const deleteNoteV2 = useDeleteCustomerNoteV2();
+
+  // ── UI state ─────────────────────────────────────────────────────────────────
   const [addOpen, setAddOpen] = useState(false);
   const [newNoteText, setNewNoteText] = useState("");
   const [newNoteDate, setNewNoteDate] = useState(
     new Date().toISOString().split("T")[0],
   );
+
+  // Edit modal state — null means no note is being edited
+  const [editingNote, setEditingNote] = useState<{
+    id: bigint;
+    text: string;
+  } | null>(null);
+  const [editText, setEditText] = useState("");
+
+  // Delete confirmation state — null means no delete pending
   const [deleteNoteId, setDeleteNoteId] = useState<bigint | null>(null);
 
-  // Gracefully handle both legacy string[] notes and new structured notes
-  const rawNotes = customer.notes as unknown as (CustomerNote | string)[];
-  const structuredNotes: CustomerNote[] = rawNotes
-    .map((n, idx): CustomerNote | null => {
-      if (typeof n === "string") {
-        return {
-          id: BigInt(idx),
-          text: n,
-          note_date: BigInt(0),
-          created_by: "",
-          creation_date: BigInt(0),
-        };
-      }
-      return n as CustomerNote;
-    })
-    .filter(Boolean) as CustomerNote[];
-
-  // Sort latest first
-  const sorted = [...structuredNotes].sort((a, b) => {
-    const da = Number(a.note_date) || Number(a.creation_date);
-    const db = Number(b.note_date) || Number(b.creation_date);
-    return db - da;
+  // Sort notes by date descending — newest first.
+  // The 'date' field is a YYYY-MM-DD string; string comparison works correctly
+  // for ISO date strings, and last_updated_date (nanoseconds bigint) is used as
+  // a tiebreaker for notes with the same date.
+  const sorted = [...rawNotes].sort((a, b) => {
+    if (b.date < a.date) return -1;
+    if (b.date > a.date) return 1;
+    // Same date — most recently updated first
+    return Number(b.last_updated_date) - Number(a.last_updated_date);
   });
 
+  // ── Add note handler ─────────────────────────────────────────────────────────
   async function handleAddNote(e: React.FormEvent) {
     e.preventDefault();
-    if (!newNoteText.trim()) return;
-    // Convert YYYY-MM-DD string to nanosecond bigint timestamp
-    const noteDateNs =
-      BigInt(new Date(newNoteDate).getTime()) * BigInt(1_000_000);
+    if (!newNoteText.trim() || !profileKey) return;
     try {
-      await addNote.mutateAsync({
+      await addNoteV2.mutateAsync({
         customerId: customer.id,
         profileKey,
-        text: newNoteText.trim(),
-        noteDate: noteDateNs,
+        note: newNoteText.trim(),
+        date: newNoteDate, // YYYY-MM-DD string — the separate store accepts this directly
       });
       toast.success("Note added");
       setNewNoteText("");
@@ -1446,14 +1466,34 @@ function NotesManager({ customer, canEdit, profileKey }: NotesManagerProps) {
     }
   }
 
-  async function handleDeleteNote() {
-    if (deleteNoteId === null) return;
+  // ── Edit note handler — open modal pre-filled ────────────────────────────────
+  function openEdit(note: { id: bigint; note: string }) {
+    setEditingNote({ id: note.id, text: note.note });
+    setEditText(note.note);
+  }
+
+  async function handleEditSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingNote || !editText.trim() || !profileKey) return;
     try {
-      await deleteNote.mutateAsync({
-        customerId: customer.id,
-        noteId: deleteNoteId,
+      await updateNote.mutateAsync({
+        noteId: editingNote.id,
+        newText: editText.trim(),
         profileKey,
       });
+      toast.success("Note updated");
+      setEditingNote(null);
+      setEditText("");
+    } catch {
+      toast.error("Failed to update note");
+    }
+  }
+
+  // ── Delete note handler ──────────────────────────────────────────────────────
+  async function handleDeleteNote() {
+    if (deleteNoteId === null || !profileKey) return;
+    try {
+      await deleteNoteV2.mutateAsync({ noteId: deleteNoteId, profileKey });
       toast.success("Note deleted");
     } catch {
       toast.error("Failed to delete note");
@@ -1464,9 +1504,15 @@ function NotesManager({ customer, canEdit, profileKey }: NotesManagerProps) {
 
   return (
     <div className="space-y-3" data-ocid="customer.notes.panel">
+      {/* Header row: title + Add Note button */}
       <div className="flex items-center justify-between">
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
           <MessageSquare className="w-3.5 h-3.5" /> Notes
+          {sorted.length > 0 && (
+            <span className="ml-1 text-muted-foreground font-normal normal-case">
+              ({sorted.length})
+            </span>
+          )}
         </p>
         {canEdit && (
           <Button
@@ -1481,23 +1527,31 @@ function NotesManager({ customer, canEdit, profileKey }: NotesManagerProps) {
         )}
       </div>
 
-      {addOpen && (
+      {/* Loading skeleton */}
+      {notesLoading && (
+        <div className="space-y-2" data-ocid="customer.notes.loading_state">
+          {[1, 2].map((i) => (
+            <Skeleton key={i} className="h-16 w-full rounded-lg" />
+          ))}
+        </div>
+      )}
+
+      {/* Inline add form */}
+      {addOpen && !notesLoading && (
         <form
           onSubmit={handleAddNote}
           className="rounded-lg border border-border bg-muted/20 p-3 space-y-2"
           data-ocid="customer.notes.add_form"
         >
-          <div className="flex items-center gap-2">
-            <div className="flex-1 space-y-1">
-              <Label className="text-xs">Date</Label>
-              <Input
-                type="date"
-                className="h-8 text-xs"
-                value={newNoteDate}
-                onChange={(e) => setNewNoteDate(e.target.value)}
-                data-ocid="customer.notes.date.input"
-              />
-            </div>
+          <div className="flex-1 space-y-1">
+            <Label className="text-xs">Date</Label>
+            <Input
+              type="date"
+              className="h-8 text-xs"
+              value={newNoteDate}
+              onChange={(e) => setNewNoteDate(e.target.value)}
+              data-ocid="customer.notes.date.input"
+            />
           </div>
           <Textarea
             className="text-xs min-h-[60px] resize-none"
@@ -1517,6 +1571,7 @@ function NotesManager({ customer, canEdit, profileKey }: NotesManagerProps) {
                 setAddOpen(false);
                 setNewNoteText("");
               }}
+              data-ocid="customer.notes.cancel_button"
             >
               Cancel
             </Button>
@@ -1524,61 +1579,122 @@ function NotesManager({ customer, canEdit, profileKey }: NotesManagerProps) {
               type="submit"
               size="sm"
               className="h-7 text-xs px-3"
-              disabled={addNote.isPending || !newNoteText.trim()}
+              disabled={addNoteV2.isPending || !newNoteText.trim()}
               data-ocid="customer.notes.submit_button"
             >
-              {addNote.isPending ? "Saving…" : "Save Note"}
+              {addNoteV2.isPending ? "Saving…" : "Save Note"}
             </Button>
           </div>
         </form>
       )}
 
-      {sorted.length === 0 && !addOpen && (
+      {/* Empty state — shown only when not loading and not adding */}
+      {!notesLoading && sorted.length === 0 && !addOpen && (
         <p
           className="text-xs text-muted-foreground italic"
           data-ocid="customer.notes.empty_state"
         >
-          No notes yet.
+          No notes yet. Click Add Note to add a note for this customer.
         </p>
       )}
 
-      {sorted.map((note, idx) => (
-        <div
-          key={note.id.toString()}
-          className="rounded-lg bg-muted/30 border border-border px-3 py-2 space-y-1"
-          data-ocid={`customer.notes.item.${idx + 1}`}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-xs text-muted-foreground">
-              {note.note_date && Number(note.note_date) > 0
-                ? new Date(Number(note.note_date) / 1_000_000)
-                    .toISOString()
-                    .split("T")[0]
-                : note.creation_date && Number(note.creation_date) > 0
-                  ? new Date(Number(note.creation_date) / 1_000_000)
-                      .toISOString()
-                      .split("T")[0]
-                  : "—"}
+      {/* Notes list — sorted newest first */}
+      {!notesLoading &&
+        sorted.map((note, idx) => (
+          <div
+            key={note.id.toString()}
+            className="rounded-lg bg-muted/30 border border-border px-3 py-2 space-y-1"
+            data-ocid={`customer.notes.item.${idx + 1}`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              {/* Date + created_by */}
+              <div className="space-y-0.5">
+                <p className="text-xs font-medium text-foreground">
+                  {note.date || "—"}
+                </p>
+                {note.created_by && (
+                  <p className="text-xs text-muted-foreground">
+                    by {note.created_by}
+                  </p>
+                )}
+              </div>
+              {/* Action buttons — only shown when canEdit */}
+              {canEdit && (
+                <div className="flex items-center gap-1 shrink-0">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-5 w-5 text-muted-foreground hover:text-foreground"
+                    onClick={() => openEdit(note)}
+                    aria-label="Edit note"
+                    data-ocid={`customer.notes.edit_button.${idx + 1}`}
+                  >
+                    <Pencil className="w-3 h-3" />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-5 w-5 text-destructive hover:text-destructive"
+                    onClick={() => setDeleteNoteId(note.id)}
+                    aria-label="Delete note"
+                    data-ocid={`customer.notes.delete_button.${idx + 1}`}
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </Button>
+                </div>
+              )}
+            </div>
+            {/* Note text */}
+            <p className="text-sm text-foreground whitespace-pre-wrap">
+              {note.note}
             </p>
-            {canEdit && (
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-5 w-5 text-destructive hover:text-destructive"
-                onClick={() => setDeleteNoteId(note.id)}
-                aria-label="Delete note"
-                data-ocid={`customer.notes.delete_button.${idx + 1}`}
-              >
-                <Trash2 className="w-3 h-3" />
-              </Button>
-            )}
           </div>
-          <p className="text-sm text-foreground whitespace-pre-wrap">
-            {note.text}
-          </p>
-        </div>
-      ))}
+        ))}
 
+      {/* Edit note modal — opens when a pencil icon is clicked */}
+      <Dialog
+        open={editingNote !== null}
+        onOpenChange={(o) => !o && setEditingNote(null)}
+      >
+        <DialogContent
+          className="max-w-sm"
+          data-ocid="customer.notes.edit.dialog"
+        >
+          <DialogHeader>
+            <DialogTitle>Edit Note</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleEditSave} className="space-y-3">
+            <Textarea
+              className="text-xs min-h-[80px] resize-none"
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              autoFocus
+              data-ocid="customer.notes.edit.textarea"
+            />
+            <DialogFooter className="gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setEditingNote(null)}
+                data-ocid="customer.notes.edit.cancel_button"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={updateNote.isPending || !editText.trim()}
+                data-ocid="customer.notes.edit.save_button"
+              >
+                {updateNote.isPending ? "Saving…" : "Save"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation dialog */}
       <AlertDialog
         open={deleteNoteId !== null}
         onOpenChange={(o) => !o && setDeleteNoteId(null)}
@@ -3164,6 +3280,648 @@ function CustomerOrderHistory({ customer }: { customer: CustomerPublic }) {
   );
 }
 
+// ─── Customer Goals Tab (used inside the customer detail sheet) ───────────────
+//
+// Displays all goals currently assigned to a customer and allows adding/removing them.
+// Uses two data sources:
+//   1. getCustomerGoals — the goals already assigned to this customer
+//   2. listGoals (via useGetGoalMasterData) — all goals available in this profile
+//
+// The "Add Goal" modal shows all available goals, with already-assigned ones pre-checked
+// or greyed out so the user cannot add duplicates.
+//
+// IMPERSONATION: profileKey must come from the parent CustomerDetailSheet which already
+// receives the impersonation-aware key from the page root.
+
+interface CustomerGoalsTabProps {
+  customer: CustomerPublic;
+  profileKey: string;
+  canEdit: boolean;
+}
+
+function CustomerGoalsTab({
+  customer,
+  profileKey,
+  canEdit,
+}: CustomerGoalsTabProps) {
+  // Assigned goals for this specific customer
+  const {
+    data: assignedGoals = [],
+    isLoading,
+    refetch,
+  } = useGetCustomerGoals(customer.id, profileKey);
+
+  // All available goals for this profile (for the "Add Goal" modal picker)
+  const { data: allGoals = [] } = useGetGoalMasterData(profileKey || null);
+
+  const addGoal = useAddGoalToCustomer();
+  const removeGoal = useRemoveGoalFromCustomer();
+
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<GoalMasterPublic | null>(
+    null,
+  );
+  // Tracks which goal IDs are selected in the "Add Goal" modal
+  const [pendingGoalIds, setPendingGoalIds] = useState<bigint[]>([]);
+  const [goalSearch, setGoalSearch] = useState("");
+
+  // When the modal opens, pre-select goals that are already assigned
+  function openAddModal() {
+    const assignedIds = assignedGoals.map((g) => g.id);
+    setPendingGoalIds(assignedIds);
+    setGoalSearch("");
+    setAddModalOpen(true);
+  }
+
+  async function handleSaveGoals() {
+    // Compute what to add (in pending but not yet assigned)
+    const assignedIds = new Set(assignedGoals.map((g) => g.id.toString()));
+    const toAdd = pendingGoalIds.filter(
+      (id) => !assignedIds.has(id.toString()),
+    );
+
+    // Compute what to remove (assigned but unchecked in pending)
+    const pendingSet = new Set(pendingGoalIds.map((id) => id.toString()));
+    const toRemove = assignedGoals.filter(
+      (g) => !pendingSet.has(g.id.toString()),
+    );
+
+    try {
+      // Execute all adds in parallel
+      await Promise.all(
+        toAdd.map((goalId) =>
+          addGoal.mutateAsync({ customerId: customer.id, goalId, profileKey }),
+        ),
+      );
+      // Execute all removes in parallel
+      await Promise.all(
+        toRemove.map((goal) =>
+          removeGoal.mutateAsync({
+            customerId: customer.id,
+            goalId: goal.id,
+            profileKey,
+          }),
+        ),
+      );
+      if (toAdd.length > 0 || toRemove.length > 0) {
+        toast.success("Goals updated");
+        refetch();
+      }
+    } catch {
+      toast.error("Failed to update goals");
+    } finally {
+      setAddModalOpen(false);
+    }
+  }
+
+  async function handleRemoveGoal(goal: GoalMasterPublic) {
+    try {
+      await removeGoal.mutateAsync({
+        customerId: customer.id,
+        goalId: goal.id,
+        profileKey,
+      });
+      toast.success(`"${goal.name}" removed`);
+      refetch();
+    } catch {
+      toast.error("Failed to remove goal");
+    } finally {
+      setRemoveTarget(null);
+    }
+  }
+
+  // Goals available to add (not yet assigned or not yet unchecked)
+  const filteredGoals = allGoals.filter((g) =>
+    g.name.toLowerCase().includes(goalSearch.toLowerCase()),
+  );
+
+  return (
+    <div className="space-y-4" data-ocid="customer.goals.panel">
+      {/* Header row */}
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">
+          {assignedGoals.length} {assignedGoals.length === 1 ? "goal" : "goals"}{" "}
+          assigned
+        </p>
+        {canEdit && (
+          <Button
+            size="sm"
+            onClick={openAddModal}
+            data-ocid="customer.goals.add_button"
+          >
+            <Plus className="w-3.5 h-3.5 mr-1.5" />
+            Manage Goals
+          </Button>
+        )}
+      </div>
+
+      {/* Loading skeleton */}
+      {isLoading && (
+        <div className="space-y-2" data-ocid="customer.goals.loading_state">
+          {[1, 2].map((i) => (
+            <Skeleton key={i} className="h-12 w-full rounded-lg" />
+          ))}
+        </div>
+      )}
+
+      {/* Empty state */}
+      {!isLoading && assignedGoals.length === 0 && (
+        <div
+          className="flex flex-col items-center gap-3 py-8 text-muted-foreground"
+          data-ocid="customer.goals.empty_state"
+        >
+          <Target className="w-10 h-10 opacity-30" />
+          <div className="text-center">
+            <p className="text-sm font-medium text-foreground">
+              No goals assigned yet
+            </p>
+            <p className="text-xs mt-0.5">
+              Click "Manage Goals" to assign primary goals to this customer
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Assigned goal list */}
+      {!isLoading && assignedGoals.length > 0 && (
+        <div className="space-y-2">
+          {assignedGoals.map((goal, idx) => (
+            <div
+              key={goal.id.toString()}
+              className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2.5"
+              data-ocid={`customer.goals.item.${idx + 1}`}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <Target className="w-3.5 h-3.5 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{goal.name}</p>
+                  {goal.description && (
+                    <p className="text-xs text-muted-foreground line-clamp-1">
+                      {goal.description}
+                    </p>
+                  )}
+                </div>
+              </div>
+              {canEdit && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7 shrink-0 text-destructive hover:text-destructive"
+                  onClick={() => setRemoveTarget(goal)}
+                  aria-label={`Remove goal ${goal.name}`}
+                  data-ocid={`customer.goals.remove_button.${idx + 1}`}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Add/Manage Goals modal */}
+      <Dialog
+        open={addModalOpen}
+        onOpenChange={(o) => !o && setAddModalOpen(false)}
+      >
+        <DialogContent
+          className="max-w-sm"
+          data-ocid="customer.goals.add.dialog"
+        >
+          <DialogHeader>
+            <DialogTitle>Manage Goals</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              placeholder="Search goals…"
+              value={goalSearch}
+              onChange={(e) => setGoalSearch(e.target.value)}
+              className="h-8 text-sm"
+              data-ocid="customer.goals.search.input"
+            />
+            {allGoals.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No goals defined for this profile yet. Add goals in the Customer
+                Goals page first.
+              </p>
+            ) : (
+              <div className="max-h-64 overflow-y-auto space-y-1">
+                {filteredGoals.map((goal) => {
+                  const checked = pendingGoalIds.some(
+                    (id) => id.toString() === goal.id.toString(),
+                  );
+                  return (
+                    <button
+                      key={goal.id.toString()}
+                      type="button"
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm rounded-lg transition-colors text-left hover:bg-muted/40 ${checked ? "bg-primary/5" : ""}`}
+                      onClick={() => {
+                        setPendingGoalIds((prev) =>
+                          checked
+                            ? prev.filter(
+                                (id) => id.toString() !== goal.id.toString(),
+                              )
+                            : [...prev, goal.id],
+                        );
+                      }}
+                    >
+                      {/* Checkbox visual */}
+                      <div
+                        className={`w-4 h-4 rounded border-2 shrink-0 flex items-center justify-center ${checked ? "bg-primary border-primary" : "border-border"}`}
+                      >
+                        {checked && (
+                          <span className="text-primary-foreground text-[9px] leading-none">
+                            ✓
+                          </span>
+                        )}
+                      </div>
+                      <Target className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">{goal.name}</p>
+                        {goal.description && (
+                          <p className="text-xs text-muted-foreground line-clamp-1">
+                            {goal.description}
+                          </p>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setAddModalOpen(false)}
+              data-ocid="customer.goals.add.cancel_button"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveGoals}
+              disabled={addGoal.isPending || removeGoal.isPending}
+              data-ocid="customer.goals.add.confirm_button"
+            >
+              {addGoal.isPending || removeGoal.isPending
+                ? "Saving…"
+                : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Remove confirmation */}
+      <AlertDialog
+        open={!!removeTarget}
+        onOpenChange={(o) => !o && setRemoveTarget(null)}
+      >
+        <AlertDialogContent data-ocid="customer.goals.remove.dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Goal?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Remove <strong>"{removeTarget?.name}"</strong> from this
+              customer's assigned goals?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-ocid="customer.goals.remove.cancel_button">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => removeTarget && handleRemoveGoal(removeTarget)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-ocid="customer.goals.remove.confirm_button"
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+// ─── Customer Medical Issues Tab (used inside the customer detail sheet) ───────
+//
+// Same pattern as CustomerGoalsTab but for medical issues.
+// Displays issues assigned to a customer and allows adding/removing them.
+
+interface CustomerMedicalIssuesTabProps {
+  customer: CustomerPublic;
+  profileKey: string;
+  canEdit: boolean;
+}
+
+function CustomerMedicalIssuesTab({
+  customer,
+  profileKey,
+  canEdit,
+}: CustomerMedicalIssuesTabProps) {
+  // Assigned medical issues for this specific customer
+  const {
+    data: assignedIssues = [],
+    isLoading,
+    refetch,
+  } = useGetCustomerMedicalIssues(customer.id, profileKey);
+
+  // All available issues for this profile
+  const { data: allIssues = [] } = useGetMedicalIssueMasterData(
+    profileKey || null,
+  );
+
+  const addIssue = useAddMedicalIssueToCustomer();
+  const removeIssue = useRemoveMedicalIssueFromCustomer();
+
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [removeTarget, setRemoveTarget] =
+    useState<MedicalIssueMasterPublic | null>(null);
+  const [pendingIssueIds, setPendingIssueIds] = useState<bigint[]>([]);
+  const [issueSearch, setIssueSearch] = useState("");
+
+  function openAddModal() {
+    const assignedIds = assignedIssues.map((i) => i.id);
+    setPendingIssueIds(assignedIds);
+    setIssueSearch("");
+    setAddModalOpen(true);
+  }
+
+  async function handleSaveIssues() {
+    const assignedIds = new Set(assignedIssues.map((i) => i.id.toString()));
+    const toAdd = pendingIssueIds.filter(
+      (id) => !assignedIds.has(id.toString()),
+    );
+    const pendingSet = new Set(pendingIssueIds.map((id) => id.toString()));
+    const toRemove = assignedIssues.filter(
+      (i) => !pendingSet.has(i.id.toString()),
+    );
+
+    try {
+      await Promise.all(
+        toAdd.map((issueId) =>
+          addIssue.mutateAsync({
+            customerId: customer.id,
+            issueId,
+            profileKey,
+          }),
+        ),
+      );
+      await Promise.all(
+        toRemove.map((issue) =>
+          removeIssue.mutateAsync({
+            customerId: customer.id,
+            issueId: issue.id,
+            profileKey,
+          }),
+        ),
+      );
+      if (toAdd.length > 0 || toRemove.length > 0) {
+        toast.success("Medical issues updated");
+        refetch();
+      }
+    } catch {
+      toast.error("Failed to update medical issues");
+    } finally {
+      setAddModalOpen(false);
+    }
+  }
+
+  async function handleRemoveIssue(issue: MedicalIssueMasterPublic) {
+    try {
+      await removeIssue.mutateAsync({
+        customerId: customer.id,
+        issueId: issue.id,
+        profileKey,
+      });
+      toast.success(`"${issue.name}" removed`);
+      refetch();
+    } catch {
+      toast.error("Failed to remove medical issue");
+    } finally {
+      setRemoveTarget(null);
+    }
+  }
+
+  const filteredIssues = allIssues.filter((i) =>
+    i.name.toLowerCase().includes(issueSearch.toLowerCase()),
+  );
+
+  return (
+    <div className="space-y-4" data-ocid="customer.medical_issues.panel">
+      {/* Header row */}
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">
+          {assignedIssues.length}{" "}
+          {assignedIssues.length === 1 ? "issue" : "issues"} assigned
+        </p>
+        {canEdit && (
+          <Button
+            size="sm"
+            onClick={openAddModal}
+            data-ocid="customer.medical_issues.add_button"
+          >
+            <Plus className="w-3.5 h-3.5 mr-1.5" />
+            Manage Issues
+          </Button>
+        )}
+      </div>
+
+      {/* Loading skeleton */}
+      {isLoading && (
+        <div
+          className="space-y-2"
+          data-ocid="customer.medical_issues.loading_state"
+        >
+          {[1, 2].map((i) => (
+            <Skeleton key={i} className="h-12 w-full rounded-lg" />
+          ))}
+        </div>
+      )}
+
+      {/* Empty state */}
+      {!isLoading && assignedIssues.length === 0 && (
+        <div
+          className="flex flex-col items-center gap-3 py-8 text-muted-foreground"
+          data-ocid="customer.medical_issues.empty_state"
+        >
+          <Stethoscope className="w-10 h-10 opacity-30" />
+          <div className="text-center">
+            <p className="text-sm font-medium text-foreground">
+              No medical issues assigned yet
+            </p>
+            <p className="text-xs mt-0.5">
+              Click "Manage Issues" to assign medical conditions to this
+              customer
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Assigned issues list */}
+      {!isLoading && assignedIssues.length > 0 && (
+        <div className="space-y-2">
+          {assignedIssues.map((issue, idx) => (
+            <div
+              key={issue.id.toString()}
+              className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2.5"
+              data-ocid={`customer.medical_issues.item.${idx + 1}`}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-7 h-7 rounded-full bg-destructive/10 flex items-center justify-center shrink-0">
+                  <Stethoscope className="w-3.5 h-3.5 text-destructive" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{issue.name}</p>
+                  {issue.description && (
+                    <p className="text-xs text-muted-foreground line-clamp-1">
+                      {issue.description}
+                    </p>
+                  )}
+                </div>
+              </div>
+              {canEdit && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7 shrink-0 text-destructive hover:text-destructive"
+                  onClick={() => setRemoveTarget(issue)}
+                  aria-label={`Remove ${issue.name}`}
+                  data-ocid={`customer.medical_issues.remove_button.${idx + 1}`}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Add/Manage Issues modal */}
+      <Dialog
+        open={addModalOpen}
+        onOpenChange={(o) => !o && setAddModalOpen(false)}
+      >
+        <DialogContent
+          className="max-w-sm"
+          data-ocid="customer.medical_issues.add.dialog"
+        >
+          <DialogHeader>
+            <DialogTitle>Manage Medical Issues</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              placeholder="Search issues…"
+              value={issueSearch}
+              onChange={(e) => setIssueSearch(e.target.value)}
+              className="h-8 text-sm"
+              data-ocid="customer.medical_issues.search.input"
+            />
+            {allIssues.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No medical issues defined for this profile yet. Add them in the
+                Medical Issues page first.
+              </p>
+            ) : (
+              <div className="max-h-64 overflow-y-auto space-y-1">
+                {filteredIssues.map((issue) => {
+                  const checked = pendingIssueIds.some(
+                    (id) => id.toString() === issue.id.toString(),
+                  );
+                  return (
+                    <button
+                      key={issue.id.toString()}
+                      type="button"
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm rounded-lg transition-colors text-left hover:bg-muted/40 ${checked ? "bg-destructive/5" : ""}`}
+                      onClick={() => {
+                        setPendingIssueIds((prev) =>
+                          checked
+                            ? prev.filter(
+                                (id) => id.toString() !== issue.id.toString(),
+                              )
+                            : [...prev, issue.id],
+                        );
+                      }}
+                    >
+                      <div
+                        className={`w-4 h-4 rounded border-2 shrink-0 flex items-center justify-center ${checked ? "bg-destructive border-destructive" : "border-border"}`}
+                      >
+                        {checked && (
+                          <span className="text-destructive-foreground text-[9px] leading-none">
+                            ✓
+                          </span>
+                        )}
+                      </div>
+                      <Stethoscope className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">{issue.name}</p>
+                        {issue.description && (
+                          <p className="text-xs text-muted-foreground line-clamp-1">
+                            {issue.description}
+                          </p>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setAddModalOpen(false)}
+              data-ocid="customer.medical_issues.add.cancel_button"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveIssues}
+              disabled={addIssue.isPending || removeIssue.isPending}
+              data-ocid="customer.medical_issues.add.confirm_button"
+            >
+              {addIssue.isPending || removeIssue.isPending
+                ? "Saving…"
+                : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Remove confirmation */}
+      <AlertDialog
+        open={!!removeTarget}
+        onOpenChange={(o) => !o && setRemoveTarget(null)}
+      >
+        <AlertDialogContent data-ocid="customer.medical_issues.remove.dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Medical Issue?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Remove <strong>"{removeTarget?.name}"</strong> from this
+              customer's assigned medical issues?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-ocid="customer.medical_issues.remove.cancel_button">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => removeTarget && handleRemoveIssue(removeTarget)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-ocid="customer.medical_issues.remove.confirm_button"
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
 // ─── Customer Detail Sheet ────────────────────────────────────────────────────
 
 interface CustomerDetailSheetProps {
@@ -3281,7 +4039,7 @@ function CustomerDetailSheet({
                 onValueChange={setActiveTab}
                 className="mt-4"
               >
-                <TabsList className="w-full grid grid-cols-5">
+                <TabsList className="w-full grid grid-cols-7">
                   <TabsTrigger
                     value="info"
                     className="text-xs"
@@ -3316,6 +4074,22 @@ function CustomerDetailSheet({
                     data-ocid="customer.detail.inches_tab"
                   >
                     <Ruler className="w-3.5 h-3.5 mr-1" /> Inches
+                  </TabsTrigger>
+                  {/* NEW: Goals tab — shows goals assigned to this customer and allows add/remove */}
+                  <TabsTrigger
+                    value="goals"
+                    className="text-xs"
+                    data-ocid="customer.detail.goals_tab"
+                  >
+                    <Target className="w-3.5 h-3.5 mr-1" /> Goals
+                  </TabsTrigger>
+                  {/* NEW: Medical Issues tab — shows issues assigned to this customer and allows add/remove */}
+                  <TabsTrigger
+                    value="medical"
+                    className="text-xs"
+                    data-ocid="customer.detail.medical_tab"
+                  >
+                    <Stethoscope className="w-3.5 h-3.5 mr-1" /> Medical
                   </TabsTrigger>
                 </TabsList>
 
@@ -3642,6 +4416,26 @@ function CustomerDetailSheet({
                   <BodyInchesTab
                     customer={customer}
                     profileKey={profileKey ?? ""}
+                  />
+                </TabsContent>
+
+                {/* Goals tab — assigned goals for this customer with add/remove.
+                    profileKey here is the impersonation-aware key passed from the page root.
+                    When Super Admin impersonates, this is the impersonated profile's key, not SA's own. */}
+                <TabsContent value="goals" className="pt-4">
+                  <CustomerGoalsTab
+                    customer={customer}
+                    profileKey={profileKey ?? ""}
+                    canEdit={canEdit}
+                  />
+                </TabsContent>
+
+                {/* Medical Issues tab — same pattern as Goals tab but for medical issues. */}
+                <TabsContent value="medical" className="pt-4">
+                  <CustomerMedicalIssuesTab
+                    customer={customer}
+                    profileKey={profileKey ?? ""}
+                    canEdit={canEdit}
                   />
                 </TabsContent>
               </Tabs>

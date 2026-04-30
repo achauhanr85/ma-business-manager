@@ -20,11 +20,22 @@
  *
  * SUPER ADMIN NOTIFICATION DESIGN:
  *   Super Admin notifications (e.g. new profile registered) are stored with:
- *     profile_key = "superadmin"   ← sentinel value, not a real profile key
+ *     profile_key = "superadmin"   ← sentinel value, NOT a real profile key
  *     target_role = "superAdmin"
- *   They are queried via getSuperAdminNotifications() which filters by target_role only
- *   (no profileKey filter). This means they ALWAYS appear in the Super Admin panel
- *   regardless of which profile the Super Admin is currently viewing.
+ *
+ *   They are queried via getSuperAdminNotifications() which filters ONLY by
+ *   target_role="superAdmin" (no profileKey filter at all). This means they
+ *   ALWAYS appear in the Super Admin panel regardless of which profile the
+ *   Super Admin is currently viewing or what profileKey argument is passed.
+ *
+ *   ⚠️  FRONTEND USAGE WARNING:
+ *   When the frontend calls getNotifications(profileKey, "admin") for the Data
+ *   Inspector page or the notification panel, it will NOT see Super Admin system
+ *   notifications because the query uses profileKey filtering. The correct call
+ *   for Super Admin system notifications is one of:
+ *     a. getSuperAdminNotifications()  — dedicated, always correct, no args needed
+ *     b. getNotifications(anyKey, "superAdmin") — the mixin appends SA notifs
+ *   NEVER call getNotifications(profileKey, "admin") for the Super Admin panel.
  *
  * USER-TARGETED NOTIFICATIONS (welcome, personal):
  *   Stored with target_role = "user:<principalText>"
@@ -95,8 +106,24 @@ module {
   };
 
   /// Returns all unread notifications for Super Admin.
-  /// These are stored with profile_key = "superadmin" and target_role = "superAdmin".
-  /// Queried by target_role only (no profile_key filter) so they are never missed.
+  ///
+  /// SENTINEL DESIGN — why this queries by target_role only:
+  ///   Super Admin system notifications (e.g. new profile registration) are stored
+  ///   with profile_key = "superadmin" (a sentinel value, not a real profile) and
+  ///   target_role = "superAdmin".
+  ///
+  ///   The regular getNotifications() filters by BOTH profile_key AND target_role.
+  ///   If we used that path for Super Admin system notifications, they would only
+  ///   appear when Super Admin has profile_key="superadmin" selected — which never
+  ///   happens because Super Admin impersonates real profiles.
+  ///
+  ///   By querying on target_role="superAdmin" only (no profileKey filter), these
+  ///   notifications ALWAYS appear in the Super Admin panel regardless of which
+  ///   profile Super Admin currently has active.
+  ///
+  ///   The notifications-api.mo getNotifications() function detects when the caller
+  ///   is Super Admin and calls this function to append system notifications on top
+  ///   of any profile-scoped notifications.
   public func getSuperAdminNotifications(store : Store) : [Notification] {
     store.entries()
       .filter(func((_id, n) : (Text, Notification)) : Bool {

@@ -44,6 +44,8 @@ import NotificationsLib "lib/notifications";
 import GoalsLib "lib/goals";
 // ACTIVE goals/medical/body-inches/notes system — all new features go here
 import CustomerGoalsMedicalLib "lib/customer-goals-medical";
+// ACTIVE customer notes library — separate dedicated store for CustomerNoteV2 records
+import CustomerNotesLib "lib/customer-notes";
 import LeadsLib "lib/leads";
 
 // ── Mixin imports (public API surface, one per domain) ────────────────────────
@@ -61,6 +63,8 @@ import NotificationsApi "mixins/notifications-api";
 import GoalsApi "mixins/goals-api";
 // ACTIVE goals/medical API — the frontend uses these function names
 import CustomerGoalsMedicalApi "mixins/customer-goals-medical-api";
+// ACTIVE customer notes API — separate store for independent note CRUD (V2 notes system)
+import CustomerNotesApi "mixins/customer-notes-api";
 import LeadsApi "mixins/leads-api";
 
 // ── Shared type imports ───────────────────────────────────────────────────────
@@ -136,11 +140,28 @@ actor {
   //   goalMasterStore:         profile-level goal definitions (e.g. "Weight Loss")
   //   medicalIssueMasterStore: profile-level medical issue definitions (e.g. "Diabetes")
   //   bodyInchesStore2:        time-series body inch measurements per customer
-  //   customerNoteStore:       individual note ID registry (actual notes live on customer record)
+  //   customerNoteStore:       LEGACY note ID registry (actual notes lived on customer record)
+  //                            This store is kept for backward compat but is no longer the
+  //                            primary notes source. See customerNotesStore below.
   let goalMasterStore : CustomerGoalsMedicalLib.GoalMasterStore = Map.empty();
   let medicalIssueMasterStore : CustomerGoalsMedicalLib.MedicalIssueMasterStore = Map.empty();
   let bodyInchesStore2 : CustomerGoalsMedicalLib.BodyInchesStore = Map.empty();
   let customerNoteStore : CustomerGoalsMedicalLib.CustomerNoteStore = Map.empty();
+
+  // ── ACTIVE Customer Notes store (separate, dedicated, V2 notes system) ────
+  // customerNotesStore:  one entry per CustomerNoteV2 record, keyed by note ID.
+  //                      This is the PRIMARY notes store going forward.
+  //                      Notes here are fully independent of the Customer record —
+  //                      they can be created, updated, and deleted without touching
+  //                      the customer record. Backed by customer-notes-api.mo mixin.
+  //
+  // customerNoteIdCounter: auto-incrementing integer for unique note IDs.
+  //                        Starts at 1. Managed by the CustomerNotesApi mixin's
+  //                        nextCustomerNoteId var (incremented after each addNote).
+  //
+  // MIGRATION NOTE: Customer.notes (the legacy embedded array) remains in place for
+  //   backward compatibility. New notes go here. Both may be present during transition.
+  let customerNotesStore : CustomerNotesLib.CustomerNotesStore = Map.empty();
 
   // ── Leads store ───────────────────────────────────────────────────────────
   // leadStore: demo/contact requests submitted from the public marketing Index page
@@ -230,6 +251,8 @@ actor {
     medicalIssueMasterStore.clear();
     bodyInchesStore2.clear();
     customerNoteStore.clear();
+    // Clear the V2 notes store (separate dedicated store for CustomerNoteV2 records)
+    customerNotesStore.clear();
     leadStore.clear();
     // Re-seed location master data so dropdowns still work after a clear
     LocationMasterLib.seedIfEmpty(locationMasterStore);
@@ -395,6 +418,12 @@ actor {
     bodyInchesStore2, customerNoteStore,
     customerStore, profileStore, userStore,
   );
+
+  // ACTIVE customer notes API (V2 separate store) — exposes addCustomerNoteV2,
+  // getCustomerNotes, updateCustomerNote, deleteCustomerNote, getAllCustomerNotesForProfile.
+  // Notes here are stored independently of the Customer record (CustomerNoteV2 type).
+  // Legacy notes on Customer.notes remain untouched for backward compatibility.
+  include CustomerNotesApi(customerNotesStore, customerStore, userStore);
 
   // Marketing leads (submitted from public Index page, managed by Super Admin)
   include LeadsApi(leadStore, userStore);

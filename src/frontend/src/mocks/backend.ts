@@ -325,4 +325,29 @@ export const mockBackend: backendInterface = {
     { id: "notif-1", message: "Welcome to Indi Negocio Livre!", notification_type: "welcome", is_read: false, created_at: NOW_NS, profile_key: PROFILE_KEY, target_role: "admin" },
     { id: "notif-2", message: "New user Ravi Kumar has joined the profile.", notification_type: "new_user", is_read: false, created_at: NOW_NS, profile_key: PROFILE_KEY, target_role: "admin" },
   ],
+  // Customer goal and medical issue assignment
+  // These stubs match the backend signatures: addGoalToCustomer(customerId, goalId, profileKey) -> bool
+  addGoalToCustomer: async () => true,
+  removeGoalFromCustomer: async () => true,
+  getCustomerGoals: async () => [],
+  addMedicalIssueToCustomer: async () => true,
+  removeMedicalIssueFromCustomer: async () => true,
+  getCustomerMedicalIssues: async () => [],
+  // Versioned customer note endpoints
+  addCustomerNoteV2: async () => ({
+    id: BigInt(1),
+    date: new Date().toISOString().split("T")[0],
+    note: "Mock note",
+    created_by: "mock",
+    customer_id: BigInt(1),
+    last_updated_date: NOW_NS,
+    last_updated_by: "mock",
+    profile_key: PROFILE_KEY,
+    creation_date: NOW_NS,
+  }),
+  deleteCustomerNoteEmbedded: async () => true,
+  getAllCustomerNotesForProfile: async () => [],
+  getCustomerNotes: async () => [],
+  getSuperAdminNotifications: async () => [],
+  updateCustomerNote: async (): Promise<import("../backend").CustomerNotePublic | null> => null,
 };

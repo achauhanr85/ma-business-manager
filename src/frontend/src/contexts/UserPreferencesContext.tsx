@@ -29,6 +29,7 @@
 
 import { createActor } from "@/backend";
 import { applyTheme } from "@/lib/color";
+import { setDiagnosticsEnabled as loggerSetEnabled } from "@/lib/logger";
 import { useActor } from "@caffeineai/core-infrastructure";
 import {
   createContext,
@@ -339,6 +340,9 @@ export function UserPreferencesProvider({
         diagnosticsEnabled,
         setDiagnosticsEnabled: (enabled: boolean) => {
           setDiagnosticsEnabled(enabled);
+          // Sync the logger's internal gate so log calls are immediately
+          // allowed or blocked without waiting for a re-render.
+          loggerSetEnabled(enabled);
           try {
             localStorage.setItem("inl_diagnostics", String(enabled));
           } catch {

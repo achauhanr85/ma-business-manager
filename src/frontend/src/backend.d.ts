@@ -144,6 +144,12 @@ export interface BodyInchesPublic {
     profile_key: ProfileKey;
     creation_date: Timestamp;
 }
+export interface CustomerNoteV2Input {
+    date: string;
+    note: string;
+    customer_id: bigint;
+    profile_key: string;
+}
 export type WarehouseName = string;
 export interface ProductInput {
     mrp: number;
@@ -160,6 +166,17 @@ export interface InventoryLevel {
     product_id: ProductId;
     total_qty: bigint;
     batches: Array<InventoryBatchPublic>;
+}
+export interface CustomerNotePublic {
+    id: bigint;
+    date: string;
+    note: string;
+    created_by: string;
+    customer_id: bigint;
+    last_updated_date: Timestamp;
+    last_updated_by: string;
+    profile_key: string;
+    creation_date: Timestamp;
 }
 export interface CustomerNote {
     id: bigint;
@@ -640,8 +657,11 @@ export enum Variant_reject_accept {
 }
 export interface backendInterface {
     addCustomerNote(customerId: CustomerId, input: CustomerNoteInput): Promise<CustomerNote | null>;
+    addCustomerNoteV2(input: CustomerNoteV2Input): Promise<CustomerNotePublic>;
+    addGoalToCustomer(customerId: CustomerId, goalId: bigint): Promise<boolean>;
     addLoanerBatch(product_id: ProductId, quantity: bigint, unit_cost: number, loaned_source: string): Promise<BatchId | null>;
     addLocationEntry(entry: LocationMasterEntry): Promise<boolean>;
+    addMedicalIssueToCustomer(customerId: CustomerId, issueId: bigint): Promise<boolean>;
     addPaymentEntry(sale_id: SaleId, amount: number, payment_method: string): Promise<boolean>;
     approveProfile(profile_key: ProfileKey): Promise<boolean>;
     approveUser(userId: UserId, approved: boolean): Promise<boolean>;
@@ -682,7 +702,8 @@ export interface backendInterface {
     deleteBodyInchesEntry(id: bigint): Promise<boolean>;
     deleteCategory(id: CategoryId): Promise<boolean>;
     deleteCustomer(id: CustomerId): Promise<boolean>;
-    deleteCustomerNote(noteId: bigint, customerId: CustomerId): Promise<boolean>;
+    deleteCustomerNote(noteId: bigint, profileKey: ProfileKey): Promise<boolean>;
+    deleteCustomerNoteEmbedded(noteId: bigint, customerId: CustomerId): Promise<boolean>;
     deleteGoal(id: bigint): Promise<boolean>;
     deleteGoalMaster(id: bigint): Promise<boolean>;
     deleteLead(id: bigint): Promise<boolean>;
@@ -698,6 +719,7 @@ export interface backendInterface {
      */
     doesSuperAdminExist(): Promise<boolean>;
     enableProfile(profile_key: ProfileKey, enabled: boolean): Promise<boolean>;
+    getAllCustomerNotesForProfile(profileKey: ProfileKey): Promise<Array<CustomerNotePublic>>;
     getAllNotificationsRaw(profileKey: string): Promise<Array<Notification>>;
     getAllProfilesForAdmin(): Promise<Array<ProfilePublic>>;
     getAllProfilesRaw(): Promise<Array<ProfilePublic>>;
@@ -716,6 +738,9 @@ export interface backendInterface {
     getCitiesByState(stateId: string): Promise<Array<LocationMasterEntry>>;
     getCountries(): Promise<Array<LocationMasterEntry>>;
     getCustomer(id: CustomerId): Promise<CustomerPublic | null>;
+    getCustomerGoals(customerId: CustomerId): Promise<Array<GoalMasterPublic>>;
+    getCustomerMedicalIssues(customerId: CustomerId): Promise<Array<MedicalIssueMasterPublic>>;
+    getCustomerNotes(customerId: CustomerId): Promise<Array<CustomerNotePublic>>;
     getCustomerOrders(customer_id: CustomerId): Promise<Array<CustomerOrderDetail>>;
     getCustomers(): Promise<Array<CustomerPublic>>;
     getCyclesInfo(): Promise<CyclesInfo>;
@@ -752,6 +777,7 @@ export interface backendInterface {
     getStagedInventory(): Promise<Array<InventoryBatchPublic>>;
     getStates(): Promise<Array<LocationMasterEntry>>;
     getSuperAdminActiveProfile(): Promise<ProfileKey | null>;
+    getSuperAdminNotifications(): Promise<Array<Notification>>;
     getSuperAdminStats(): Promise<SuperAdminStats>;
     getUserPreferences(): Promise<UserPreferences>;
     getUserProfile(): Promise<UserProfilePublic | null>;
@@ -774,6 +800,8 @@ export interface backendInterface {
     moveInventory(input: InventoryMovementInput): Promise<MovementId | null>;
     moveLoanerToStaff(product_id: ProductId, quantity: bigint, to_warehouse: WarehouseName): Promise<MovementId | null>;
     rejectProfile(profile_key: ProfileKey): Promise<boolean>;
+    removeGoalFromCustomer(customerId: CustomerId, goalId: bigint): Promise<boolean>;
+    removeMedicalIssueFromCustomer(customerId: CustomerId, issueId: bigint): Promise<boolean>;
     returnToSource(batch_id: BatchId, quantity: bigint): Promise<MovementId | null>;
     reviewStagedItem(batch_id: BatchId, action: Variant_reject_accept): Promise<boolean>;
     runBackgroundChecks(): Promise<bigint>;
@@ -782,6 +810,7 @@ export interface backendInterface {
     submitLead(input: LeadInput): Promise<Lead>;
     updateCategory(id: CategoryId, input: CategoryInput): Promise<boolean>;
     updateCustomer(id: CustomerId, input: CustomerInput): Promise<boolean>;
+    updateCustomerNote(noteId: bigint, newText: string, profileKey: ProfileKey): Promise<CustomerNotePublic | null>;
     updateGoal(id: bigint, input: GoalMasterInput): Promise<boolean>;
     updateGoalMaster(id: bigint, name: string, description: string, productBundle: Array<ProductId>): Promise<boolean>;
     updateMedicalIssue(id: bigint, input: MedicalIssueMasterInput): Promise<boolean>;

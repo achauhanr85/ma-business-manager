@@ -55,14 +55,17 @@ import {
   Building2,
   Calendar,
   CheckCircle,
+  CheckCircle2,
   Clock,
   DollarSign,
   Package,
   Smile,
   UserCheck,
   X,
+  XCircle,
 } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { createActor } from "../backend";
 import type { Notification } from "../backend";
 
@@ -81,6 +84,12 @@ function useBackendActor() {
  *
  * Falls back to the older `getNotifications(profileKey, targetRole)` API if
  * `getNotificationsForUser` is not available on the deployed backend.
+ *
+ * SUPER ADMIN FALLBACK FIX:
+ * System-level notifications (new profile registrations) are stored with
+ * profile_key = "superadmin" (sentinel). If the fallback API is called for
+ * Super Admin, we MUST pass "superadmin" as the profileKey — NOT the active
+ * profile key — or the query will filter out system notifications.
  *
  * @param profileKey  - User's profile key (used only for fallback API)
  * @param targetRole  - User's role string (used only for fallback API)
@@ -103,10 +112,19 @@ function useGetNotificationsForCurrentUser(
           // Fall through to old API if the merged one fails
         }
       }
-      // Fallback: old profileKey + targetRole scoped query
-      if (!profileKey || !targetRole) return [];
+      // Fallback: old profileKey + targetRole scoped query.
+      // SUPER ADMIN FIX: System notifications are stored with profile_key = "superadmin"
+      // (sentinel). For Super Admin, pass "superadmin" as the profileKey so the backend
+      // query returns system-level notifications. A real profile key would filter them out.
+      const isSuperAdmin =
+        targetRole === "superAdmin" || targetRole === "super_admin";
+      // Use the superadmin sentinel for Super Admin, otherwise use their real profile key
+      const effectiveProfileKey = isSuperAdmin
+        ? "superadmin"
+        : (profileKey ?? "");
+      if (!effectiveProfileKey && !isSuperAdmin) return [];
       if (typeof actor.getNotifications !== "function") return [];
-      return actor.getNotifications(profileKey, targetRole);
+      return actor.getNotifications(effectiveProfileKey, targetRole ?? "");
     },
     // Run even without profileKey so Super Admin (who has no profileKey) still gets notifications
     enabled: !!actor && !isFetching,
@@ -155,6 +173,59 @@ function useCheckAndCreateNotificationsLocal(profileKey: string | null) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["notifications"] });
+    },
+  });
+}
+
+/**
+ * useApproveProfileLocal — inline Approve button for NewProfilePendingApproval
+ * notifications. Calls actor.approveProfile(profileKey) — the dedicated backend
+ * function that sets approval_status to #approved.
+ *
+ * On success, invalidates notifications and admin-profiles caches so the
+ * notification panel and Super Admin dashboard both update immediately.
+ */
+function useApproveProfileLocal() {
+  const { actor } = useBackendActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (profileKey: string) => {
+      if (!actor) throw new Error("Actor not ready");
+      const a = actor as unknown as Record<string, unknown>;
+      if (typeof a.approveProfile !== "function")
+        throw new Error("approveProfile not available");
+      return (a.approveProfile as (pk: string) => Promise<boolean>)(profileKey);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["notifications"] });
+      qc.invalidateQueries({ queryKey: ["super-admin-notifications"] });
+      qc.invalidateQueries({ queryKey: ["admin-profiles"] });
+      qc.invalidateQueries({ queryKey: ["super-admin-stats"] });
+    },
+  });
+}
+
+/**
+ * useRejectProfileLocal — inline Reject button for NewProfilePendingApproval
+ * notifications. Calls actor.rejectProfile(profileKey) — sets approval_status
+ * to #suspended. Profile is preserved for audit trail (not deleted).
+ */
+function useRejectProfileLocal() {
+  const { actor } = useBackendActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (profileKey: string) => {
+      if (!actor) throw new Error("Actor not ready");
+      const a = actor as unknown as Record<string, unknown>;
+      if (typeof a.rejectProfile !== "function")
+        throw new Error("rejectProfile not available");
+      return (a.rejectProfile as (pk: string) => Promise<boolean>)(profileKey);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["notifications"] });
+      qc.invalidateQueries({ queryKey: ["super-admin-notifications"] });
+      qc.invalidateQueries({ queryKey: ["admin-profiles"] });
+      qc.invalidateQueries({ queryKey: ["super-admin-stats"] });
     },
   });
 }
@@ -221,9 +292,13 @@ function notificationNavPath(notification: Notification): string | null {
     case "LoanedItemSold":
     case "LoanerPayoutOwed":
       return "/loaner-inventory";
+    // FIX: Profile registration/pending approval notifications must navigate to the
+    // dedicated Profile Approvals page — NOT /super-admin.
+    // Super Admin needs to see and act on the approval from ProfileApprovalPage.
+    case "NewProfilePendingApproval":
     case "NewProfileRegistered":
     case "profile_registered":
-      return "/super-admin"; // Super Admin reviews new profiles on their dashboard
+      return ROUTES.profileApprovals; // "/profile-approvals"
     default:
       return null;
   }
@@ -246,10 +321,20 @@ function formatTimestamp(ts: bigint): string {
 /**
  * NotificationItem — renders a single notification with icon, message,
  * timestamp, and action buttons (View + Mark read).
+ *
+ * For NewProfilePendingApproval notifications, inline Approve and Reject buttons
+ * are shown so Super Admin can act directly from the panel without navigating away.
+ * After approve/reject, the notification is marked read and the list refreshes.
  */
 function NotificationItem({ notification, onNavigate }: NotificationItemProps) {
   const markRead = useMarkNotificationReadLocal();
+  const approveProfile = useApproveProfileLocal();
+  const rejectProfile = useRejectProfileLocal();
   const navPath = notificationNavPath(notification);
+
+  // Track local inline action state for this specific notification
+  const [inlineApproving, setInlineApproving] = useState(false);
+  const [inlineRejecting, setInlineRejecting] = useState(false);
 
   /** Clicking the notification marks it read AND navigates to the relevant page */
   function handleClick() {
@@ -261,9 +346,71 @@ function NotificationItem({ notification, onNavigate }: NotificationItemProps) {
     }
   }
 
+  /**
+   * handleInlineApprove — approves the profile directly from the notification panel.
+   *
+   * related_id on a NewProfilePendingApproval notification holds the profile_key
+   * of the newly registered profile. We pass it to approveProfile().
+   * After the action completes, the notification is marked read automatically
+   * (the list refreshes via React Query cache invalidation in useApproveProfileLocal).
+   */
+  async function handleInlineApprove() {
+    const profileKey = notification.related_id;
+    if (!profileKey) {
+      toast.error(
+        "Cannot approve: profile key not found in this notification.",
+      );
+      return;
+    }
+    setInlineApproving(true);
+    try {
+      await approveProfile.mutateAsync(profileKey);
+      // Mark notification as read so it's visually acknowledged
+      if (!notification.is_read) markRead.mutate(notification.id);
+      toast.success(`Profile "${profileKey}" approved successfully.`);
+    } catch {
+      toast.error(
+        "Failed to approve profile. The backend function may not be deployed yet.",
+      );
+    } finally {
+      setInlineApproving(false);
+    }
+  }
+
+  /**
+   * handleInlineReject — rejects the profile directly from the notification panel.
+   * Sets approval_status to #suspended (record preserved). Profile key comes from
+   * notification.related_id.
+   */
+  async function handleInlineReject() {
+    const profileKey = notification.related_id;
+    if (!profileKey) {
+      toast.error("Cannot reject: profile key not found in this notification.");
+      return;
+    }
+    setInlineRejecting(true);
+    try {
+      await rejectProfile.mutateAsync(profileKey);
+      if (!notification.is_read) markRead.mutate(notification.id);
+      toast.success(`Profile "${profileKey}" rejected.`);
+    } catch {
+      toast.error(
+        "Failed to reject profile. The backend function may not be deployed yet.",
+      );
+    } finally {
+      setInlineRejecting(false);
+    }
+  }
+
   // Staff approval notifications get a different action label
   const isStaffApproval =
     notification.notification_type === "StaffPendingApproval";
+
+  // Profile pending approval — show inline Approve/Reject buttons
+  const isProfileApproval =
+    notification.notification_type === "NewProfilePendingApproval";
+
+  const isBusy = inlineApproving || inlineRejecting;
 
   return (
     <div
@@ -289,7 +436,44 @@ function NotificationItem({ notification, onNavigate }: NotificationItemProps) {
           {formatTimestamp(notification.created_at)}
         </p>
         {/* Action buttons — positioned BELOW the content, never overlapping the header close button */}
-        <div className="flex items-center gap-2 mt-2">
+        <div className="flex items-center gap-2 mt-2 flex-wrap">
+          {/* Inline Approve/Reject for profile pending approval notifications */}
+          {isProfileApproval && notification.related_id && (
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-6 text-[11px] px-2 gap-1 border-destructive/40 text-destructive hover:bg-destructive/10"
+                onClick={handleInlineReject}
+                disabled={isBusy}
+                data-ocid={`notification.reject_profile_button.${notification.id}`}
+              >
+                {inlineRejecting ? (
+                  <span className="w-2.5 h-2.5 border-2 border-destructive/40 border-t-destructive rounded-full animate-spin" />
+                ) : (
+                  <XCircle className="w-3 h-3" />
+                )}
+                Reject
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="h-6 text-[11px] px-2 gap-1"
+                onClick={handleInlineApprove}
+                disabled={isBusy}
+                data-ocid={`notification.approve_profile_button.${notification.id}`}
+              >
+                {inlineApproving ? (
+                  <span className="w-2.5 h-2.5 border-2 border-primary-foreground/40 border-t-primary-foreground rounded-full animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-3 h-3" />
+                )}
+                Approve
+              </Button>
+            </>
+          )}
+          {/* View link — shown for all notification types that have a nav path */}
           {navPath && (
             <button
               type="button"
@@ -297,7 +481,11 @@ function NotificationItem({ notification, onNavigate }: NotificationItemProps) {
               className="text-xs font-medium text-primary hover:underline"
               data-ocid={`notification.action_button.${notification.id}`}
             >
-              {isStaffApproval ? "Review & Approve →" : "View →"}
+              {isStaffApproval
+                ? "Review & Approve →"
+                : isProfileApproval
+                  ? "View all approvals →"
+                  : "View →"}
             </button>
           )}
           {/* Mark read — only shown for unread notifications */}
@@ -453,9 +641,12 @@ export function NotificationsPanel({
       n.notification_type === "LoanerPayoutOwed",
   );
 
-  // New profile registration alerts — Super Admin needs to approve new profiles
+  // New profile registration alerts — Super Admin needs to approve new profiles.
+  // Includes both the older NewProfileRegistered type and the newer
+  // NewProfilePendingApproval type used by the current backend.
   const profileAlerts = notifications.filter(
     (n) =>
+      n.notification_type === "NewProfilePendingApproval" ||
       n.notification_type === "NewProfileRegistered" ||
       n.notification_type === "profile_registered",
   );
@@ -473,6 +664,7 @@ export function NotificationsPanel({
       n.notification_type !== "lead_follow" &&
       n.notification_type !== "LoanedItemSold" &&
       n.notification_type !== "LoanerPayoutOwed" &&
+      n.notification_type !== "NewProfilePendingApproval" &&
       n.notification_type !== "NewProfileRegistered" &&
       n.notification_type !== "profile_registered",
   );

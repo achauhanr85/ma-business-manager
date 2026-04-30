@@ -4,23 +4,38 @@
  * WHAT THIS FILE DOES:
  *   Exposes public canister functions for the notification system:
  *     - getNotifications(profileKey, targetRole) — merged panel query
- *       For Super Admin: also includes system-level "superAdmin" notifications
+ *       For Super Admin: also appends system-level "superAdmin" notifications
  *       For regular users: also includes personal "user:<principal>" notifications
+ *     - getSuperAdminNotifications() — Super Admin system notifications only (dedicated)
  *     - getNotificationsForUser() — personal notifications only (welcome, etc.)
  *     - markNotificationRead(notificationId) — marks a single notification as read
  *     - checkAndCreateNotifications(profileKey) — manual trigger by Admin
  *     - runBackgroundChecks() — runs ALL checks for ALL profiles (Super Admin or timer)
+ *     - getAllNotificationsRaw(profileKey) — Super Admin Data Inspector raw query
  *
  * WHO USES IT:
  *   Included in main.mo. The Notification Panel in the frontend calls getNotifications()
  *   to populate the bell icon panel.
  *
  * IMPORTANT — Super Admin Notifications:
- *   Super Admin calls getNotifications() with any profileKey and targetRole="superAdmin".
- *   This function always appends the system-level Super Admin notifications
- *   (stored with profile_key="superadmin", target_role="superAdmin") regardless of
- *   the profileKey parameter. This is the fix that ensures Super Admin always sees
- *   "New profile pending approval" notifications in their panel.
+ *   Super Admin system notifications (e.g. "New profile pending approval") are stored
+ *   with profile_key="superadmin" (sentinel) and target_role="superAdmin".
+ *   They must NEVER be filtered by a real profileKey — they always live under the
+ *   sentinel key and are returned regardless of which profile the SA has active.
+ *
+ *   Two paths exist for Super Admin to fetch these:
+ *     1. getNotifications(any profileKey, "superAdmin")
+ *        — appends superAdmin notifs via the isSuperAdmin check in this mixin.
+ *        — Works for the notification panel.
+ *     2. getSuperAdminNotifications()
+ *        — dedicated query, always returns exactly the superAdmin-targeted records.
+ *        — USE THIS in the DataInspectorPage and anywhere you only want SA notifs.
+ *        — Does NOT require a profileKey argument — no risk of wrong-key filtering.
+ *
+ * DATA INSPECTOR:
+ *   getAllNotificationsRaw("") returns all notifications across all profiles.
+ *   getAllNotificationsRaw("somekey") returns records for that profile PLUS the
+ *   "superadmin" sentinel records (so new-profile-approval notifs are always visible).
  *
  * BACKGROUND CHECKS:
  *   runBackgroundChecks() is safe to call manually by Super Admin from the dashboard.
@@ -51,6 +66,9 @@ mixin (
     let roleNotifs = NotificationsLib.getNotifications(notificationsStore, profileKey, targetRole);
     let personalNotifs = NotificationsLib.getNotificationsForUser(notificationsStore, caller.toText());
     // Super Admin: also include system-level notifications (new profile approvals, etc.)
+    // These are stored with profile_key="superadmin" and target_role="superAdmin".
+    // They must be appended here regardless of the profileKey argument so they always
+    // appear in the Super Admin notification panel no matter which profile is active.
     let isSuperAdmin = switch (userStore.get(caller)) {
       case (?up) up.role == #superAdmin;
       case null false;
@@ -61,6 +79,29 @@ mixin (
       []
     };
     roleNotifs.concat(personalNotifs).concat(superAdminNotifs)
+  };
+
+  /// Dedicated Super Admin system-notification query.
+  /// Returns only the system-level notifications stored with profile_key="superadmin"
+  /// (target_role="superAdmin") — i.e. new profile pending approval, etc.
+  ///
+  /// WHY this exists in addition to getNotifications():
+  ///   The frontend for the Super Admin notification panel calls getNotifications()
+  ///   with targetRole="superAdmin". If the frontend ever passes an incorrect
+  ///   targetRole (e.g. "admin") the system notifications would be missed.
+  ///   This dedicated function is always correct because it does not depend on the
+  ///   targetRole argument — it filters solely by target_role="superAdmin" in the store.
+  ///
+  ///   Super Admin only — other callers receive an empty array (not an error, so
+  ///   the frontend can safely call it regardless of role).
+  public shared query ({ caller }) func getSuperAdminNotifications() : async [NotificationsLib.Notification] {
+    if (caller.isAnonymous()) return [];
+    let isSuperAdmin = switch (userStore.get(caller)) {
+      case (?up) up.role == #superAdmin;
+      case null false;
+    };
+    if (not isSuperAdmin) return [];
+    NotificationsLib.getSuperAdminNotifications(notificationsStore)
   };
 
   /// Returns personal notifications for the caller (e.g. welcome message).
@@ -137,7 +178,18 @@ mixin (
 
   /// Returns ALL notifications (read and unread) across all profiles.
   /// Used by the Super Admin Data Inspector page to browse raw notification records.
-  /// Pass profileKey="" to get every notification; non-empty profileKey filters to that profile.
+  ///
+  /// Filtering rules:
+  ///   - profileKey="" → returns EVERY notification (all profiles + sentinel superadmin records)
+  ///   - profileKey="somekey" → returns notifications for that profile PLUS any
+  ///     profile_key="superadmin" sentinel records (system-level notifications that
+  ///     are never tied to a single profile but must always be visible to Super Admin)
+  ///
+  /// WHY we always include "superadmin" sentinel records even when a profileKey is given:
+  ///   Notifications for new profile approvals are stored with profile_key="superadmin"
+  ///   so they survive regardless of which profile Super Admin is currently viewing.
+  ///   Without this inclusion the Data Inspector would always show 0 rows for the
+  ///   notifications table because the query would never match the sentinel key.
   public shared query ({ caller }) func getAllNotificationsRaw(profileKey : Text) : async [NotificationsLib.Notification] {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
     switch (userStore.get(caller)) {
@@ -148,7 +200,12 @@ mixin (
     };
     notificationsStore.entries()
       .filter(func((_id, n) : (Text, NotificationsLib.Notification)) : Bool {
-        profileKey == "" or n.profile_key == profileKey
+        // Always include every record when no filter is requested
+        profileKey == ""
+        // When a profile is specified: include that profile's records AND the
+        // "superadmin" sentinel records (system-level Super Admin notifications)
+        or n.profile_key == profileKey
+        or n.profile_key == "superadmin"
       })
       .map(func((_id, n) : (Text, NotificationsLib.Notification)) : NotificationsLib.Notification { n })
       .toArray()

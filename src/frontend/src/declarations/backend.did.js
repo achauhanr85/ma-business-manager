@@ -21,6 +21,23 @@ export const CustomerNote = IDL.Record({
   'note_date' : Timestamp,
   'creation_date' : Timestamp,
 });
+export const CustomerNoteV2Input = IDL.Record({
+  'date' : IDL.Text,
+  'note' : IDL.Text,
+  'customer_id' : IDL.Nat,
+  'profile_key' : IDL.Text,
+});
+export const CustomerNotePublic = IDL.Record({
+  'id' : IDL.Nat,
+  'date' : IDL.Text,
+  'note' : IDL.Text,
+  'created_by' : IDL.Text,
+  'customer_id' : IDL.Nat,
+  'last_updated_date' : Timestamp,
+  'last_updated_by' : IDL.Text,
+  'profile_key' : IDL.Text,
+  'creation_date' : Timestamp,
+});
 export const ProductId = IDL.Nat;
 export const BatchId = IDL.Nat;
 export const LocationMasterEntry = IDL.Record({
@@ -361,6 +378,21 @@ export const Category = IDL.Record({
   'profile_key' : ProfileKey,
   'creation_date' : Timestamp,
 });
+export const GoalMasterPublic = IDL.Record({
+  'id' : IDL.Nat,
+  'last_update_date' : Timestamp,
+  'name' : IDL.Text,
+  'description' : IDL.Text,
+  'product_bundle' : IDL.Vec(ProductId),
+  'creation_date' : Timestamp,
+});
+export const MedicalIssueMasterPublic = IDL.Record({
+  'id' : IDL.Nat,
+  'last_update_date' : Timestamp,
+  'name' : IDL.Text,
+  'description' : IDL.Text,
+  'creation_date' : Timestamp,
+});
 export const PaymentEntry = IDL.Record({
   'id' : IDL.Text,
   'payment_date' : Timestamp,
@@ -435,14 +467,6 @@ export const DashboardStats = IDL.Record({
   'recent_sales' : IDL.Vec(Sale),
   'monthly_volume_points' : IDL.Float64,
 });
-export const GoalMasterPublic = IDL.Record({
-  'id' : IDL.Nat,
-  'last_update_date' : Timestamp,
-  'name' : IDL.Text,
-  'description' : IDL.Text,
-  'product_bundle' : IDL.Vec(ProductId),
-  'creation_date' : Timestamp,
-});
 export const StagedBatchStatus = IDL.Variant({
   'pending' : IDL.Null,
   'rejected' : IDL.Null,
@@ -497,13 +521,6 @@ export const Lead = IDL.Record({
   'is_closed' : IDL.Bool,
   'phone' : IDL.Text,
   'profile_link' : IDL.Opt(IDL.Text),
-});
-export const MedicalIssueMasterPublic = IDL.Record({
-  'id' : IDL.Nat,
-  'last_update_date' : Timestamp,
-  'name' : IDL.Text,
-  'description' : IDL.Text,
-  'creation_date' : Timestamp,
 });
 export const MonthlySalesTrend = IDL.Record({
   'month_label' : IDL.Text,
@@ -647,12 +664,19 @@ export const idlService = IDL.Service({
       [IDL.Opt(CustomerNote)],
       [],
     ),
+  'addCustomerNoteV2' : IDL.Func(
+      [CustomerNoteV2Input],
+      [CustomerNotePublic],
+      [],
+    ),
+  'addGoalToCustomer' : IDL.Func([CustomerId, IDL.Nat], [IDL.Bool], []),
   'addLoanerBatch' : IDL.Func(
       [ProductId, IDL.Nat, IDL.Float64, IDL.Text],
       [IDL.Opt(BatchId)],
       [],
     ),
   'addLocationEntry' : IDL.Func([LocationMasterEntry], [IDL.Bool], []),
+  'addMedicalIssueToCustomer' : IDL.Func([CustomerId, IDL.Nat], [IDL.Bool], []),
   'addPaymentEntry' : IDL.Func([SaleId, IDL.Float64, IDL.Text], [IDL.Bool], []),
   'approveProfile' : IDL.Func([ProfileKey], [IDL.Bool], []),
   'approveUser' : IDL.Func([UserId, IDL.Bool], [IDL.Bool], []),
@@ -711,7 +735,12 @@ export const idlService = IDL.Service({
   'deleteBodyInchesEntry' : IDL.Func([IDL.Nat], [IDL.Bool], []),
   'deleteCategory' : IDL.Func([CategoryId], [IDL.Bool], []),
   'deleteCustomer' : IDL.Func([CustomerId], [IDL.Bool], []),
-  'deleteCustomerNote' : IDL.Func([IDL.Nat, CustomerId], [IDL.Bool], []),
+  'deleteCustomerNote' : IDL.Func([IDL.Nat, ProfileKey], [IDL.Bool], []),
+  'deleteCustomerNoteEmbedded' : IDL.Func(
+      [IDL.Nat, CustomerId],
+      [IDL.Bool],
+      [],
+    ),
   'deleteGoal' : IDL.Func([IDL.Nat], [IDL.Bool], []),
   'deleteGoalMaster' : IDL.Func([IDL.Nat], [IDL.Bool], []),
   'deleteLead' : IDL.Func([IDL.Nat], [IDL.Bool], []),
@@ -722,6 +751,11 @@ export const idlService = IDL.Service({
   'deleteVendor' : IDL.Func([IDL.Text], [IDL.Bool], []),
   'doesSuperAdminExist' : IDL.Func([], [IDL.Bool], ['query']),
   'enableProfile' : IDL.Func([ProfileKey, IDL.Bool], [IDL.Bool], []),
+  'getAllCustomerNotesForProfile' : IDL.Func(
+      [ProfileKey],
+      [IDL.Vec(CustomerNotePublic)],
+      ['query'],
+    ),
   'getAllNotificationsRaw' : IDL.Func(
       [IDL.Text],
       [IDL.Vec(Notification)],
@@ -764,6 +798,21 @@ export const idlService = IDL.Service({
     ),
   'getCountries' : IDL.Func([], [IDL.Vec(LocationMasterEntry)], ['query']),
   'getCustomer' : IDL.Func([CustomerId], [IDL.Opt(CustomerPublic)], ['query']),
+  'getCustomerGoals' : IDL.Func(
+      [CustomerId],
+      [IDL.Vec(GoalMasterPublic)],
+      ['query'],
+    ),
+  'getCustomerMedicalIssues' : IDL.Func(
+      [CustomerId],
+      [IDL.Vec(MedicalIssueMasterPublic)],
+      ['query'],
+    ),
+  'getCustomerNotes' : IDL.Func(
+      [CustomerId],
+      [IDL.Vec(CustomerNotePublic)],
+      ['query'],
+    ),
   'getCustomerOrders' : IDL.Func(
       [CustomerId],
       [IDL.Vec(CustomerOrderDetail)],
@@ -868,6 +917,11 @@ export const idlService = IDL.Service({
     ),
   'getStates' : IDL.Func([], [IDL.Vec(LocationMasterEntry)], ['query']),
   'getSuperAdminActiveProfile' : IDL.Func([], [IDL.Opt(ProfileKey)], ['query']),
+  'getSuperAdminNotifications' : IDL.Func(
+      [],
+      [IDL.Vec(Notification)],
+      ['query'],
+    ),
   'getSuperAdminStats' : IDL.Func([], [SuperAdminStats], ['query']),
   'getUserPreferences' : IDL.Func([], [UserPreferences], ['query']),
   'getUserProfile' : IDL.Func([], [IDL.Opt(UserProfilePublic)], ['query']),
@@ -913,6 +967,12 @@ export const idlService = IDL.Service({
       [],
     ),
   'rejectProfile' : IDL.Func([ProfileKey], [IDL.Bool], []),
+  'removeGoalFromCustomer' : IDL.Func([CustomerId, IDL.Nat], [IDL.Bool], []),
+  'removeMedicalIssueFromCustomer' : IDL.Func(
+      [CustomerId, IDL.Nat],
+      [IDL.Bool],
+      [],
+    ),
   'returnToSource' : IDL.Func([BatchId, IDL.Nat], [IDL.Opt(MovementId)], []),
   'reviewStagedItem' : IDL.Func(
       [BatchId, IDL.Variant({ 'reject' : IDL.Null, 'accept' : IDL.Null })],
@@ -929,6 +989,11 @@ export const idlService = IDL.Service({
   'submitLead' : IDL.Func([LeadInput], [Lead], []),
   'updateCategory' : IDL.Func([CategoryId, CategoryInput], [IDL.Bool], []),
   'updateCustomer' : IDL.Func([CustomerId, CustomerInput], [IDL.Bool], []),
+  'updateCustomerNote' : IDL.Func(
+      [IDL.Nat, IDL.Text, ProfileKey],
+      [IDL.Opt(CustomerNotePublic)],
+      [],
+    ),
   'updateGoal' : IDL.Func([IDL.Nat, GoalMasterInput], [IDL.Bool], []),
   'updateGoalMaster' : IDL.Func(
       [IDL.Nat, IDL.Text, IDL.Text, IDL.Vec(ProductId)],
@@ -977,6 +1042,23 @@ export const idlFactory = ({ IDL }) => {
     'text' : IDL.Text,
     'created_by' : IDL.Text,
     'note_date' : Timestamp,
+    'creation_date' : Timestamp,
+  });
+  const CustomerNoteV2Input = IDL.Record({
+    'date' : IDL.Text,
+    'note' : IDL.Text,
+    'customer_id' : IDL.Nat,
+    'profile_key' : IDL.Text,
+  });
+  const CustomerNotePublic = IDL.Record({
+    'id' : IDL.Nat,
+    'date' : IDL.Text,
+    'note' : IDL.Text,
+    'created_by' : IDL.Text,
+    'customer_id' : IDL.Nat,
+    'last_updated_date' : Timestamp,
+    'last_updated_by' : IDL.Text,
+    'profile_key' : IDL.Text,
     'creation_date' : Timestamp,
   });
   const ProductId = IDL.Nat;
@@ -1316,6 +1398,21 @@ export const idlFactory = ({ IDL }) => {
     'profile_key' : ProfileKey,
     'creation_date' : Timestamp,
   });
+  const GoalMasterPublic = IDL.Record({
+    'id' : IDL.Nat,
+    'last_update_date' : Timestamp,
+    'name' : IDL.Text,
+    'description' : IDL.Text,
+    'product_bundle' : IDL.Vec(ProductId),
+    'creation_date' : Timestamp,
+  });
+  const MedicalIssueMasterPublic = IDL.Record({
+    'id' : IDL.Nat,
+    'last_update_date' : Timestamp,
+    'name' : IDL.Text,
+    'description' : IDL.Text,
+    'creation_date' : Timestamp,
+  });
   const PaymentEntry = IDL.Record({
     'id' : IDL.Text,
     'payment_date' : Timestamp,
@@ -1390,14 +1487,6 @@ export const idlFactory = ({ IDL }) => {
     'recent_sales' : IDL.Vec(Sale),
     'monthly_volume_points' : IDL.Float64,
   });
-  const GoalMasterPublic = IDL.Record({
-    'id' : IDL.Nat,
-    'last_update_date' : Timestamp,
-    'name' : IDL.Text,
-    'description' : IDL.Text,
-    'product_bundle' : IDL.Vec(ProductId),
-    'creation_date' : Timestamp,
-  });
   const StagedBatchStatus = IDL.Variant({
     'pending' : IDL.Null,
     'rejected' : IDL.Null,
@@ -1452,13 +1541,6 @@ export const idlFactory = ({ IDL }) => {
     'is_closed' : IDL.Bool,
     'phone' : IDL.Text,
     'profile_link' : IDL.Opt(IDL.Text),
-  });
-  const MedicalIssueMasterPublic = IDL.Record({
-    'id' : IDL.Nat,
-    'last_update_date' : Timestamp,
-    'name' : IDL.Text,
-    'description' : IDL.Text,
-    'creation_date' : Timestamp,
   });
   const MonthlySalesTrend = IDL.Record({
     'month_label' : IDL.Text,
@@ -1599,12 +1681,23 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Opt(CustomerNote)],
         [],
       ),
+    'addCustomerNoteV2' : IDL.Func(
+        [CustomerNoteV2Input],
+        [CustomerNotePublic],
+        [],
+      ),
+    'addGoalToCustomer' : IDL.Func([CustomerId, IDL.Nat], [IDL.Bool], []),
     'addLoanerBatch' : IDL.Func(
         [ProductId, IDL.Nat, IDL.Float64, IDL.Text],
         [IDL.Opt(BatchId)],
         [],
       ),
     'addLocationEntry' : IDL.Func([LocationMasterEntry], [IDL.Bool], []),
+    'addMedicalIssueToCustomer' : IDL.Func(
+        [CustomerId, IDL.Nat],
+        [IDL.Bool],
+        [],
+      ),
     'addPaymentEntry' : IDL.Func(
         [SaleId, IDL.Float64, IDL.Text],
         [IDL.Bool],
@@ -1667,7 +1760,12 @@ export const idlFactory = ({ IDL }) => {
     'deleteBodyInchesEntry' : IDL.Func([IDL.Nat], [IDL.Bool], []),
     'deleteCategory' : IDL.Func([CategoryId], [IDL.Bool], []),
     'deleteCustomer' : IDL.Func([CustomerId], [IDL.Bool], []),
-    'deleteCustomerNote' : IDL.Func([IDL.Nat, CustomerId], [IDL.Bool], []),
+    'deleteCustomerNote' : IDL.Func([IDL.Nat, ProfileKey], [IDL.Bool], []),
+    'deleteCustomerNoteEmbedded' : IDL.Func(
+        [IDL.Nat, CustomerId],
+        [IDL.Bool],
+        [],
+      ),
     'deleteGoal' : IDL.Func([IDL.Nat], [IDL.Bool], []),
     'deleteGoalMaster' : IDL.Func([IDL.Nat], [IDL.Bool], []),
     'deleteLead' : IDL.Func([IDL.Nat], [IDL.Bool], []),
@@ -1678,6 +1776,11 @@ export const idlFactory = ({ IDL }) => {
     'deleteVendor' : IDL.Func([IDL.Text], [IDL.Bool], []),
     'doesSuperAdminExist' : IDL.Func([], [IDL.Bool], ['query']),
     'enableProfile' : IDL.Func([ProfileKey, IDL.Bool], [IDL.Bool], []),
+    'getAllCustomerNotesForProfile' : IDL.Func(
+        [ProfileKey],
+        [IDL.Vec(CustomerNotePublic)],
+        ['query'],
+      ),
     'getAllNotificationsRaw' : IDL.Func(
         [IDL.Text],
         [IDL.Vec(Notification)],
@@ -1730,6 +1833,21 @@ export const idlFactory = ({ IDL }) => {
     'getCustomer' : IDL.Func(
         [CustomerId],
         [IDL.Opt(CustomerPublic)],
+        ['query'],
+      ),
+    'getCustomerGoals' : IDL.Func(
+        [CustomerId],
+        [IDL.Vec(GoalMasterPublic)],
+        ['query'],
+      ),
+    'getCustomerMedicalIssues' : IDL.Func(
+        [CustomerId],
+        [IDL.Vec(MedicalIssueMasterPublic)],
+        ['query'],
+      ),
+    'getCustomerNotes' : IDL.Func(
+        [CustomerId],
+        [IDL.Vec(CustomerNotePublic)],
         ['query'],
       ),
     'getCustomerOrders' : IDL.Func(
@@ -1848,6 +1966,11 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Opt(ProfileKey)],
         ['query'],
       ),
+    'getSuperAdminNotifications' : IDL.Func(
+        [],
+        [IDL.Vec(Notification)],
+        ['query'],
+      ),
     'getSuperAdminStats' : IDL.Func([], [SuperAdminStats], ['query']),
     'getUserPreferences' : IDL.Func([], [UserPreferences], ['query']),
     'getUserProfile' : IDL.Func([], [IDL.Opt(UserProfilePublic)], ['query']),
@@ -1893,6 +2016,12 @@ export const idlFactory = ({ IDL }) => {
         [],
       ),
     'rejectProfile' : IDL.Func([ProfileKey], [IDL.Bool], []),
+    'removeGoalFromCustomer' : IDL.Func([CustomerId, IDL.Nat], [IDL.Bool], []),
+    'removeMedicalIssueFromCustomer' : IDL.Func(
+        [CustomerId, IDL.Nat],
+        [IDL.Bool],
+        [],
+      ),
     'returnToSource' : IDL.Func([BatchId, IDL.Nat], [IDL.Opt(MovementId)], []),
     'reviewStagedItem' : IDL.Func(
         [BatchId, IDL.Variant({ 'reject' : IDL.Null, 'accept' : IDL.Null })],
@@ -1909,6 +2038,11 @@ export const idlFactory = ({ IDL }) => {
     'submitLead' : IDL.Func([LeadInput], [Lead], []),
     'updateCategory' : IDL.Func([CategoryId, CategoryInput], [IDL.Bool], []),
     'updateCustomer' : IDL.Func([CustomerId, CustomerInput], [IDL.Bool], []),
+    'updateCustomerNote' : IDL.Func(
+        [IDL.Nat, IDL.Text, ProfileKey],
+        [IDL.Opt(CustomerNotePublic)],
+        [],
+      ),
     'updateGoal' : IDL.Func([IDL.Nat, GoalMasterInput], [IDL.Bool], []),
     'updateGoalMaster' : IDL.Func(
         [IDL.Nat, IDL.Text, IDL.Text, IDL.Vec(ProductId)],

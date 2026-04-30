@@ -46,6 +46,18 @@ type Category__403107212 =
     profile_key : ProfileKey__816367989
   };
 type CustomerId__1015005394 = Nat;
+type CustomerNoteV2__1029524309 =
+  {
+    created_by : Principal;
+    creation_date : Timestamp__301639476;
+    customer_id : Nat;
+    date : Text;
+    id : Nat;
+    last_updated_by : Principal;
+    last_updated_date : Timestamp__301639476;
+    note : Text;
+    profile_key : Text
+  };
 type CustomerNote__39505793 =
   {
     created_by : Text;
@@ -420,6 +432,11 @@ actor {
       var root : Node__46230540<Nat, CustomerNote__39505793>;
       var size : Nat__490723111
     };
+  stable customerNotesStore :
+    {
+      var root : Node__46230540<Nat, CustomerNoteV2__1029524309>;
+      var size : Nat__490723111
+    };
   stable customerStore :
     {
       var root : Node__46230540<CustomerId__1015005394, Customer__225412617>;
@@ -466,6 +483,7 @@ actor {
   stable var nextCategoryId : Nat;
   stable var nextCustomerId : Nat;
   stable var nextCustomerNoteId : Nat;
+  stable var nextCustomerNoteIdV2 : Nat;
   stable var nextGoalId : Nat;
   stable var nextLeadId : Nat;
   stable var nextLegacyGoalId : Nat;

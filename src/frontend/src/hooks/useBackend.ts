@@ -1,3 +1,32 @@
+/**
+ * useBackend.ts — React Query hooks that wrap every backend actor method.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * THE loggedCall PATTERN
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * Every actor call in this file is wrapped with `loggedCall(name, fn)`.
+ *
+ * loggedCall does THREE things:
+ *   1. Before the call:  logs "→ methodName" via logger.logApi()
+ *   2. After success:    logs "← methodName OK"
+ *   3. After failure:    logs "← methodName FAILED: <error message>"
+ *      then re-throws so React Query can handle the error state normally.
+ *
+ * ZERO-OVERHEAD GUARANTEE:
+ *   logger.logApi() and logger.logError() check `_enabled` as their very first
+ *   instruction. When diagnostics is disabled (the default in production),
+ *   they return immediately without allocating strings or touching the DOM.
+ *   This means loggedCall adds NO measurable overhead when diagnostics is off.
+ *
+ * SENSITIVE DATA POLICY:
+ *   loggedCall NEVER logs raw data payloads — only the method name.
+ *   Do NOT pass user input, principal IDs, or personal data in the `name` arg.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
+import { logApi, logError } from "@/lib/logger";
 import { useActor } from "@caffeineai/core-infrastructure";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PaymentMode, PaymentStatus, createActor } from "../backend";
@@ -30,6 +59,31 @@ import type {
   UpdateSaleInputUI,
 } from "../types";
 
+/**
+ * loggedCall — wraps a backend actor call with diagnostics logging.
+ *
+ * Usage (inside a queryFn or mutationFn):
+ *   return loggedCall("getCustomers", () => actor.getCustomers(profileKey));
+ *
+ * When diagnostics is disabled, this is a thin async wrapper with
+ * negligible overhead (one boolean check inside logApi/logError).
+ *
+ * @param name - Method name string (used in log messages — no sensitive data)
+ * @param fn   - Zero-argument async function that performs the actor call
+ */
+async function loggedCall<T>(name: string, fn: () => Promise<T>): Promise<T> {
+  logApi(`→ ${name}`);
+  try {
+    const result = await fn();
+    logApi(`← ${name} OK`);
+    return result;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logError(`← ${name} FAILED: ${msg}`);
+    throw err; // re-throw so React Query marks the query/mutation as errored
+  }
+}
+
 function useBackendActor() {
   return useActor(createActor);
 }
@@ -42,7 +96,7 @@ export function useGetProfile() {
     queryKey: ["profile"],
     queryFn: async () => {
       if (!actor) return null;
-      return actor.getProfile();
+      return loggedCall("getProfile", () => actor.getProfile());
     },
     enabled: !!actor && !isFetching,
   });
@@ -54,7 +108,7 @@ export function useUpdateProfile() {
   return useMutation({
     mutationFn: async (input: ProfileInput) => {
       if (!actor) throw new Error("Actor not ready");
-      return actor.updateProfile(input);
+      return loggedCall("updateProfile", () => actor.updateProfile(input));
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["profile"] });
@@ -68,7 +122,7 @@ export function useCreateProfile() {
   return useMutation({
     mutationFn: async (input: ProfileInput) => {
       if (!actor) throw new Error("Actor not ready");
-      return actor.createProfile(input);
+      return loggedCall("createProfile", () => actor.createProfile(input));
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["profile"] });
@@ -91,7 +145,9 @@ export function useJoinProfile() {
       warehouseName: WarehouseName;
     }) => {
       if (!actor) throw new Error("Actor not ready");
-      return actor.joinProfile(profileKey, displayName, warehouseName);
+      return loggedCall("joinProfile", () =>
+        actor.joinProfile(profileKey, displayName, warehouseName),
+      );
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["profile"] });
@@ -106,7 +162,9 @@ export function useGetProfileByKey(profileKey: ProfileKey | null) {
     queryKey: ["profile-by-key", profileKey],
     queryFn: async () => {
       if (!actor || !profileKey) return null;
-      return actor.getProfileByKey(profileKey);
+      return loggedCall("getProfileByKey", () =>
+        actor.getProfileByKey(profileKey),
+      );
     },
     enabled: !!actor && !isFetching && !!profileKey,
   });
@@ -120,7 +178,7 @@ export function useGetUserProfile() {
     queryKey: ["user-profile"],
     queryFn: async () => {
       if (!actor) return null;
-      return actor.getUserProfile();
+      return loggedCall("getUserProfile", () => actor.getUserProfile());
     },
     enabled: !!actor && !isFetching,
   });
@@ -132,7 +190,9 @@ export function useUpdateUserProfile() {
   return useMutation({
     mutationFn: async (input: UserProfileInput) => {
       if (!actor) throw new Error("Actor not ready");
-      return actor.updateUserProfile(input);
+      return loggedCall("updateUserProfile", () =>
+        actor.updateUserProfile(input),
+      );
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["user-profile"] });
@@ -146,7 +206,7 @@ export function useInitSuperAdmin() {
   return useMutation({
     mutationFn: async () => {
       if (!actor) throw new Error("Actor not ready");
-      return actor.initSuperAdmin();
+      return loggedCall("initSuperAdmin", () => actor.initSuperAdmin());
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["user-profile"] });
@@ -160,7 +220,7 @@ export function useClaimSuperAdmin() {
   return useMutation({
     mutationFn: async () => {
       if (!actor) throw new Error("Actor not ready");
-      return actor.claimSuperAdmin();
+      return loggedCall("claimSuperAdmin", () => actor.claimSuperAdmin());
     },
     onSuccess: (succeeded) => {
       if (succeeded) {
@@ -179,7 +239,7 @@ export function useGetCategories() {
     queryKey: ["categories"],
     queryFn: async () => {
       if (!actor) return [];
-      return actor.getCategories();
+      return loggedCall("getCategories", () => actor.getCategories());
     },
     enabled: !!actor && !isFetching,
   });
@@ -191,7 +251,7 @@ export function useCreateCategory() {
   return useMutation({
     mutationFn: async (input: CategoryInput) => {
       if (!actor) throw new Error("Actor not ready");
-      return actor.createCategory(input);
+      return loggedCall("createCategory", () => actor.createCategory(input));
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["categories"] });
@@ -205,7 +265,9 @@ export function useUpdateCategory() {
   return useMutation({
     mutationFn: async ({ id, input }: { id: bigint; input: CategoryInput }) => {
       if (!actor) throw new Error("Actor not ready");
-      return actor.updateCategory(id, input);
+      return loggedCall("updateCategory", () =>
+        actor.updateCategory(id, input),
+      );
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["categories"] });
@@ -219,7 +281,7 @@ export function useDeleteCategory() {
   return useMutation({
     mutationFn: async (id: bigint) => {
       if (!actor) throw new Error("Actor not ready");
-      return actor.deleteCategory(id);
+      return loggedCall("deleteCategory", () => actor.deleteCategory(id));
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["categories"] });
@@ -235,7 +297,7 @@ export function useGetProducts() {
     queryKey: ["products"],
     queryFn: async () => {
       if (!actor) return [];
-      return actor.getProducts();
+      return loggedCall("getProducts", () => actor.getProducts());
     },
     enabled: !!actor && !isFetching,
   });
@@ -247,7 +309,7 @@ export function useCreateProduct() {
   return useMutation({
     mutationFn: async (input: ProductInput) => {
       if (!actor) throw new Error("Actor not ready");
-      return actor.createProduct(input);
+      return loggedCall("createProduct", () => actor.createProduct(input));
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["products"] });
@@ -261,7 +323,7 @@ export function useUpdateProduct() {
   return useMutation({
     mutationFn: async ({ id, input }: { id: bigint; input: ProductInput }) => {
       if (!actor) throw new Error("Actor not ready");
-      return actor.updateProduct(id, input);
+      return loggedCall("updateProduct", () => actor.updateProduct(id, input));
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["products"] });
@@ -275,7 +337,7 @@ export function useDeleteProduct() {
   return useMutation({
     mutationFn: async (id: bigint) => {
       if (!actor) throw new Error("Actor not ready");
-      return actor.deleteProduct(id);
+      return loggedCall("deleteProduct", () => actor.deleteProduct(id));
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["products"] });
@@ -291,7 +353,7 @@ export function useGetInventoryLevels() {
     queryKey: ["inventory-levels"],
     queryFn: async () => {
       if (!actor) return [];
-      return actor.getInventoryLevels();
+      return loggedCall("getInventoryLevels", () => actor.getInventoryLevels());
     },
     enabled: !!actor && !isFetching,
   });
@@ -303,7 +365,9 @@ export function useGetInventoryBatches(productId: bigint | null) {
     queryKey: ["inventory-batches", productId?.toString()],
     queryFn: async () => {
       if (!actor || !productId) return [];
-      return actor.getInventoryBatches(productId);
+      return loggedCall("getInventoryBatches", () =>
+        actor.getInventoryBatches(productId),
+      );
     },
     enabled: !!actor && !isFetching && !!productId,
   });
@@ -315,7 +379,7 @@ export function useMoveInventory() {
   return useMutation({
     mutationFn: async (input: InventoryMovementInput) => {
       if (!actor) throw new Error("Actor not ready");
-      return actor.moveInventory(input);
+      return loggedCall("moveInventory", () => actor.moveInventory(input));
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["inventory-levels"] });
@@ -331,7 +395,9 @@ export function useGetInventoryMovements() {
     queryKey: ["inventory-movements"],
     queryFn: async () => {
       if (!actor) return [];
-      return actor.getInventoryMovements();
+      return loggedCall("getInventoryMovements", () =>
+        actor.getInventoryMovements(),
+      );
     },
     enabled: !!actor && !isFetching,
   });
@@ -346,7 +412,7 @@ export function useGetSales() {
     queryFn: async () => {
       if (!actor) return [];
       try {
-        const result = await actor.getSales();
+        const result = await loggedCall("getSales", () => actor.getSales());
         return Array.isArray(result) ? result : [];
       } catch {
         return [];
@@ -392,7 +458,7 @@ export function useGetSaleItems(saleId: bigint | null) {
     queryKey: ["sale-items", saleId?.toString()],
     queryFn: async () => {
       if (!actor || !saleId) return [];
-      return actor.getSaleItems(saleId);
+      return loggedCall("getSaleItems", () => actor.getSaleItems(saleId));
     },
     enabled: !!actor && !isFetching && !!saleId,
   });
@@ -404,7 +470,9 @@ export function useGetSalesByCustomer(customerId: bigint | null) {
     queryKey: ["sales-by-customer", customerId?.toString()],
     queryFn: async () => {
       if (!actor || !customerId) return [];
-      return actor.getSalesByCustomer(customerId);
+      return loggedCall("getSalesByCustomer", () =>
+        actor.getSalesByCustomer(customerId),
+      );
     },
     enabled: !!actor && !isFetching && !!customerId,
   });
@@ -518,7 +586,7 @@ export function useGetCustomers() {
     queryKey: ["customers"],
     queryFn: async () => {
       if (!actor) return [];
-      return actor.getCustomers();
+      return loggedCall("getCustomers", () => actor.getCustomers());
     },
     enabled: !!actor && !isFetching,
   });
@@ -530,7 +598,7 @@ export function useGetCustomer(customerId: bigint | null) {
     queryKey: ["customer", customerId?.toString()],
     queryFn: async () => {
       if (!actor || !customerId) return null;
-      return actor.getCustomer(customerId);
+      return loggedCall("getCustomer", () => actor.getCustomer(customerId));
     },
     enabled: !!actor && !isFetching && !!customerId,
   });
@@ -541,7 +609,9 @@ export function useCheckCustomerDuplicate() {
   return useMutation({
     mutationFn: async (name: string) => {
       if (!actor) throw new Error("Actor not ready");
-      return actor.checkCustomerDuplicate(name);
+      return loggedCall("checkCustomerDuplicate", () =>
+        actor.checkCustomerDuplicate(name),
+      );
     },
   });
 }
@@ -552,7 +622,7 @@ export function useCreateCustomer() {
   return useMutation({
     mutationFn: async (input: CustomerInput) => {
       if (!actor) throw new Error("Actor not ready");
-      return actor.createCustomer(input);
+      return loggedCall("createCustomer", () => actor.createCustomer(input));
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["customers"] });
@@ -567,7 +637,9 @@ export function useCreateCustomerFromSales() {
   return useMutation({
     mutationFn: async (input: CustomerInput) => {
       if (!actor) throw new Error("Actor not ready");
-      return actor.createCustomerFromSales(input);
+      return loggedCall("createCustomerFromSales", () =>
+        actor.createCustomerFromSales(input),
+      );
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["customers"] });
@@ -587,7 +659,9 @@ export function useUpdateCustomer() {
       input: CustomerInput;
     }) => {
       if (!actor) throw new Error("Actor not ready");
-      return actor.updateCustomer(id, input);
+      return loggedCall("updateCustomer", () =>
+        actor.updateCustomer(id, input),
+      );
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["customers"] });
@@ -601,7 +675,7 @@ export function useDeleteCustomer() {
   return useMutation({
     mutationFn: async (id: bigint) => {
       if (!actor) throw new Error("Actor not ready");
-      return actor.deleteCustomer(id);
+      return loggedCall("deleteCustomer", () => actor.deleteCustomer(id));
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["customers"] });
@@ -949,6 +1023,82 @@ export function useDeleteProfile() {
   });
 }
 
+/**
+ * useApproveProfile — calls the dedicated approveProfile(profileKey) backend function.
+ *
+ * WHY THIS EXISTS (vs. useEnableProfile):
+ * approveProfile() sets the profile's approval_status to #approved in the backend.
+ * This is distinct from enableProfile() which only toggles the is_enabled flag.
+ * Using enableProfile to "approve" was a bug — a newly approved profile must have
+ * its approval_status properly set so the routing and access gates work correctly.
+ *
+ * WHAT IT DOES:
+ *   1. Calls actor.approveProfile(profileKey) on the backend
+ *   2. On success, invalidates admin-profiles and super-admin-stats caches
+ *      so the Profile Approval page and Super Admin dashboard refresh automatically
+ *
+ * Falls back gracefully if approveProfile is not yet in the deployed IDL —
+ * throws with a clear error message rather than silently calling the wrong function.
+ */
+export function useApproveProfile() {
+  const { actor } = useBackendActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (profileKey: string) => {
+      if (!actor) throw new Error("Actor not ready");
+      // Duck-type check: approveProfile may not be in the IDL if backend isn't redeployed yet
+      const a = actor as unknown as Record<string, unknown>;
+      if (typeof a.approveProfile !== "function")
+        throw new Error("approveProfile not available on this backend version");
+      return (a.approveProfile as (pk: string) => Promise<boolean>)(profileKey);
+    },
+    onSuccess: () => {
+      // Refresh the profile list so approved profiles disappear from the pending queue
+      qc.invalidateQueries({ queryKey: ["admin-profiles"] });
+      qc.invalidateQueries({ queryKey: ["super-admin-stats"] });
+      // Also clear notifications so the approval badge updates
+      qc.invalidateQueries({ queryKey: ["notifications"] });
+      qc.invalidateQueries({ queryKey: ["super-admin-notifications"] });
+    },
+  });
+}
+
+/**
+ * useRejectProfile — calls the dedicated rejectProfile(profileKey) backend function.
+ *
+ * WHY THIS EXISTS (vs. useDeleteProfile):
+ * rejectProfile() sets approval_status to #suspended — the profile record is KEPT
+ * so there is an audit trail. The creator is notified they were rejected.
+ * deleteProfile() permanently removes the record and all its data — that's destructive
+ * and was never the intended behavior for "reject during approval".
+ *
+ * WHAT IT DOES:
+ *   1. Calls actor.rejectProfile(profileKey) on the backend
+ *   2. Backend sets profile's approval_status = #suspended (record preserved)
+ *   3. On success, invalidates admin-profiles and super-admin-stats caches
+ *
+ * Falls back gracefully if rejectProfile is not yet in the deployed IDL.
+ */
+export function useRejectProfile() {
+  const { actor } = useBackendActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (profileKey: string) => {
+      if (!actor) throw new Error("Actor not ready");
+      const a = actor as unknown as Record<string, unknown>;
+      if (typeof a.rejectProfile !== "function")
+        throw new Error("rejectProfile not available on this backend version");
+      return (a.rejectProfile as (pk: string) => Promise<boolean>)(profileKey);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-profiles"] });
+      qc.invalidateQueries({ queryKey: ["super-admin-stats"] });
+      qc.invalidateQueries({ queryKey: ["notifications"] });
+      qc.invalidateQueries({ queryKey: ["super-admin-notifications"] });
+    },
+  });
+}
+
 export function useUpdateProfileKey() {
   const { actor } = useBackendActor();
   const qc = useQueryClient();
@@ -1286,7 +1436,9 @@ export function useGetNotifications(
     queryFn: async () => {
       if (!actor || !profileKey) return [];
       if (typeof actor.getNotifications !== "function") return [];
-      return actor.getNotifications(profileKey, targetRole);
+      return loggedCall("getNotifications", () =>
+        actor.getNotifications(profileKey, targetRole),
+      );
     },
     enabled: !!actor && !isFetching && !!profileKey,
     refetchInterval: 60_000, // poll every minute
@@ -1301,7 +1453,9 @@ export function useMarkNotificationRead() {
       if (!actor) throw new Error("Actor not ready");
       if (typeof actor.markNotificationRead !== "function")
         throw new Error("markNotificationRead not available");
-      return actor.markNotificationRead(notificationId);
+      return loggedCall("markNotificationRead", () =>
+        actor.markNotificationRead(notificationId),
+      );
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["notifications"] });
@@ -1317,7 +1471,9 @@ export function useCheckAndCreateNotifications() {
       if (!actor) throw new Error("Actor not ready");
       if (typeof actor.checkAndCreateNotifications !== "function")
         throw new Error("checkAndCreateNotifications not available");
-      return actor.checkAndCreateNotifications(profileKey);
+      return loggedCall("checkAndCreateNotifications", () =>
+        actor.checkAndCreateNotifications(profileKey),
+      );
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["notifications"] });
@@ -2198,7 +2354,23 @@ export function useDeleteLead() {
 }
 
 // ─── Customer Notes ───────────────────────────────────────────────────────────
+//
+// MIGRATION NOTE: Customer notes have moved from an embedded array on the customer
+// record (customer.notes[]) to a separate backend store (customerNotesStore).
+//
+// OLD approach (deprecated): notes embedded in CustomerPublic, fetched with
+//   getCustomers(). Required a full customer list refetch after any note change.
+//
+// NEW approach (active): separate customerNotesStore with dedicated CRUD methods.
+//   React Query key: ['customer-notes', customerId, profileKey].
+//
+// The legacy useAddCustomerNote / useDeleteCustomerNote hooks below are kept as
+// compatibility shims only. Do NOT use them for new code — use the V2 hooks.
 
+/**
+ * useAddCustomerNote — LEGACY shim for old embedded-array note storage.
+ * Kept for backward compatibility. For new code, use useAddCustomerNoteV2.
+ */
 export function useAddCustomerNote() {
   const { actor } = useBackendActor();
   const qc = useQueryClient();
@@ -2230,12 +2402,16 @@ export function useAddCustomerNote() {
   });
 }
 
+/**
+ * useDeleteCustomerNote — LEGACY shim for old embedded-array note storage.
+ * Kept for backward compatibility. For new code, use useDeleteCustomerNoteV2.
+ */
 export function useDeleteCustomerNote() {
   const { actor } = useBackendActor();
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({
-      customerId,
+      customerId: _customerId,
       noteId,
       profileKey: _profileKey,
     }: {
@@ -2246,10 +2422,433 @@ export function useDeleteCustomerNote() {
       if (!actor) throw new Error("Actor not ready");
       if (typeof actor.deleteCustomerNote !== "function")
         throw new Error("deleteCustomerNote not available");
-      // Real backend: deleteCustomerNote(noteId, customerId) — note reversed order
-      return actor.deleteCustomerNote(noteId, customerId);
+      // Backend: deleteCustomerNote(noteId: bigint, profileKey: ProfileKey) -> bool
+      // Use the profileKey (not customerId) as the second argument per the updated backend signature.
+      // _customerId is kept in the signature for cache invalidation but not passed to the backend.
+      return actor.deleteCustomerNote(noteId, _profileKey);
     },
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["customers"] });
+    },
+  });
+}
+
+// ─── Customer Notes V2 — Separate Store ──────────────────────────────────────
+//
+// These hooks call the new separate customerNotesStore backend methods.
+// Use these for all new note UI code — they do NOT touch the customer record.
+//
+// Backend methods:
+//   addCustomerNoteV2(input)          -> CustomerNotePublic
+//   getCustomerNotes(id, profileKey)  -> [CustomerNotePublic]
+//   updateCustomerNote(id, text, pk)  -> ?CustomerNotePublic
+//   deleteCustomerNoteV2(id, pk)      -> Bool
+//
+// React Query key: ['customer-notes', customerId, profileKey]
+// All V2 mutations invalidate this key so lists auto-refresh.
+
+/**
+ * Shape of a note returned from the separate customerNotesStore.
+ * Mirrors CustomerNotePublic from the backend.
+ */
+export interface CustomerNoteV2 {
+  /** Unique note ID (auto-incremented in the separate store) */
+  id: bigint;
+  /** ID of the customer this note belongs to */
+  customer_id: bigint;
+  /** Profile key this note is scoped to */
+  profile_key: string;
+  /** The note text content */
+  note: string;
+  /** Date of the note as a YYYY-MM-DD string */
+  date: string;
+  /** Display name of the user who created the note */
+  created_by: string;
+  /** Display name of the user who last updated the note */
+  last_updated_by: string;
+  /** Timestamp (nanoseconds) of last update */
+  last_updated_date: bigint;
+}
+
+/**
+ * useGetCustomerNotes — fetches all notes for a customer from the separate store.
+ * Replaces reading from customer.notes[] embedded array.
+ *
+ * @param customerId - The customer's ID
+ * @param profileKey - Active profile key (use from ProfileContext — impersonation-aware)
+ *
+ * Returns [] if the backend method is not yet deployed (graceful degradation).
+ */
+export function useGetCustomerNotes(
+  customerId: number | bigint | null,
+  profileKey: string | null,
+) {
+  const { actor, isFetching } = useBackendActor();
+  return useQuery<CustomerNoteV2[]>({
+    queryKey: ["customer-notes", String(customerId), profileKey],
+    queryFn: async () => {
+      if (!actor || !customerId || !profileKey) return [];
+      const a = actor as unknown as Record<string, unknown>;
+      // Graceful degradation: return empty if backend not yet deployed
+      if (typeof a.getCustomerNotes !== "function") return [];
+      const result = await (
+        a.getCustomerNotes as (
+          id: bigint,
+          pk: string,
+        ) => Promise<CustomerNoteV2[]>
+      )(BigInt(customerId), profileKey);
+      return result ?? [];
+    },
+    enabled: !!actor && !isFetching && !!customerId && !!profileKey,
+  });
+}
+
+/**
+ * useAddCustomerNoteV2 — adds a note to the separate customerNotesStore.
+ * Replaces useAddCustomerNote for new code.
+ *
+ * On success, invalidates the notes query for this specific customer + profile.
+ */
+export function useAddCustomerNoteV2() {
+  const { actor } = useBackendActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      customerId,
+      profileKey,
+      note,
+      date,
+    }: {
+      customerId: bigint;
+      profileKey: string;
+      note: string;
+      date: string; // YYYY-MM-DD
+    }) => {
+      if (!actor) throw new Error("Actor not ready");
+      const a = actor as unknown as Record<string, unknown>;
+      if (typeof a.addCustomerNoteV2 !== "function")
+        throw new Error("addCustomerNoteV2 not available");
+      return (
+        a.addCustomerNoteV2 as (input: {
+          customer_id: bigint;
+          profile_key: string;
+          note: string;
+          date: string;
+        }) => Promise<CustomerNoteV2>
+      )({ customer_id: customerId, profile_key: profileKey, note, date });
+    },
+    onSuccess: (_data, vars) => {
+      // Precise invalidation: only refresh notes for this customer + profile combo
+      qc.invalidateQueries({
+        queryKey: ["customer-notes", String(vars.customerId), vars.profileKey],
+      });
+    },
+  });
+}
+
+/**
+ * useUpdateCustomerNote — updates the text of an existing note.
+ * Used by the Edit note modal (pre-filled with existing note text).
+ *
+ * On success, broadly invalidates all customer-notes queries.
+ */
+export function useUpdateCustomerNote() {
+  const { actor } = useBackendActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      noteId,
+      newText,
+      profileKey,
+    }: {
+      noteId: bigint;
+      newText: string;
+      profileKey: string;
+    }) => {
+      if (!actor) throw new Error("Actor not ready");
+      const a = actor as unknown as Record<string, unknown>;
+      if (typeof a.updateCustomerNote !== "function")
+        throw new Error("updateCustomerNote not available");
+      // Backend returns ?CustomerNotePublic — null if note not found
+      return (
+        a.updateCustomerNote as (
+          id: bigint,
+          text: string,
+          pk: string,
+        ) => Promise<CustomerNoteV2 | null>
+      )(noteId, newText, profileKey);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["customer-notes"] });
+    },
+  });
+}
+
+/**
+ * useDeleteCustomerNoteV2 — deletes a note from the separate customerNotesStore.
+ * Always show a confirmation dialog in the UI before calling.
+ *
+ * On success, broadly invalidates all customer-notes queries.
+ */
+export function useDeleteCustomerNoteV2() {
+  const { actor } = useBackendActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      noteId,
+      profileKey,
+    }: {
+      noteId: bigint;
+      profileKey: string;
+    }) => {
+      if (!actor) throw new Error("Actor not ready");
+      const a = actor as unknown as Record<string, unknown>;
+      if (typeof a.deleteCustomerNoteV2 !== "function")
+        throw new Error("deleteCustomerNoteV2 not available");
+      return (
+        a.deleteCustomerNoteV2 as (id: bigint, pk: string) => Promise<boolean>
+      )(noteId, profileKey);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["customer-notes"] });
+    },
+  });
+}
+
+// ─── Customer Goal Assignment ─────────────────────────────────────────────────
+//
+// These hooks connect a specific customer to their assigned goals/medical issues.
+// They wrap the backend's addGoalToCustomer, removeGoalFromCustomer, getCustomerGoals,
+// addMedicalIssueToCustomer, removeMedicalIssueFromCustomer, getCustomerMedicalIssues.
+//
+// IMPORTANT: The profileKey used here MUST come from ProfileContext/ImpersonationContext
+// (the impersonation-aware activeProfileKey), NOT from userProfile.profile_key directly.
+// This ensures Super Admin impersonating a profile operates on the correct profile's data.
+//
+// Cache keys include both customerId and profileKey so different customers/profiles
+// never share stale data.
+
+/**
+ * useGetCustomerGoals — fetches all goals assigned to a specific customer.
+ *
+ * Cache key: ["customer-goals", customerId.toString(), profileKey]
+ * This ensures we get fresh data when switching between customers or profiles.
+ *
+ * @param customerId - the customer's bigint ID (null = query disabled)
+ * @param profileKey - the active profile key (impersonation-aware, "" = disabled)
+ */
+export function useGetCustomerGoals(
+  customerId: bigint | null,
+  profileKey: string,
+) {
+  const { actor, isFetching } = useBackendActor();
+  return useQuery<GoalMasterPublic[]>({
+    queryKey: ["customer-goals", customerId?.toString(), profileKey],
+    queryFn: async () => {
+      if (!actor || !customerId || !profileKey) return [];
+      const a = actor as unknown as Record<string, unknown>;
+      // Backend: getCustomerGoals(customerId: Nat, profileKey: Text) -> [GoalMasterPublic]
+      if (typeof a.getCustomerGoals !== "function") return [];
+      return (
+        a.getCustomerGoals as (
+          id: bigint,
+          pk: string,
+        ) => Promise<GoalMasterPublic[]>
+      )(customerId, profileKey);
+    },
+    enabled: !!actor && !isFetching && !!customerId && !!profileKey,
+  });
+}
+
+/**
+ * useAddGoalToCustomer — assigns a goal from the master list to a customer.
+ *
+ * On success, invalidates ["customer-goals", customerId] so the Goals tab refreshes.
+ * Also invalidates ["customers"] so the Info tab's goal badges update.
+ */
+export function useAddGoalToCustomer() {
+  const { actor } = useBackendActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      customerId,
+      goalId,
+      profileKey,
+    }: {
+      customerId: bigint;
+      goalId: bigint;
+      profileKey: string;
+    }) => {
+      if (!actor) throw new Error("Actor not ready");
+      const a = actor as unknown as Record<string, unknown>;
+      // Backend: addGoalToCustomer(customerId: Nat, goalId: Nat, profileKey: Text) -> Result
+      if (typeof a.addGoalToCustomer !== "function")
+        throw new Error("addGoalToCustomer not available");
+      return (
+        a.addGoalToCustomer as (
+          cid: bigint,
+          gid: bigint,
+          pk: string,
+        ) => Promise<boolean>
+      )(customerId, goalId, profileKey);
+    },
+    onSuccess: (_data, vars) => {
+      // Refresh the Goals tab list for this specific customer
+      qc.invalidateQueries({
+        queryKey: ["customer-goals", vars.customerId.toString()],
+      });
+      // Also refresh the main customers list so the Info tab badges update
+      qc.invalidateQueries({ queryKey: ["customers"] });
+    },
+  });
+}
+
+/**
+ * useRemoveGoalFromCustomer — removes a goal assignment from a customer.
+ *
+ * On success, invalidates ["customer-goals", customerId] so the Goals tab refreshes.
+ */
+export function useRemoveGoalFromCustomer() {
+  const { actor } = useBackendActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      customerId,
+      goalId,
+      profileKey,
+    }: {
+      customerId: bigint;
+      goalId: bigint;
+      profileKey: string;
+    }) => {
+      if (!actor) throw new Error("Actor not ready");
+      const a = actor as unknown as Record<string, unknown>;
+      // Backend: removeGoalFromCustomer(customerId: Nat, goalId: Nat, profileKey: Text) -> Result
+      if (typeof a.removeGoalFromCustomer !== "function")
+        throw new Error("removeGoalFromCustomer not available");
+      return (
+        a.removeGoalFromCustomer as (
+          cid: bigint,
+          gid: bigint,
+          pk: string,
+        ) => Promise<boolean>
+      )(customerId, goalId, profileKey);
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({
+        queryKey: ["customer-goals", vars.customerId.toString()],
+      });
+      qc.invalidateQueries({ queryKey: ["customers"] });
+    },
+  });
+}
+
+/**
+ * useGetCustomerMedicalIssues — fetches all medical issues assigned to a specific customer.
+ *
+ * Cache key: ["customer-medical-issues", customerId.toString(), profileKey]
+ *
+ * @param customerId - the customer's bigint ID (null = query disabled)
+ * @param profileKey - the active profile key (impersonation-aware, "" = disabled)
+ */
+export function useGetCustomerMedicalIssues(
+  customerId: bigint | null,
+  profileKey: string,
+) {
+  const { actor, isFetching } = useBackendActor();
+  return useQuery<MedicalIssueMasterPublic[]>({
+    queryKey: ["customer-medical-issues", customerId?.toString(), profileKey],
+    queryFn: async () => {
+      if (!actor || !customerId || !profileKey) return [];
+      const a = actor as unknown as Record<string, unknown>;
+      // Backend: getCustomerMedicalIssues(customerId: Nat, profileKey: Text) -> [MedicalIssueMasterPublic]
+      if (typeof a.getCustomerMedicalIssues !== "function") return [];
+      return (
+        a.getCustomerMedicalIssues as (
+          id: bigint,
+          pk: string,
+        ) => Promise<MedicalIssueMasterPublic[]>
+      )(customerId, profileKey);
+    },
+    enabled: !!actor && !isFetching && !!customerId && !!profileKey,
+  });
+}
+
+/**
+ * useAddMedicalIssueToCustomer — assigns a medical issue from the master list to a customer.
+ *
+ * On success, invalidates ["customer-medical-issues", customerId] so the tab refreshes.
+ */
+export function useAddMedicalIssueToCustomer() {
+  const { actor } = useBackendActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      customerId,
+      issueId,
+      profileKey,
+    }: {
+      customerId: bigint;
+      issueId: bigint;
+      profileKey: string;
+    }) => {
+      if (!actor) throw new Error("Actor not ready");
+      const a = actor as unknown as Record<string, unknown>;
+      // Backend: addMedicalIssueToCustomer(customerId: Nat, issueId: Nat, profileKey: Text) -> Result
+      if (typeof a.addMedicalIssueToCustomer !== "function")
+        throw new Error("addMedicalIssueToCustomer not available");
+      return (
+        a.addMedicalIssueToCustomer as (
+          cid: bigint,
+          iid: bigint,
+          pk: string,
+        ) => Promise<boolean>
+      )(customerId, issueId, profileKey);
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({
+        queryKey: ["customer-medical-issues", vars.customerId.toString()],
+      });
+      qc.invalidateQueries({ queryKey: ["customers"] });
+    },
+  });
+}
+
+/**
+ * useRemoveMedicalIssueFromCustomer — removes a medical issue assignment from a customer.
+ *
+ * On success, invalidates ["customer-medical-issues", customerId] so the tab refreshes.
+ */
+export function useRemoveMedicalIssueFromCustomer() {
+  const { actor } = useBackendActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      customerId,
+      issueId,
+      profileKey,
+    }: {
+      customerId: bigint;
+      issueId: bigint;
+      profileKey: string;
+    }) => {
+      if (!actor) throw new Error("Actor not ready");
+      const a = actor as unknown as Record<string, unknown>;
+      // Backend: removeMedicalIssueFromCustomer(customerId: Nat, issueId: Nat, profileKey: Text) -> Result
+      if (typeof a.removeMedicalIssueFromCustomer !== "function")
+        throw new Error("removeMedicalIssueFromCustomer not available");
+      return (
+        a.removeMedicalIssueFromCustomer as (
+          cid: bigint,
+          iid: bigint,
+          pk: string,
+        ) => Promise<boolean>
+      )(customerId, issueId, profileKey);
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({
+        queryKey: ["customer-medical-issues", vars.customerId.toString()],
+      });
       qc.invalidateQueries({ queryKey: ["customers"] });
     },
   });
@@ -2263,6 +2862,74 @@ export function useDeleteCustomerNote() {
 //
 // Both hooks gracefully degrade if the backend method is not available yet —
 // they return an empty array rather than crashing.
+//
+// NOTE ON NOTIFICATION SCOPING:
+// Regular notifications are filtered by (profileKey, role) — they are profile-scoped.
+// Super Admin system notifications (e.g. "new profile pending approval") are stored
+// with profile_key = "superadmin" (sentinel value) and queried via a separate backend
+// method getSuperAdminNotifications() that returns ALL notifications where
+// profile_key = "superadmin", regardless of any active profile selection.
+// This is why the Data Inspector uses useGetSuperAdminNotifications — NOT useGetNotifications.
+
+/**
+ * useGetSuperAdminNotifications — fetches ALL system-level notifications written
+ * for the Super Admin, identified by the sentinel profile_key = "superadmin".
+ *
+ * WHY THIS IS DIFFERENT FROM useGetNotifications:
+ * useGetNotifications(profileKey, role) is for profile-scoped notifications — it
+ * requires a real profile_key and role and will NOT return system notifications.
+ * Super Admin system notifications (new profile registrations, approvals, etc.)
+ * are stored with profile_key = "superadmin" and require a dedicated query.
+ *
+ * WHEN TO USE:
+ * - Data Inspector page: always use this for the "Notifications" data type
+ * - Notification panel when the logged-in user is Super Admin
+ *
+ * GRACEFUL DEGRADATION:
+ * If getSuperAdminNotifications() is not yet deployed in the backend IDL,
+ * falls back to fetching all notifications via getNotifications("superadmin", "superAdmin").
+ */
+export function useGetSuperAdminNotifications() {
+  const { actor, isFetching } = useBackendActor();
+  return useQuery({
+    // Cache key is stable and not scoped to a profile — this is a global Super Admin view
+    queryKey: ["super-admin-notifications"],
+    queryFn: async () => {
+      if (!actor) return [];
+      const a = actor as unknown as Record<string, unknown>;
+
+      // Prefer the dedicated getSuperAdminNotifications() backend method
+      // This returns all notifications with profile_key = "superadmin" (the sentinel)
+      if (typeof a.getSuperAdminNotifications === "function") {
+        try {
+          const result = await (
+            a.getSuperAdminNotifications as () => Promise<unknown[]>
+          )();
+          return result ?? [];
+        } catch {
+          return [];
+        }
+      }
+
+      // Fallback: call getNotifications with the "superadmin" sentinel profile key
+      // and "superAdmin" role — this covers cases where the dedicated method isn't deployed yet
+      if (typeof actor.getNotifications === "function") {
+        try {
+          return await actor.getNotifications("superadmin", "superAdmin");
+        } catch {
+          return [];
+        }
+      }
+
+      return [];
+    },
+    enabled: !!actor && !isFetching,
+    // No stale time — Super Admin notifications should always be fresh
+    // (new profile approvals must appear immediately)
+    staleTime: 0,
+    refetchInterval: 60_000, // poll every minute for new system notifications
+  });
+}
 
 /**
  * useGetAllUsersRaw — fetches all user profiles for a given profile key.

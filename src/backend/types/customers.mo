@@ -1,3 +1,40 @@
+/*
+ * types/customers.mo — Customer Domain Type Definitions
+ *
+ * WHAT THIS FILE DOES:
+ *   Defines all data shapes (types/records) for the customer domain, including:
+ *     - Customer (main record with all profile, lifecycle, and reference fields)
+ *     - CustomerNote / CustomerNoteV2 (embedded legacy and separate-store variants)
+ *     - CustomerNoteInput / CustomerNoteV2Input (create inputs)
+ *     - CustomerNotePublic (frontend-safe projection of CustomerNoteV2)
+ *     - CustomerInput / CustomerPublic (create input and frontend projection)
+ *     - BodyCompositionEntry / BodyCompositionInput
+ *     - BodyInchesEntry / BodyInchesInput / BodyInchesPublic
+ *
+ * WHO USES IT:
+ *   - lib/customers.mo          (customer business logic)
+ *   - lib/customer-notes.mo     (separate notes store logic)
+ *   - lib/customer-goals-medical.mo (body inches, goals, medical issues)
+ *   - mixins/customers-api.mo
+ *   - mixins/customer-notes-api.mo
+ *   - mixins/customer-goals-medical-api.mo
+ *
+ * MIGRATION NOTE — CustomerNote vs CustomerNoteV2:
+ *   The original CustomerNote type is embedded as an array on the Customer record
+ *   (Customer.notes). This is the LEGACY approach — notes are part of the customer
+ *   record and updated by re-writing the whole customer on every note change.
+ *
+ *   CustomerNoteV2 is the NEW approach — notes live in a separate dedicated store
+ *   (customerNotesStore in main.mo), keyed by note ID. This allows independent
+ *   CRUD without touching the customer record, and enables proper update/delete.
+ *
+ *   Both types co-exist. The Customer.notes array is kept for backward compatibility
+ *   (existing data is preserved). All new notes are written to customerNotesStore
+ *   using CustomerNoteV2 via the customer-notes-api.mo mixin.
+ *
+ * STATUS: Active. Do not remove or rename fields without updating all importers.
+ */
+
 import Common "common";
 
 module {
@@ -12,7 +49,8 @@ module {
   //   Applied discount = 100 * (10/100) = $10
   //   Final sale price = $90.  balance_due updated on the Sale record accordingly.
   //
-  // notes: append-only log of structured CustomerNote entries shown in History tab.
+  // notes: append-only log of LEGACY CustomerNote entries (embedded on customer record).
+  //        New notes go to customerNotesStore via CustomerNoteV2 — see migration note above.
   //
   // Referral fields:
   //   referred_by               — display name or principal text of the Referral User
@@ -24,9 +62,12 @@ module {
   // medical_issue_ids — IDs from MedicalIssueMaster referencing the customer's conditions
   // lead_to_active_datetime — timestamp when customer status changed from #lead to #active
 
-  // ── CustomerNote ─────────────────────────────────────────────────────────────
-  // Structured note entry; replaces the old [Text] notes field.
-  // Multiple notes are allowed per customer; each carries a date and author.
+  // ── CustomerNote (LEGACY — embedded on Customer record) ───────────────────────
+  // MIGRATION NOTE: This type is kept for backward compatibility only.
+  //   Existing notes stored in Customer.notes use this type.
+  //   All NEW notes should be created via addCustomerNoteV2() which uses the
+  //   separate customerNotesStore (CustomerNoteV2 type below).
+  //   Do not add new fields here — extend CustomerNoteV2 instead.
   public type CustomerNote = {
     id : Nat;
     text : Text;
@@ -35,9 +76,64 @@ module {
     creation_date : Common.Timestamp;
   };
 
+  // ── CustomerNoteInput (LEGACY — for embedded note append) ─────────────────────
+  // Used only by the legacy addCustomerNote() path that appends to Customer.notes.
+  // New code should use CustomerNoteV2Input instead.
   public type CustomerNoteInput = {
     text : Text;
     note_date : Common.Timestamp;
+  };
+
+  // ── CustomerNoteV2 (ACTIVE — stored in separate customerNotesStore) ────────────
+  // This is the authoritative type for the new notes system.
+  //   id           — auto-incremented unique note ID (from customerNoteIdCounter in main.mo)
+  //   customer_id  — FK to the Customer record this note belongs to
+  //   profile_key  — which business profile owns this note (for data isolation)
+  //   note         — the note text content
+  //   date         — human-readable date string (e.g. "2025-04-29") set by the user
+  //   created_by   — Principal of the user who created the note (audit trail)
+  //   creation_date — server timestamp (nanoseconds) when the note was created
+  //   last_updated_by  — Principal of the user who last updated the note text
+  //   last_updated_date — server timestamp of the last update
+  public type CustomerNoteV2 = {
+    id : Nat;
+    customer_id : Nat;
+    profile_key : Text;
+    note : Text;
+    date : Text;
+    created_by : Principal;
+    creation_date : Common.Timestamp;
+    last_updated_by : Principal;
+    last_updated_date : Common.Timestamp;
+  };
+
+  // ── CustomerNoteV2Input (ACTIVE — create/update input for separate store) ─────
+  // What the frontend sends when creating or updating a note.
+  //   customer_id — which customer this note is for
+  //   profile_key — must match the caller's active profile (verified on backend)
+  //   note        — the text content of the note
+  //   date        — date string (e.g. "2025-04-29") entered by the user
+  public type CustomerNoteV2Input = {
+    customer_id : Nat;
+    profile_key : Text;
+    note : Text;
+    date : Text;
+  };
+
+  // ── CustomerNotePublic (ACTIVE — frontend-safe projection of CustomerNoteV2) ──
+  // Returned to the frontend from getCustomerNotes / addCustomerNoteV2 etc.
+  // Converts Principal fields to Text so they are JSON-serialisable.
+  // All other fields are identical to CustomerNoteV2.
+  public type CustomerNotePublic = {
+    id : Nat;
+    customer_id : Nat;
+    profile_key : Text;
+    note : Text;
+    date : Text;
+    created_by : Text;              // Principal.toText() — readable in frontend
+    creation_date : Common.Timestamp;
+    last_updated_by : Text;         // Principal.toText()
+    last_updated_date : Common.Timestamp;
   };
 
   public type Customer = {

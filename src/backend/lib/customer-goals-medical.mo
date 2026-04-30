@@ -54,14 +54,27 @@ module {
   // ── Private helper: look up profile key from userStore ────────────────────
   // Every function in this module calls this first to find out which profile the
   // caller belongs to. This eliminates the need for callers to pass a profileKey.
-  // Traps with a clear error if the caller has no user record yet.
+  // Traps with a clear error if:
+  //   - The caller has no user record yet (brand new user, not yet registered)
+  //   - The caller IS Super Admin but has no active impersonation profile set
+  //     (Super Admin must call setSuperAdminActiveProfile() first, otherwise their
+  //      profile_key is "" and no goals/medical issues would be found)
   func callerProfileKey(
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
     caller : Common.UserId,
   ) : Common.ProfileKey {
     switch (userStore.get(caller)) {
-      case (?up) up.profile_key;
       case null Runtime.trap("Caller has no profile");
+      case (?up) {
+        // Guard: Super Admin (or any user) with an empty profile_key means
+        // they haven't selected/joined a profile yet. Trap clearly so the
+        // frontend can show "Select a business profile" rather than returning
+        // empty results silently.
+        if (up.profile_key == "") {
+          Runtime.trap("No active profile selected. Super Admin must select a profile to manage goals and medical issues.");
+        };
+        up.profile_key
+      };
     }
   };
 
@@ -297,6 +310,219 @@ module {
         true
       };
     }
+  };
+
+  // ── Customer ↔ Goal Assignments ──────────────────────────────────────────
+  // These functions link/unlink goal master IDs to/from a customer's
+  // primary_goal_ids array. The data lives on the Customer record itself.
+  //
+  // Flow:
+  //   1. Admin creates GoalMaster entries (e.g. "Weight Loss", "Muscle Gain")
+  //   2. On the customer detail page, staff assigns goals from that master list
+  //   3. addGoalToCustomer() appends the goalId to customer.primary_goal_ids
+  //   4. removeGoalFromCustomer() filters it out
+  //   5. getCustomerGoals() returns the full GoalMasterPublic objects for the
+  //      assigned IDs (not just the IDs) so the UI can display names/descriptions
+
+  /// Assigns a goal from the profile's master list to a customer.
+  /// Returns false if the customer is not found, belongs to another profile,
+  /// or if the goalId is already assigned (idempotent — no duplicates).
+  public func addGoalToCustomer(
+    goalStore : GoalMasterStore,
+    customerStore : Map.Map<Common.CustomerId, CustomerTypes.Customer>,
+    userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
+    caller : Common.UserId,
+    customerId : Common.CustomerId,
+    goalId : Nat,
+  ) : Bool {
+    let profileKey = callerProfileKey(userStore, caller);
+    // Verify the goal exists and belongs to the caller's profile
+    switch (goalStore.get(goalId)) {
+      case null return false; // goal does not exist
+      case (?g) {
+        if (g.profile_key != profileKey) return false; // goal belongs to different profile
+      };
+    };
+    // Look up customer and verify it belongs to the same profile
+    switch (customerStore.get(customerId)) {
+      case null false; // customer not found
+      case (?c) {
+        if (c.profile_key != profileKey) return false; // wrong profile
+        // Check if goalId is already in the list (avoid duplicates)
+        let alreadyAssigned = c.primary_goal_ids.find(func(id : Nat) : Bool { id == goalId }) != null;
+        if (alreadyAssigned) return true; // idempotent — already there
+        // Append the goalId to the customer's primary_goal_ids array
+        customerStore.add(customerId, {
+          c with
+          primary_goal_ids = c.primary_goal_ids.concat([goalId]);
+          last_updated_by = caller;
+          last_update_date = Time.now();
+        });
+        true
+      };
+    }
+  };
+
+  /// Removes a goal assignment from a customer's primary_goal_ids array.
+  /// Returns false if the customer is not found or belongs to another profile.
+  /// Returns true even if the goalId was not assigned (idempotent).
+  public func removeGoalFromCustomer(
+    customerStore : Map.Map<Common.CustomerId, CustomerTypes.Customer>,
+    userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
+    caller : Common.UserId,
+    customerId : Common.CustomerId,
+    goalId : Nat,
+  ) : Bool {
+    let profileKey = callerProfileKey(userStore, caller);
+    switch (customerStore.get(customerId)) {
+      case null false;
+      case (?c) {
+        if (c.profile_key != profileKey) return false;
+        // Filter out the goalId — idempotent if not present
+        let updatedGoalIds = c.primary_goal_ids.filter(func(id : Nat) : Bool { id != goalId });
+        customerStore.add(customerId, {
+          c with
+          primary_goal_ids = updatedGoalIds;
+          last_updated_by = caller;
+          last_update_date = Time.now();
+        });
+        true
+      };
+    }
+  };
+
+  /// Returns the full GoalMasterPublic objects for all goals assigned to a customer.
+  /// Resolves the IDs stored in customer.primary_goal_ids against the goalMasterStore.
+  /// Goals that no longer exist in the master (e.g. deleted) are silently skipped.
+  public func getCustomerGoals(
+    goalStore : GoalMasterStore,
+    customerStore : Map.Map<Common.CustomerId, CustomerTypes.Customer>,
+    userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
+    caller : Common.UserId,
+    customerId : Common.CustomerId,
+  ) : [GoalMedicalTypes.GoalMasterPublic] {
+    let profileKey = callerProfileKey(userStore, caller);
+    // Look up the customer to get its primary_goal_ids
+    let goalIds = switch (customerStore.get(customerId)) {
+      case null return []; // customer not found
+      case (?c) {
+        if (c.profile_key != profileKey) return []; // wrong profile
+        c.primary_goal_ids
+      };
+    };
+    // Resolve each ID to its GoalMasterPublic shape; skip missing entries
+    goalIds.filterMap<Nat, GoalMedicalTypes.GoalMasterPublic>(func(id : Nat) : ?GoalMedicalTypes.GoalMasterPublic {
+      switch (goalStore.get(id)) {
+        case null null; // goal was deleted — skip silently
+        case (?g) ?{
+          id = g.id;
+          name = g.name;
+          description = g.description;
+          product_bundle = g.product_bundle;
+          creation_date = g.creation_date;
+          last_update_date = g.last_update_date;
+        };
+      }
+    })
+  };
+
+  // ── Customer ↔ Medical Issue Assignments ──────────────────────────────────
+  // Same pattern as Goal assignments above, but for the medical_issue_ids array.
+
+  /// Assigns a medical issue from the profile's master list to a customer.
+  /// Returns false if the customer or medical issue is not found, or belongs
+  /// to another profile. Idempotent — no duplicates inserted.
+  public func addMedicalIssueToCustomer(
+    issueStore : MedicalIssueMasterStore,
+    customerStore : Map.Map<Common.CustomerId, CustomerTypes.Customer>,
+    userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
+    caller : Common.UserId,
+    customerId : Common.CustomerId,
+    issueId : Nat,
+  ) : Bool {
+    let profileKey = callerProfileKey(userStore, caller);
+    // Verify the medical issue exists and belongs to the caller's profile
+    switch (issueStore.get(issueId)) {
+      case null return false;
+      case (?m) {
+        if (m.profile_key != profileKey) return false;
+      };
+    };
+    switch (customerStore.get(customerId)) {
+      case null false;
+      case (?c) {
+        if (c.profile_key != profileKey) return false;
+        // Check if issueId is already assigned (avoid duplicates)
+        let alreadyAssigned = c.medical_issue_ids.find(func(id : Nat) : Bool { id == issueId }) != null;
+        if (alreadyAssigned) return true;
+        customerStore.add(customerId, {
+          c with
+          medical_issue_ids = c.medical_issue_ids.concat([issueId]);
+          last_updated_by = caller;
+          last_update_date = Time.now();
+        });
+        true
+      };
+    }
+  };
+
+  /// Removes a medical issue assignment from a customer's medical_issue_ids array.
+  /// Returns false if the customer is not found or belongs to another profile.
+  /// Idempotent — returns true even if the issueId was not assigned.
+  public func removeMedicalIssueFromCustomer(
+    customerStore : Map.Map<Common.CustomerId, CustomerTypes.Customer>,
+    userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
+    caller : Common.UserId,
+    customerId : Common.CustomerId,
+    issueId : Nat,
+  ) : Bool {
+    let profileKey = callerProfileKey(userStore, caller);
+    switch (customerStore.get(customerId)) {
+      case null false;
+      case (?c) {
+        if (c.profile_key != profileKey) return false;
+        let updatedIssueIds = c.medical_issue_ids.filter(func(id : Nat) : Bool { id != issueId });
+        customerStore.add(customerId, {
+          c with
+          medical_issue_ids = updatedIssueIds;
+          last_updated_by = caller;
+          last_update_date = Time.now();
+        });
+        true
+      };
+    }
+  };
+
+  /// Returns the full MedicalIssueMasterPublic objects for all medical issues assigned
+  /// to a customer. Resolves IDs stored in customer.medical_issue_ids against the
+  /// medicalIssueMasterStore. Issues that no longer exist are silently skipped.
+  public func getCustomerMedicalIssues(
+    issueStore : MedicalIssueMasterStore,
+    customerStore : Map.Map<Common.CustomerId, CustomerTypes.Customer>,
+    userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
+    caller : Common.UserId,
+    customerId : Common.CustomerId,
+  ) : [GoalMedicalTypes.MedicalIssueMasterPublic] {
+    let profileKey = callerProfileKey(userStore, caller);
+    let issueIds = switch (customerStore.get(customerId)) {
+      case null return [];
+      case (?c) {
+        if (c.profile_key != profileKey) return [];
+        c.medical_issue_ids
+      };
+    };
+    issueIds.filterMap<Nat, GoalMedicalTypes.MedicalIssueMasterPublic>(func(id : Nat) : ?GoalMedicalTypes.MedicalIssueMasterPublic {
+      switch (issueStore.get(id)) {
+        case null null; // issue was deleted — skip silently
+        case (?m) ?{
+          id = m.id;
+          name = m.name;
+          description = m.description;
+          creation_date = m.creation_date;
+          last_update_date = m.last_update_date;
+        };
+      }
+    })
   };
 
   // ── Body Inches CRUD ──────────────────────────────────────────────────────

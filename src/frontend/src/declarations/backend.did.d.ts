@@ -124,6 +124,23 @@ export interface CustomerNote {
   'creation_date' : Timestamp,
 }
 export interface CustomerNoteInput { 'text' : string, 'note_date' : Timestamp }
+export interface CustomerNotePublic {
+  'id' : bigint,
+  'date' : string,
+  'note' : string,
+  'created_by' : string,
+  'customer_id' : bigint,
+  'last_updated_date' : Timestamp,
+  'last_updated_by' : string,
+  'profile_key' : string,
+  'creation_date' : Timestamp,
+}
+export interface CustomerNoteV2Input {
+  'date' : string,
+  'note' : string,
+  'customer_id' : bigint,
+  'profile_key' : string,
+}
 export interface CustomerOrderDetail {
   'sale' : Sale,
   'items' : Array<SaleItem>,
@@ -617,11 +634,14 @@ export interface _SERVICE {
     [CustomerId, CustomerNoteInput],
     [] | [CustomerNote]
   >,
+  'addCustomerNoteV2' : ActorMethod<[CustomerNoteV2Input], CustomerNotePublic>,
+  'addGoalToCustomer' : ActorMethod<[CustomerId, bigint], boolean>,
   'addLoanerBatch' : ActorMethod<
     [ProductId, bigint, number, string],
     [] | [BatchId]
   >,
   'addLocationEntry' : ActorMethod<[LocationMasterEntry], boolean>,
+  'addMedicalIssueToCustomer' : ActorMethod<[CustomerId, bigint], boolean>,
   'addPaymentEntry' : ActorMethod<[SaleId, number, string], boolean>,
   'approveProfile' : ActorMethod<[ProfileKey], boolean>,
   'approveUser' : ActorMethod<[UserId, boolean], boolean>,
@@ -680,7 +700,8 @@ export interface _SERVICE {
   'deleteBodyInchesEntry' : ActorMethod<[bigint], boolean>,
   'deleteCategory' : ActorMethod<[CategoryId], boolean>,
   'deleteCustomer' : ActorMethod<[CustomerId], boolean>,
-  'deleteCustomerNote' : ActorMethod<[bigint, CustomerId], boolean>,
+  'deleteCustomerNote' : ActorMethod<[bigint, ProfileKey], boolean>,
+  'deleteCustomerNoteEmbedded' : ActorMethod<[bigint, CustomerId], boolean>,
   'deleteGoal' : ActorMethod<[bigint], boolean>,
   'deleteGoalMaster' : ActorMethod<[bigint], boolean>,
   'deleteLead' : ActorMethod<[bigint], boolean>,
@@ -696,6 +717,10 @@ export interface _SERVICE {
    */
   'doesSuperAdminExist' : ActorMethod<[], boolean>,
   'enableProfile' : ActorMethod<[ProfileKey, boolean], boolean>,
+  'getAllCustomerNotesForProfile' : ActorMethod<
+    [ProfileKey],
+    Array<CustomerNotePublic>
+  >,
   'getAllNotificationsRaw' : ActorMethod<[string], Array<Notification>>,
   'getAllProfilesForAdmin' : ActorMethod<[], Array<ProfilePublic>>,
   'getAllProfilesRaw' : ActorMethod<[], Array<ProfilePublic>>,
@@ -722,6 +747,12 @@ export interface _SERVICE {
   'getCitiesByState' : ActorMethod<[string], Array<LocationMasterEntry>>,
   'getCountries' : ActorMethod<[], Array<LocationMasterEntry>>,
   'getCustomer' : ActorMethod<[CustomerId], [] | [CustomerPublic]>,
+  'getCustomerGoals' : ActorMethod<[CustomerId], Array<GoalMasterPublic>>,
+  'getCustomerMedicalIssues' : ActorMethod<
+    [CustomerId],
+    Array<MedicalIssueMasterPublic>
+  >,
+  'getCustomerNotes' : ActorMethod<[CustomerId], Array<CustomerNotePublic>>,
   'getCustomerOrders' : ActorMethod<[CustomerId], Array<CustomerOrderDetail>>,
   'getCustomers' : ActorMethod<[], Array<CustomerPublic>>,
   'getCyclesInfo' : ActorMethod<[], CyclesInfo>,
@@ -773,6 +804,7 @@ export interface _SERVICE {
   'getStagedInventory' : ActorMethod<[], Array<InventoryBatchPublic>>,
   'getStates' : ActorMethod<[], Array<LocationMasterEntry>>,
   'getSuperAdminActiveProfile' : ActorMethod<[], [] | [ProfileKey]>,
+  'getSuperAdminNotifications' : ActorMethod<[], Array<Notification>>,
   'getSuperAdminStats' : ActorMethod<[], SuperAdminStats>,
   'getUserPreferences' : ActorMethod<[], UserPreferences>,
   'getUserProfile' : ActorMethod<[], [] | [UserProfilePublic]>,
@@ -798,6 +830,8 @@ export interface _SERVICE {
     [] | [MovementId]
   >,
   'rejectProfile' : ActorMethod<[ProfileKey], boolean>,
+  'removeGoalFromCustomer' : ActorMethod<[CustomerId, bigint], boolean>,
+  'removeMedicalIssueFromCustomer' : ActorMethod<[CustomerId, bigint], boolean>,
   'returnToSource' : ActorMethod<[BatchId, bigint], [] | [MovementId]>,
   'reviewStagedItem' : ActorMethod<
     [BatchId, { 'reject' : null } | { 'accept' : null }],
@@ -812,6 +846,10 @@ export interface _SERVICE {
   'submitLead' : ActorMethod<[LeadInput], Lead>,
   'updateCategory' : ActorMethod<[CategoryId, CategoryInput], boolean>,
   'updateCustomer' : ActorMethod<[CustomerId, CustomerInput], boolean>,
+  'updateCustomerNote' : ActorMethod<
+    [bigint, string, ProfileKey],
+    [] | [CustomerNotePublic]
+  >,
   'updateGoal' : ActorMethod<[bigint, GoalMasterInput], boolean>,
   'updateGoalMaster' : ActorMethod<
     [bigint, string, string, Array<ProductId>],

@@ -563,6 +563,25 @@ type CustomerOrderDetail =
    items: vec SaleItem;
    sale: Sale;
  };
+type CustomerNoteV2Input = 
+ record {
+   customer_id: nat;
+   date: text;
+   note: text;
+   profile_key: text;
+ };
+type CustomerNotePublic = 
+ record {
+   created_by: text;
+   creation_date: Timestamp;
+   customer_id: nat;
+   date: text;
+   id: nat;
+   last_updated_by: text;
+   last_updated_date: Timestamp;
+   note: text;
+   profile_key: text;
+ };
 type CustomerNoteInput = 
  record {
    note_date: Timestamp;
@@ -696,9 +715,12 @@ type BatchId = nat;
 service : {
   addCustomerNote: (customerId: CustomerId, input: CustomerNoteInput) ->
    (opt CustomerNote);
+  addCustomerNoteV2: (input: CustomerNoteV2Input) -> (CustomerNotePublic);
+  addGoalToCustomer: (customerId: CustomerId, goalId: nat) -> (bool);
   addLoanerBatch: (product_id: ProductId, quantity: nat, unit_cost: float64,
    loaned_source: text) -> (opt BatchId);
   addLocationEntry: (entry: LocationMasterEntry) -> (bool);
+  addMedicalIssueToCustomer: (customerId: CustomerId, issueId: nat) -> (bool);
   addPaymentEntry: (sale_id: SaleId, amount: float64, payment_method:
    text) -> (bool);
   approveProfile: (profile_key: ProfileKey) -> (bool);
@@ -742,7 +764,8 @@ service : {
   deleteBodyInchesEntry: (id: nat) -> (bool);
   deleteCategory: (id: CategoryId) -> (bool);
   deleteCustomer: (id: CustomerId) -> (bool);
-  deleteCustomerNote: (noteId: nat, customerId: CustomerId) -> (bool);
+  deleteCustomerNote: (noteId: nat, profileKey: ProfileKey) -> (bool);
+  deleteCustomerNoteEmbedded: (noteId: nat, customerId: CustomerId) -> (bool);
   deleteGoal: (id: nat) -> (bool);
   deleteGoalMaster: (id: nat) -> (bool);
   deleteLead: (id: nat) -> (bool);
@@ -756,6 +779,8 @@ service : {
   /// (superAdminPrincipal is null) or the normal onboarding screen (it is set).
   doesSuperAdminExist: () -> (bool) query;
   enableProfile: (profile_key: ProfileKey, enabled: bool) -> (bool);
+  getAllCustomerNotesForProfile: (profileKey: ProfileKey) ->
+   (vec CustomerNotePublic) query;
   getAllNotificationsRaw: (profileKey: text) -> (vec Notification) query;
   getAllProfilesForAdmin: () -> (vec ProfilePublic) query;
   getAllProfilesRaw: () -> (vec ProfilePublic) query;
@@ -777,6 +802,11 @@ service : {
   getCitiesByState: (stateId: text) -> (vec LocationMasterEntry) query;
   getCountries: () -> (vec LocationMasterEntry) query;
   getCustomer: (id: CustomerId) -> (opt CustomerPublic) query;
+  getCustomerGoals: (customerId: CustomerId) -> (vec GoalMasterPublic) query;
+  getCustomerMedicalIssues: (customerId: CustomerId) ->
+   (vec MedicalIssueMasterPublic) query;
+  getCustomerNotes: (customerId: CustomerId) ->
+   (vec CustomerNotePublic) query;
   getCustomerOrders: (customer_id: CustomerId) ->
    (vec CustomerOrderDetail) query;
   getCustomers: () -> (vec CustomerPublic) query;
@@ -822,6 +852,7 @@ service : {
   getStagedInventory: () -> (vec InventoryBatchPublic) query;
   getStates: () -> (vec LocationMasterEntry) query;
   getSuperAdminActiveProfile: () -> (opt ProfileKey) query;
+  getSuperAdminNotifications: () -> (vec Notification) query;
   getSuperAdminStats: () -> (SuperAdminStats) query;
   getUserPreferences: () -> (UserPreferences) query;
   getUserProfile: () -> (opt UserProfilePublic) query;
@@ -846,6 +877,9 @@ service : {
   moveLoanerToStaff: (product_id: ProductId, quantity: nat, to_warehouse:
    WarehouseName) -> (opt MovementId);
   rejectProfile: (profile_key: ProfileKey) -> (bool);
+  removeGoalFromCustomer: (customerId: CustomerId, goalId: nat) -> (bool);
+  removeMedicalIssueFromCustomer: (customerId: CustomerId, issueId: nat) ->
+   (bool);
   returnToSource: (batch_id: BatchId, quantity: nat) -> (opt MovementId);
   reviewStagedItem: (batch_id: BatchId, action: variant {
                                                   accept;
@@ -858,6 +892,8 @@ service : {
   submitLead: (input: LeadInput) -> (Lead);
   updateCategory: (id: CategoryId, input: CategoryInput) -> (bool);
   updateCustomer: (id: CustomerId, input: CustomerInput) -> (bool);
+  updateCustomerNote: (noteId: nat, newText: text, profileKey: ProfileKey) ->
+   (opt CustomerNotePublic);
   updateGoal: (id: nat, input: GoalMasterInput) -> (bool);
   updateGoalMaster: (id: nat, name: text, description: text, productBundle:
    vec ProductId) -> (bool);

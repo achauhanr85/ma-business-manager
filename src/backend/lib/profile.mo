@@ -343,19 +343,37 @@ module {
           last_update_date = now;
         };
         userStore.add(caller, up);
-        // Notify Super Admin that a new profile is pending approval.
-        // profile_key is set to "superadmin" (sentinel — no real profile key).
-        // related_id is null because this is a system-level notification scoped
-        // only to the Super Admin principal; it must NOT carry the new profile's key
-        // or the notification will be filtered out when Super Admin queries with
-        // a different active profile_key selected.
+        // ── Notify Super Admin of the new pending profile ─────────────────────
+        //
+        // SENTINEL DESIGN — why profile_key = "superadmin":
+        //   Every notification is stored with a profile_key field.  The normal
+        //   query path (getNotifications) filters by BOTH profile_key AND
+        //   target_role.  If we stored the new profile's real key here (e.g.
+        //   "herbshop_mumbai"), the notification would only appear when Super
+        //   Admin has that exact profile selected in their impersonation context.
+        //   Since the profile hasn't been approved yet, Super Admin may never
+        //   select it — so the notification would be permanently invisible.
+        //
+        //   Using the sentinel value "superadmin" means:
+        //     - getSuperAdminNotifications() filters ONLY by target_role="superAdmin"
+        //       (no profileKey filter), so these always appear regardless of which
+        //       profile Super Admin currently has active.
+        //     - getAllNotificationsRaw() in the Data Inspector explicitly includes
+        //       profile_key="superadmin" records so they appear in the inspector too.
+        //
+        // related_id = ?input.profile_key (the new profile's key):
+        //   This enables deduplication — if the background job checkPendingProfiles()
+        //   runs before Super Admin approves, it checks notificationExists() by
+        //   (profileKey="superadmin", type="NewProfilePendingApproval", relatedId=?profileKey).
+        //   Storing the new profile key here prevents duplicate reminder notifications
+        //   for the same pending profile.
         let _ = NotificationsLib.createNotification(
           notificationsStore,
-          "superadmin",
+          "superadmin",                           // sentinel — NOT the new profile's real key
           "NewProfilePendingApproval",
           "New business profile '" # input.business_name # "' (key: " # input.profile_key # ") is pending Super Admin approval.",
-          null,
-          "superAdmin",
+          ?input.profile_key,                     // related_id = new profile key (for deduplication)
+          "superAdmin",                           // target_role = "superAdmin" (queried by getSuperAdminNotifications)
         );
         true
       };

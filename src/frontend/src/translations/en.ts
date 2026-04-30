@@ -22,6 +22,7 @@ export const en = {
     vendors: "Vendors",
     productsOnly: "Product",
     categories: "Categories",
+    salesSummary: "Sales Summary",
     help: "Help",
     logout: "Logout",
   },
