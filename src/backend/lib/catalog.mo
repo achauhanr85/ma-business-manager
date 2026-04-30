@@ -1,22 +1,44 @@
 /*
- * lib/catalog.mo — Product Category and Product Business Logic
+ * FILE: lib/catalog.mo
+ * MODULE: lib
+ * ─────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Implements CRUD for the product catalog (categories and products).
+ *   All data is strictly scoped to the caller's business profile via profileKey.
  *
- * WHAT THIS FILE DOES:
- *   Implements CRUD for the product catalog:
- *     - Categories: group products (e.g. "Protein Supplements", "Vitamins")
- *     - Products: individual items with SKU, price, category, instructions, serving size
- *   All data is strictly scoped to the caller's profile via profileKey.
- *   SKU uniqueness is enforced per profile — two profiles can have the same SKU.
+ * FLOW:
+ *   PAGE: Category page
+ *     getCategories() → filter by profileKey → [Category]
+ *     createCategory(input) → validate caller has profile → insert with auto-ID
+ *     updateCategory(id, input) → verify ownership → update fields
+ *     deleteCategory(id) → verify ownership → remove
  *
- * WHO USES IT:
- *   mixins/catalog-api.mo (exposes these as public canister functions)
- *   lib/sales.mo (looks up product details during sale creation for snapshotting)
- *   lib/profile.mo (cascade delete on deleteProfile)
+ *   PAGE: Product page
+ *     getProducts() → filter by profileKey → [Product]
+ *     createProduct(input) → check SKU uniqueness per profile → insert
+ *     updateProduct(id, input) → check SKU uniqueness if changed → update
+ *     deleteProduct(id) → verify ownership → remove
  *
- * IMPORTANT — Product Snapshots:
- *   When a sale is created, the product name, MRP, and cost are SNAPSHOTTED onto each
- *   SaleItem. This means changing a product's price later does NOT affect historical
- *   sales — receipts always show the price at time of sale.
+ *   PAGE: Cart / Sale creation
+ *     Products are looked up here by product_id and their name/mrp/cost are
+ *     SNAPSHOTTED onto each SaleItem at sale time — historical receipts always
+ *     show the price at time of sale even if the product is later changed.
+ *
+ * DEPENDENCIES:
+ *   imports: mo:core/Map, mo:core/Time, mo:core/Runtime, types/common,
+ *            types/catalog, types/users
+ *   called by: mixins/catalog-api.mo, lib/sales.mo (product lookup for snapshots)
+ *              lib/profile.mo (cascade delete on deleteProfile)
+ *   calls: types/catalog (Category, Product types)
+ *
+ * KEY TYPES:
+ *   CategoryStore — Map<CategoryId, Category>
+ *   ProductStore  — Map<ProductId, Product>
+ *
+ * IMPORTANT — SKU Uniqueness:
+ *   SKU uniqueness is enforced PER PROFILE — two different profiles can have the same SKU.
+ *   Within a profile, no two active products may share a SKU.
+ * ─────────────────────────────────────────────────────────────────────
  */
 
 import Map "mo:core/Map";

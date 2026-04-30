@@ -1,3 +1,67 @@
+/*
+ * PAGE: CustomersPage
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Full customer management page. Allows Admin and Staff to view, create, edit,
+ *   and delete customers. Includes body composition tracking, customer notes,
+ *   goals, medical issues, body inches, order history, and follow-up scheduling.
+ *
+ * ROLE ACCESS:
+ *   admin, staff, referralUser (referralUser can only create customers)
+ *
+ * FLOW:
+ *   1. Mount / initialization
+ *      ├─ profileKey from ProfileContext (impersonation-aware)
+ *      └─ calls useGetCustomers() → loads customer list
+ *   2. Customer list rendering
+ *      ├─ Loading → skeleton rows
+ *      ├─ Empty   → "No customers yet" CTA
+ *      └─ Data    → filterable list with status badge (Lead/Active/Inactive)
+ *   3. Create Customer
+ *      ├─ "Add Customer" button opens a Sheet (50% width slide-in)
+ *      ├─ form: name, phone, email, DOB, sex, height, address fields
+ *      ├─ Body Inches section (Chest, Biceps, Waist, Hips, Thighs, Calves)
+ *      ├─ Body Composition section (Weight, Body Fat, BMI, etc.)
+ *      ├─ useCreateCustomer.mutateAsync(input) called on Save
+ *      └─ success → toast + list refetches
+ *   4. View / Edit Customer (Sheet opens)
+ *      ├─ Tabs: Info | Body Composition | Body Inches | Orders | Notes | Goals | Medical
+ *      ├─ Info tab: all customer fields editable inline
+ *      ├─ Body Composition: entries sorted latest first, add new entry
+ *      ├─ Body Inches: entries sorted latest first, add new entry
+ *      ├─ Orders: read-only order history from useGetCustomerOrders
+ *      ├─ Notes: CRUD via useGetCustomerNotes / useAddCustomerNoteV2 (separate store)
+ *      ├─ Goals: assigned goals with Add / Remove via useGetCustomerGoals
+ *      └─ Medical: assigned medical issues via useGetCustomerMedicalIssues
+ *   5. Delete Customer
+ *      ├─ AlertDialog confirmation → useDeleteCustomer.mutateAsync(id)
+ *      └─ success → list refetches
+ *   6. Review Recommendation
+ *      ├─ button per customer in list view
+ *      └─ compares latest body composition entry against standard ranges
+ *           and generates a text recommendation (no validation — informational only)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VARIABLES INITIALIZED:
+ *   - searchQuery: string = ""                // customer list filter
+ *   - statusFilter: string = "all"            // Lead | Active | Inactive | all
+ *   - selectedCustomer: CustomerPublic | null // customer open in sheet
+ *   - isCreating: boolean = false             // create sheet open
+ *   - activeTab: string = "info"              // active tab in customer sheet
+ *   - deleteTarget: bigint | null             // customer id pending delete confirm
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SIDE EFFECTS (useEffect):
+ *   - Trigger: [selectedCustomer?.id, profileKey]  →  loads notes, goals, medical issues
+ * ─────────────────────────────────────────────────────────────────────────────
+ * KEY HANDLERS:
+ *   - handleCreateCustomer: validates and submits the create form
+ *   - handleUpdateCustomer: saves inline edits to an existing customer
+ *   - handleDeleteCustomer: confirms and deletes a customer record
+ *   - handleAddNote / handleDeleteNote: CRUD for customer notes (V2 store)
+ *   - handleAddBodyComposition: adds a new body composition entry
+ *   - handleAddBodyInches: adds a new body inches entry
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 import {
   AlertDialog,
   AlertDialogAction,

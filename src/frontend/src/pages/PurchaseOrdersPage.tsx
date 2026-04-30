@@ -1,3 +1,65 @@
+/*
+ * PAGE: PurchaseOrdersPage
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Manages all purchasing workflows: creating and receiving purchase orders,
+ *   inline vendor creation, and product quick-create during PO entry.
+ *
+ * ROLE ACCESS:
+ *   admin, staff (with PO module permission) — superAdmin when impersonating
+ *
+ * FLOW:
+ *   1. Mount / initialization
+ *      ├─ useGetPurchaseOrders() → loads PO list
+ *      ├─ useGetProducts() → for product selection in PO line items
+ *      ├─ useGetCategories() → for product category selection
+ *      └─ vendors loaded via direct actor call (profile-scoped)
+ *   2. PO list rendering
+ *      ├─ Loading → skeleton rows
+ *      ├─ Empty → empty state with Create PO button
+ *      └─ Data → table: PO#, vendor, date, status, item count, received toggle
+ *   3. Create PO
+ *      ├─ "New PO" button → opens Create PO form dialog
+ *      ├─ PO number: user-enterable with "PO-" prefix
+ *      ├─ Vendor: dropdown with all vendors for this profile
+ *      │    ├─ if no vendors → inline "Quick Create Vendor" form
+ *      │    └─ auto-defaults to only vendor if exactly one exists
+ *      ├─ Line items: add/remove rows with product, qty, unit cost
+ *      │    └─ product: dropdown or inline "Quick Create Product" form
+ *      ├─ useCreatePurchaseOrder.mutateAsync(input)
+ *      └─ success → toast + list refetches
+ *   4. Receive PO
+ *      ├─ "Mark Received" button on PO row (status = open only)
+ *      ├─ useMarkPurchaseOrderReceived.mutateAsync(poId)
+ *      │    └─ backend: increments inventory at the warehouse, uses FIFO batching
+ *      ├─ success → toast + list refetches + inventory refetches
+ *      └─ on failure: rollback is handled by the backend
+ *   5. Vendor Quick Create
+ *      ├─ "Add Vendor" inline in the vendor dropdown
+ *      └─ useCreateVendor.mutateAsync({ input, profileKey })
+ *   6. CSV import/export
+ *      ├─ Products: CSV export / import / downloadable template
+ *      └─ Categories: CSV export / import / downloadable template
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VARIABLES INITIALIZED:
+ *   - createDialogOpen: boolean = false     // Create PO dialog
+ *   - draftItems: DraftItem[] = [one empty] // line items in the create form
+ *   - selectedVendor: string = ""           // selected vendor id
+ *   - poNumber: string = ""                 // PO number entered by user
+ *   - expandedPO: bigint | null             // expanded PO for line items view
+ *   - vendorDialogOpen: boolean = false     // Quick Create Vendor dialog
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SIDE EFFECTS (useEffect):
+ *   - Trigger: [impersonatedProfileKey]  →  Action: reload vendors for active profile
+ * ─────────────────────────────────────────────────────────────────────────────
+ * KEY HANDLERS:
+ *   - handleCreatePO: validates form, calls useCreatePurchaseOrder
+ *   - handleReceivePO: calls useMarkPurchaseOrderReceived with PO id
+ *   - handleQuickCreateVendor: creates vendor inline from PO form
+ *   - handleAddItem / handleRemoveItem: manage draft line items in PO form
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";

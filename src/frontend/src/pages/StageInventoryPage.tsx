@@ -1,3 +1,49 @@
+/*
+ * PAGE: StageInventoryPage
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Staging area for returned items pending Admin review. When a return order
+ *   is created with "Usable" items, they land here before going back to main
+ *   inventory. Admin accepts (→ main inventory) or rejects (→ discarded).
+ *
+ * ROLE ACCESS:
+ *   admin, staff — both can VIEW items; only admin/superAdmin can Accept/Reject
+ *
+ * FLOW:
+ *   1. Mount / initialization
+ *      ├─ profileKey from ProfileContext (userProfile.profile_key or profile.profile_key)
+ *      ├─ isAdminOrSuperAdmin: boolean — determines whether action buttons are shown
+ *      └─ useGetStagedInventory(profileKey) → loads staged items list
+ *   2. Staged items rendering
+ *      ├─ Loading → skeleton rows
+ *      ├─ Empty → "No items staged for review" empty state
+ *      └─ Data → table: Product, Batch #, Qty, Return Order #, Staged Date, Status
+ *           ├─ Status badge: Pending Review / Accepted / Rejected
+ *           └─ Actions (Admin only): Accept button + Reject button
+ *   3. Accept staged item (Admin only)
+ *      ├─ "Accept" button on a Pending row
+ *      ├─ useReviewStagedItem.mutateAsync({ batchId, action: "accept", reviewedBy })
+ *      │    └─ backend: moves item from stage → main inventory at correct warehouse
+ *      └─ success → toast + list refetches + inventory levels refetch
+ *   4. Reject staged item (Admin only)
+ *      ├─ "Reject" button on a Pending row
+ *      ├─ useReviewStagedItem.mutateAsync({ batchId, action: "reject", reviewedBy })
+ *      │    └─ backend: marks item as rejected (not moved to inventory)
+ *      └─ success → toast + list refetches
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VARIABLES INITIALIZED:
+ *   - profileKey: string                        // from userProfile or profile
+ *   - isAdminOrSuperAdmin: boolean              // role check for action buttons
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SIDE EFFECTS (useEffect):
+ *   none
+ * ─────────────────────────────────────────────────────────────────────────────
+ * KEY HANDLERS:
+ *   - handleAccept: calls useReviewStagedItem with action="accept"
+ *   - handleReject: calls useReviewStagedItem with action="reject"
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

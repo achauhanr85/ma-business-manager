@@ -1,3 +1,57 @@
+/*
+ * PAGE: OnboardingPage
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   First-time user setup screen. Shown after login when a user has no profile
+ *   assigned. The user can either create a new business profile (becomes Admin)
+ *   or join an existing profile (becomes Staff or Referral User).
+ *
+ * ROLE ACCESS:
+ *   authenticated users with no profile assigned
+ *
+ * FLOW:
+ *   1. Mount / initialization
+ *      ├─ useGetUserProfile() checks if the user already has a profile
+ *      │    ├─ has profile → routing in App.tsx redirects away from here
+ *      │    └─ no profile → show Create / Join tabs
+ *      └─ tabMode defaults to "create"
+ *   2. Create Profile tab
+ *      ├─ user fills in: business_name, profile_key, display_name,
+ *      │    warehouse_name, phone_number, business_address, email,
+ *      │    theme_color, logo_url, instagram_handle
+ *      ├─ useCreateProfile.mutateAsync(input) called on Submit
+ *      │    ├─ success → profile created, creator assigned Admin role
+ *      │    │    └─ notification sent to Super Admin: "new profile pending approval"
+ *      │    └─ error   → field-level errors shown inline
+ *      └─ After creation: status = pending_super_admin_approval
+ *           └─ ProfilePendingApprovalGate shown: "Awaiting Super Admin approval"
+ *   3. Join Profile tab
+ *      ├─ user enters: profile_key, display_name, warehouse_name
+ *      ├─ useGetProfileByKey(profileKey) previews the profile name
+ *      ├─ useJoinProfile.mutateAsync(input) called on Submit
+ *      │    ├─ success → user assigned Staff or Referral role pending Admin approval
+ *      │    └─ error   → profile key not found error shown
+ *      └─ After joining: user logged out → access denied shown
+ *           └─ "Awaiting Admin approval" message
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VARIABLES INITIALIZED:
+ *   - tabMode: TabMode = "create"         // active tab: "create" | "join"
+ *   - createForm: CreateForm = { ... }    // all create-profile fields
+ *   - joinForm: JoinForm = { ... }        // all join-profile fields
+ *   - createErrors: Partial<CreateForm>   // field-level validation errors
+ *   - isSubmitting: boolean = false       // submission in progress
+ *   - logoPreview: string = ""            // base64 preview of uploaded logo
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SIDE EFFECTS (useEffect):
+ *   none
+ * ─────────────────────────────────────────────────────────────────────────────
+ * KEY HANDLERS:
+ *   - handleCreateSubmit: validates form, calls useCreateProfile mutation
+ *   - handleJoinSubmit: validates profile_key, calls useJoinProfile mutation
+ *   - handleLogoUpload: reads file as base64, sets logoPreview + createForm.logo_url
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 import { ProfilePendingApprovalGate } from "@/App";
 import { createActor } from "@/backend";
 import { RoutingStatus } from "@/backend";

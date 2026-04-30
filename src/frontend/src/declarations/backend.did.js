@@ -365,6 +365,7 @@ export const UserProfilePublic = IDL.Record({
   'language_preference' : IDL.Text,
   'date_format' : IDL.Text,
   'warehouse_name' : WarehouseName,
+  'diagnostics_level' : IDL.Nat,
   'profile_key' : ProfileKey,
 });
 export const Category = IDL.Record({
@@ -617,6 +618,7 @@ export const SuperAdminStats = IDL.Record({
 export const UserPreferences = IDL.Record({
   'theme' : IDL.Text,
   'defaultReceiptLanguage' : IDL.Text,
+  'diagnosticsLevel' : IDL.Nat,
   'language' : IDL.Text,
   'whatsappNumber' : IDL.Text,
   'dateFormat' : IDL.Text,
@@ -635,6 +637,18 @@ export const LeadInput = IDL.Record({
   'email' : IDL.Text,
   'message' : IDL.Text,
   'phone' : IDL.Text,
+});
+export const ProfileUpdateInput = IDL.Record({
+  'is_enabled' : IDL.Opt(IDL.Bool),
+  'business_name' : IDL.Opt(IDL.Text),
+  'email' : IDL.Opt(IDL.Text),
+  'business_address' : IDL.Opt(IDL.Text),
+  'logo_url' : IDL.Opt(IDL.Text),
+  'instagram_handle' : IDL.Opt(IDL.Text),
+  'receipt_notes' : IDL.Opt(IDL.Text),
+  'phone_number' : IDL.Opt(IDL.Text),
+  'theme_color' : IDL.Opt(IDL.Text),
+  'fssai_number' : IDL.Opt(IDL.Text),
 });
 export const UpdateSaleInput = IDL.Record({
   'payment_mode' : IDL.Opt(PaymentMode),
@@ -655,6 +669,7 @@ export const UserProfileInput = IDL.Record({
   'language_preference' : IDL.Opt(IDL.Text),
   'date_format' : IDL.Opt(IDL.Text),
   'warehouse_name' : WarehouseName,
+  'diagnostics_level' : IDL.Opt(IDL.Nat),
   'profile_key' : ProfileKey,
 });
 
@@ -872,6 +887,7 @@ export const idlService = IDL.Service({
       [IDL.Vec(UserProfilePublic)],
       ['query'],
     ),
+  'getPendingProfiles' : IDL.Func([], [IDL.Vec(ProfilePublic)], ['query']),
   'getProducts' : IDL.Func([], [IDL.Vec(Product)], ['query']),
   'getProfile' : IDL.Func([], [IDL.Opt(ProfilePublic)], ['query']),
   'getProfileByKey' : IDL.Func(
@@ -1017,10 +1033,15 @@ export const idlService = IDL.Service({
     ),
   'updateProduct' : IDL.Func([ProductId, ProductInput], [IDL.Bool], []),
   'updateProfile' : IDL.Func([ProfileInput], [IDL.Bool], []),
+  'updateProfileFields' : IDL.Func(
+      [ProfileKey, ProfileUpdateInput],
+      [IDL.Bool],
+      [],
+    ),
   'updateProfileKey' : IDL.Func([ProfileKey, ProfileKey], [IDL.Bool], []),
   'updateSale' : IDL.Func([UpdateSaleInput], [IDL.Bool], []),
   'updateUserPreferences' : IDL.Func(
-      [IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text],
+      [IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Nat],
       [IDL.Bool],
       [],
     ),
@@ -1385,6 +1406,7 @@ export const idlFactory = ({ IDL }) => {
     'language_preference' : IDL.Text,
     'date_format' : IDL.Text,
     'warehouse_name' : WarehouseName,
+    'diagnostics_level' : IDL.Nat,
     'profile_key' : ProfileKey,
   });
   const Category = IDL.Record({
@@ -1634,6 +1656,7 @@ export const idlFactory = ({ IDL }) => {
   const UserPreferences = IDL.Record({
     'theme' : IDL.Text,
     'defaultReceiptLanguage' : IDL.Text,
+    'diagnosticsLevel' : IDL.Nat,
     'language' : IDL.Text,
     'whatsappNumber' : IDL.Text,
     'dateFormat' : IDL.Text,
@@ -1652,6 +1675,18 @@ export const idlFactory = ({ IDL }) => {
     'email' : IDL.Text,
     'message' : IDL.Text,
     'phone' : IDL.Text,
+  });
+  const ProfileUpdateInput = IDL.Record({
+    'is_enabled' : IDL.Opt(IDL.Bool),
+    'business_name' : IDL.Opt(IDL.Text),
+    'email' : IDL.Opt(IDL.Text),
+    'business_address' : IDL.Opt(IDL.Text),
+    'logo_url' : IDL.Opt(IDL.Text),
+    'instagram_handle' : IDL.Opt(IDL.Text),
+    'receipt_notes' : IDL.Opt(IDL.Text),
+    'phone_number' : IDL.Opt(IDL.Text),
+    'theme_color' : IDL.Opt(IDL.Text),
+    'fssai_number' : IDL.Opt(IDL.Text),
   });
   const UpdateSaleInput = IDL.Record({
     'payment_mode' : IDL.Opt(PaymentMode),
@@ -1672,6 +1707,7 @@ export const idlFactory = ({ IDL }) => {
     'language_preference' : IDL.Opt(IDL.Text),
     'date_format' : IDL.Opt(IDL.Text),
     'warehouse_name' : WarehouseName,
+    'diagnostics_level' : IDL.Opt(IDL.Nat),
     'profile_key' : ProfileKey,
   });
   
@@ -1917,6 +1953,7 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Vec(UserProfilePublic)],
         ['query'],
       ),
+    'getPendingProfiles' : IDL.Func([], [IDL.Vec(ProfilePublic)], ['query']),
     'getProducts' : IDL.Func([], [IDL.Vec(Product)], ['query']),
     'getProfile' : IDL.Func([], [IDL.Opt(ProfilePublic)], ['query']),
     'getProfileByKey' : IDL.Func(
@@ -2066,10 +2103,15 @@ export const idlFactory = ({ IDL }) => {
       ),
     'updateProduct' : IDL.Func([ProductId, ProductInput], [IDL.Bool], []),
     'updateProfile' : IDL.Func([ProfileInput], [IDL.Bool], []),
+    'updateProfileFields' : IDL.Func(
+        [ProfileKey, ProfileUpdateInput],
+        [IDL.Bool],
+        [],
+      ),
     'updateProfileKey' : IDL.Func([ProfileKey, ProfileKey], [IDL.Bool], []),
     'updateSale' : IDL.Func([UpdateSaleInput], [IDL.Bool], []),
     'updateUserPreferences' : IDL.Func(
-        [IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text],
+        [IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Nat],
         [IDL.Bool],
         [],
       ),

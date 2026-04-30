@@ -1,33 +1,69 @@
-/**
- * ProfileApprovalPage.tsx — Profile Approval management page for Super Admin.
+/*
+ * PAGE: ProfileApprovalPage
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Dedicated Super Admin page for reviewing and actioning new business profiles
+ *   that are awaiting approval before the profile Admin can log in and use the app.
  *
- * WHAT THIS FILE DOES:
- * Provides a dedicated page for the Super Admin to review all business profiles
- * that are pending approval (profile_approval_status === "pending_super_admin_approval").
- * Each row shows the business name, profile key, email, and creation date, with
- * Approve / Reject action buttons that call the correct backend functions and
- * refresh the list on success.
+ * ROLE ACCESS:
+ *   superAdmin only — enforced by parent router in App.tsx
  *
- * HOW IT WORKS:
- *   1. Calls useGetAllProfilesForAdmin() to get all profiles
- *   2. Filters for profiles where profile_approval_status === "pending_super_admin_approval"
- *      (the Motoko variant #pending_super_admin_approval serializes to this string in Candid)
- *   3. Approve → calls approveProfile(profileKey) — sets approval_status to #approved
- *   4. Reject  → calls rejectProfile(profileKey) — sets approval_status to #suspended
- *      (record is KEPT for audit trail, not deleted)
- *   5. List auto-refreshes after each action via React Query invalidation
+ * FLOW:
+ *   1. Mount / initialization
+ *      └─ calls useGetPendingProfiles() directly from backend
+ *           └─ backend getPendingProfiles() returns only profiles with
+ *              approval_status = #pending_super_admin_approval
+ *   2. Data loading
+ *      ├─ Loading → skeleton cards
+ *      ├─ Error   → error card with Try Again
+ *      └─ Data    → renders one card per pending profile
+ *   3. User actions
+ *      ├─ Approve button clicked
+ *      │    ├─ setApprovingKey(profileKey) → shows spinner on that row
+ *      │    ├─ calls useApproveProfile.mutateAsync(profileKey)
+ *      │    │    └─ backend: sets approval_status = #approved
+ *      │    │         Admin can now log in and access the app
+ *      │    ├─ on success → toast.success, invalidates useGetPendingProfiles query
+ *      │    └─ on error   → toast.error with message
+ *      └─ Reject button clicked
+ *           ├─ setRejectingKey(profileKey) → shows spinner on that row
+ *           ├─ calls useRejectProfile.mutateAsync(profileKey)
+ *           │    └─ backend: sets approval_status = #suspended (record KEPT)
+ *           ├─ on success → toast.success, invalidates query
+ *           └─ on error   → toast.error with message
+ *   4. Empty state
+ *      └─ "No pending approvals" card with link back to Super Admin dashboard
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VARIABLES INITIALIZED:
+ *   - approvingKey: string | null = null  // profile currently being approved
+ *   - rejectingKey: string | null = null  // profile currently being rejected
+ *   - isRefreshing: boolean = false       // manual refresh in progress
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SIDE EFFECTS (useEffect):
+ *   none
+ * ─────────────────────────────────────────────────────────────────────────────
+ * KEY HANDLERS:
+ *   - handleApprove: calls approveProfile mutation, shows success/error toast
+ *   - handleReject:  calls rejectProfile mutation, shows success/error toast
+ *   - handleRefresh: refetches the pending profiles list
+ * ─────────────────────────────────────────────────────────────────────────────
  *
- * WHY NOT enableProfile / deleteProfile?
- *   - enableProfile only toggles is_enabled — it does NOT change approval_status.
- *     A profile that is "enabled" but still has pending approval_status will still
- *     block the Admin from logging in.
- *   - deleteProfile permanently removes all profile data — wrong for a "reject" action
- *     where we want to preserve the record and notify the creator.
+ * WHY useGetPendingProfiles() and NOT useGetAllProfilesForAdmin() + filter:
+ *   The previous implementation called getAllProfilesForAdmin() and then filtered
+ *   client-side by profile_approval_status. This was unreliable because:
+ *     1. The full profiles list is large and includes many approved/rejected profiles.
+ *     2. Client-side string matching on the Candid variant could miss edge cases.
+ *   The backend getPendingProfiles() directly queries the store for the correct
+ *   variant (#pending_super_admin_approval), making the list authoritative.
  *
- * WHO USES THIS:
- *   App.tsx — rendered at ROUTES.profileApprovals
- *   SuperAdminPage.tsx — linked via "View All Approvals" button on the dashboard card
- *   NotificationsPanel.tsx — NewProfilePendingApproval notification navigates here
+ * WHY useApproveProfile() and NOT useEnableProfile():
+ *   enableProfile() only toggles the is_enabled flag. The approval gate checks
+ *   approval_status, not is_enabled. Using enableProfile for approval was a bug
+ *   that left the profile status as "pending" even after the Admin could log in.
+ *
+ * WHY useRejectProfile() and NOT useDeleteProfile():
+ *   deleteProfile() permanently removes all data. rejectProfile() sets
+ *   approval_status = #suspended so the record is preserved for audit purposes.
  */
 
 import { Badge } from "@/components/ui/badge";
@@ -36,10 +72,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   useApproveProfile,
-  useGetAllProfilesForAdmin,
+  useGetPendingProfiles,
   useRejectProfile,
 } from "@/hooks/useBackend";
-import type { ProfileStatsExtended } from "@/types";
 import {
   AlertTriangle,
   Building2,
@@ -58,6 +93,10 @@ interface ProfileApprovalPageProps {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * formatTimestamp — converts a nanosecond IC timestamp (bigint) to a human-readable date string.
+ * Returns "—" if the timestamp is null, undefined, or zero.
+ */
 function formatTimestamp(ts: bigint | null | undefined): string {
   if (!ts || ts === 0n) return "—";
   const ms = Number(ts / 1_000_000n);
@@ -71,41 +110,41 @@ function formatTimestamp(ts: bigint | null | undefined): string {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function ProfileApprovalPage({ onNavigate }: ProfileApprovalPageProps) {
-  // Fetch all profiles from the backend — Super Admin sees all of them
+  /**
+   * useGetPendingProfiles — directly calls getPendingProfiles() on the backend.
+   * This returns ONLY profiles with approval_status = #pending_super_admin_approval.
+   * No client-side filtering needed — the backend is authoritative here.
+   *
+   * Falls back to filtering getAllProfilesForAdmin() client-side if the dedicated
+   * backend method is not yet deployed (graceful degradation).
+   */
   const {
-    data: profiles = [],
+    data: pendingProfiles = [],
     isLoading,
     isError,
     refetch,
-  } = useGetAllProfilesForAdmin();
+  } = useGetPendingProfiles();
 
   const approveProfileMutation = useApproveProfile();
   const rejectProfileMutation = useRejectProfile();
 
-  // Track which profile is currently being actioned so we can show per-row spinners
+  // Track which profile is being actioned so we can show per-row spinners
   const [approvingKey, setApprovingKey] = useState<string | null>(null);
   const [rejectingKey, setRejectingKey] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Filter to only profiles that are pending Super Admin approval.
-  // The Motoko variant #pending_super_admin_approval serializes to the string
-  // "pending_super_admin_approval" in Candid — this is the correct field to check.
-  // DO NOT use is_enabled === false — that only reflects whether the profile is
-  // enabled/disabled, not whether it is awaiting initial approval.
-  const pendingProfiles = profiles.filter((p) => {
-    const ext = p as ProfileStatsExtended & {
-      profile_approval_status?: string;
-    };
-    return (
-      ext.profile_approval_status === "pending_super_admin_approval" ||
-      // Fallback: also catch the shorter "pending" status used in some backend versions
-      ext.profile_approval_status === "pending"
-    );
-  });
-
-  // Approve a profile — calls approveProfile() which sets approval_status to #approved.
-  // This is the correct backend function for approval. DO NOT use enableProfile() —
-  // that only toggles is_enabled and does not change the approval_status field.
+  /**
+   * handleApprove — calls approveProfile(profileKey) on the backend.
+   *
+   * WHAT IT DOES:
+   *   - Sets approval_status = #approved on the profile record
+   *   - Admin for that profile can now log in and see their data
+   *   - On success, the profile disappears from this list (React Query invalidation)
+   *
+   * IMPORTANT: approveProfile() ≠ enableProfile()
+   * enableProfile only toggles is_enabled — it does NOT change approval_status.
+   * A profile must have approval_status = #approved for the routing gate to pass.
+   */
   const handleApprove = async (profileKey: string, businessName: string) => {
     setApprovingKey(profileKey);
     try {
@@ -118,18 +157,26 @@ export function ProfileApprovalPage({ onNavigate }: ProfileApprovalPageProps) {
       } else {
         toast.error("Failed to approve profile. Please try again.");
       }
-    } catch {
-      toast.error(
-        "Failed to approve profile. The backend approveProfile function may not be deployed yet.",
-      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(`Failed to approve profile: ${msg}`);
     } finally {
       setApprovingKey(null);
     }
   };
 
-  // Reject a profile — calls rejectProfile() which sets approval_status to #suspended.
-  // The profile record is KEPT for audit purposes — the creator is notified.
-  // DO NOT use deleteProfile() here — that permanently removes all data.
+  /**
+   * handleReject — calls rejectProfile(profileKey) on the backend.
+   *
+   * WHAT IT DOES:
+   *   - Sets approval_status = #suspended on the profile record
+   *   - Profile record is PRESERVED (not deleted) for audit trail
+   *   - Admin for that profile cannot log in
+   *
+   * IMPORTANT: rejectProfile() ≠ deleteProfile()
+   * deleteProfile() permanently removes all data and related records.
+   * rejectProfile() only changes the status — data is preserved.
+   */
   const handleReject = async (profileKey: string, businessName: string) => {
     setRejectingKey(profileKey);
     try {
@@ -142,10 +189,9 @@ export function ProfileApprovalPage({ onNavigate }: ProfileApprovalPageProps) {
       } else {
         toast.error("Failed to reject profile. Please try again.");
       }
-    } catch {
-      toast.error(
-        "Failed to reject profile. The backend rejectProfile function may not be deployed yet.",
-      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(`Failed to reject profile: ${msg}`);
     } finally {
       setRejectingKey(null);
     }
@@ -207,9 +253,10 @@ export function ProfileApprovalPage({ onNavigate }: ProfileApprovalPageProps) {
           <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
             <AlertTriangle className="w-10 h-10 text-destructive/70" />
             <p className="text-sm font-medium text-destructive">
-              Failed to load profiles
+              Failed to load pending profiles
             </p>
             <p className="text-xs text-muted-foreground">
+              The getPendingProfiles backend method may not be deployed yet.
               Check your connection and try refreshing.
             </p>
             <Button
@@ -240,7 +287,7 @@ export function ProfileApprovalPage({ onNavigate }: ProfileApprovalPageProps) {
               </p>
               <p className="text-sm text-muted-foreground mt-1">
                 All profiles have been reviewed. New registrations will appear
-                here.
+                here automatically.
               </p>
             </div>
             <Button
@@ -279,8 +326,15 @@ export function ProfileApprovalPage({ onNavigate }: ProfileApprovalPageProps) {
 
           <CardContent className="pt-4 space-y-3">
             {pendingProfiles.map((profile, idx) => {
-              const ext = profile as ProfileStatsExtended;
-              const email = (ext as { email?: string }).email;
+              // Safely cast to access optional fields that may be on ProfilePublic
+              const ext = profile as typeof profile & {
+                email?: string;
+                created_at?: bigint;
+                last_activity?: bigint;
+              };
+              const email = ext.email;
+              // Prefer created_at timestamp; fall back to last_activity
+              const createdAt = ext.created_at ?? ext.last_activity;
               const isApproving = approvingKey === profile.profile_key;
               const isRejecting = rejectingKey === profile.profile_key;
               const isBusy = isApproving || isRejecting;
@@ -306,7 +360,7 @@ export function ProfileApprovalPage({ onNavigate }: ProfileApprovalPageProps) {
                         variant="outline"
                         className="text-[10px] px-1.5 py-0 bg-amber-500/10 text-amber-700 border-amber-400/30"
                       >
-                        Pending
+                        Pending Approval
                       </Badge>
                     </div>
 
@@ -322,14 +376,13 @@ export function ProfileApprovalPage({ onNavigate }: ProfileApprovalPageProps) {
                     )}
 
                     <p className="text-xs text-muted-foreground">
-                      Registered:{" "}
-                      {formatTimestamp(ext.last_activity ?? undefined)}
+                      Registered: {formatTimestamp(createdAt ?? undefined)}
                     </p>
                   </div>
 
                   {/* Action buttons */}
                   <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end mt-1">
-                    {/* Reject button — sets approval status to suspended, profile data is preserved */}
+                    {/* Reject — sets approval_status to #suspended; record is preserved */}
                     <Button
                       size="sm"
                       variant="outline"
@@ -348,7 +401,7 @@ export function ProfileApprovalPage({ onNavigate }: ProfileApprovalPageProps) {
                       Reject
                     </Button>
 
-                    {/* Approve button — enables the profile */}
+                    {/* Approve — sets approval_status to #approved; Admin can now log in */}
                     <Button
                       size="sm"
                       className="h-8 text-xs gap-1"
@@ -374,14 +427,6 @@ export function ProfileApprovalPage({ onNavigate }: ProfileApprovalPageProps) {
             })}
           </CardContent>
         </Card>
-      )}
-
-      {/* ── All profiles summary (approved) ── */}
-      {!isLoading && !isError && profiles.length > 0 && (
-        <div className="text-xs text-muted-foreground px-1">
-          {profiles.length - pendingProfiles.length} active profiles ·{" "}
-          {pendingProfiles.length} pending
-        </div>
       )}
     </div>
   );

@@ -1,33 +1,64 @@
-/**
- * DataInspectorPage.tsx — Super Admin raw backend data browser.
+/*
+ * PAGE: DataInspectorPage
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Super Admin raw backend data browser. Allows browsing, searching, expanding,
+ *   and manually editing any record type across all 15 data types in the canister.
+ *   Super Admin sees ALL data — no profileKey filtration applied.
  *
- * WHAT THIS FILE DOES:
- * Renders a two-column layout: a left sidebar with data type buttons, and a right
- * panel that shows a searchable, filterable table of all backend records for the
- * selected data type.
+ * ROLE ACCESS:
+ *   superAdmin only — enforced by parent router in App.tsx
  *
- * Each data type maps to a specific React Query hook (see useDataForType below).
- * Records can be expanded in-row to see all fields, or exported to CSV.
- *
- * EDIT MODAL:
- * Clicking the Edit icon on any row opens EditRecordModal — a generic form that
- * renders each field of the record as an editable input. On Save, it attempts to
- * call a type-specific or generic update function on the backend actor. If the
- * backend method is not available, a warning toast is shown but no crash occurs.
- *
- * NOTIFICATION SCOPING (critical):
- * Regular app notifications are fetched via useGetNotifications(profileKey, role) —
- * they are profile-scoped. Super Admin system notifications (profile pending approval,
- * etc.) are stored with profile_key = "superadmin" (sentinel). The Data Inspector
- * ALWAYS uses useGetSuperAdminNotifications() for the notifications data type to
- * ensure those system-level records are visible, regardless of active profile.
- *
- * DIAGNOSTICS:
- * All backend calls log to logger.ts (logApi / logError) when diagnosticsEnabled
- * is true in UserPreferencesContext. This lets the developer trace what query was
- * called and whether it succeeded.
- *
- * ACCESS: Super Admin only — enforced by the parent router.
+ * FLOW:
+ *   1. Mount / initialization
+ *      ├─ reads profileKey from ProfileContext (used for profile-scoped types only)
+ *      ├─ logs page load to diagnostics if enabled
+ *      └─ defaults selectedType to "customers"
+ *   2. Data type selection
+ *      └─ user clicks type button in left sidebar
+ *           └─ setSelectedType() → triggers useDataForType(selectedType, profileKey)
+ *   3. Data loading (per type)
+ *      └─ useDataForType() maps type → React Query hook
+ *           ├─ notifications → useGetSuperAdminNotifications() [sentinel "superadmin", NO profileKey filter]
+ *           ├─ profiles      → useGetAllProfilesRaw() [all profiles, no filter]
+ *           ├─ users         → useGetAllUsersRaw(profileKey) [needs active profile]
+ *           └─ all others    → standard hook (getCustomers, getSales, etc.)
+ *   4. Render logic
+ *      ├─ Loading → skeleton rows
+ *      ├─ Error   → error state with Try Again
+ *      ├─ Empty   → empty state message
+ *      └─ Data    → DataTable with search, expand rows, edit buttons, CSV export
+ *   5. Edit flow
+ *      ├─ user clicks Pencil icon on a row → opens EditRecordModal
+ *      ├─ all fields rendered as inputs; key/audit fields are read-only
+ *      ├─ Save → calls type-specific backend mutation
+ *      │    ├─ profiles       → useUpdateProfileFields(profileKey, fields)
+ *      │    ├─ customers      → useUpdateCustomer(id, input)
+ *      │    ├─ products       → useUpdateProduct(id, input)
+ *      │    ├─ categories     → useUpdateCategory(id, input)
+ *      │    ├─ vendors        → useUpdateVendor(vendorId, input)
+ *      │    ├─ goals          → useUpdateGoalMaster(id, name, desc, bundle)
+ *      │    ├─ medicalIssues  → useUpdateMedicalIssueMaster(id, name, desc)
+ *      │    ├─ stageInventory → useReviewStagedItem (status toggle)
+ *      │    ├─ leads          → useCloseLead (is_closed toggle)
+ *      │    ├─ notifications  → markNotificationRead (read-only otherwise)
+ *      │    └─ bodyComposition / inventoryMovements / sales → read-only, Save disabled
+ *      └─ on success: close modal, invalidate query, refresh table
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VARIABLES INITIALIZED:
+ *   - selectedType: DataType = "customers"  // active data type shown in table
+ *   - profileKey: string | null             // from ProfileContext (impersonation-aware)
+ *   - diagnosticsEnabled: boolean           // from UserPreferencesContext
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SIDE EFFECTS (useEffect):
+ *   - Trigger: [diagnosticsEnabled, profileKey]  →  Action: log page load
+ *   - Trigger: [selectedType, isLoading, isError, data, diagnosticsEnabled]  →  Action: log query state
+ * ─────────────────────────────────────────────────────────────────────────────
+ * KEY HANDLERS:
+ *   - handleTypeSelect: updates selectedType, logs to diagnostics
+ *   - handleEditClick: opens EditRecordModal for the clicked row
+ *   - handleSave (in EditRecordModal): calls type-specific mutation, invalidates cache
+ * ─────────────────────────────────────────────────────────────────────────────
  */
 
 import { Badge } from "@/components/ui/badge";
@@ -55,7 +86,7 @@ import { useProfile } from "@/contexts/ProfileContext";
 import { useUserPreferences } from "@/contexts/UserPreferencesContext";
 import {
   useGetAllProfilesRaw,
-  useGetAllUsersRaw,
+  useGetAllUsersForAdmin,
   useGetBodyCompositionHistory,
   useGetCategories,
   useGetCustomers,
@@ -69,6 +100,13 @@ import {
   useGetStagedInventory,
   useGetSuperAdminNotifications,
   useGetVendors,
+  useUpdateCategory,
+  useUpdateCustomer,
+  useUpdateGoalMaster,
+  useUpdateMedicalIssueMaster,
+  useUpdateProduct,
+  useUpdateProfileFields,
+  useUpdateVendor,
 } from "@/hooks/useBackend";
 import { logApi, logDebug, logError, logNav } from "@/lib/logger";
 import {
@@ -83,6 +121,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type React from "react";
 import { toast } from "sonner";
+import type { Variant_active_lead_inactive } from "../backend";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -106,58 +145,94 @@ type DataType =
 interface DataTypeConfig {
   label: string;
   key: DataType;
-  /** Explains which backend query this type uses — shown in tooltip/badge */
+  /** Explains which backend query this type uses — shown as tooltip/note */
   queryNote?: string;
+  /** Whether records of this type are read-only (Save disabled) */
+  readOnly?: boolean;
 }
 
 /**
- * DATA_TYPES — the full list of selectable data types in the inspector.
+ * DATA_TYPES — all 15 selectable data types in the inspector.
  *
- * Query mapping per type:
- * - customers       → actor.getCustomers()
- * - sales           → actor.getSales()
- * - notifications   → actor.getSuperAdminNotifications() [sentinel "superadmin" key]
- *                      NOT getNotifications(profileKey, role) — that's for regular users
- * - inventory       → actor.getInventoryMovements()
- * - products        → actor.getProducts()
- * - categories      → actor.getCategories()
- * - purchaseOrders  → actor.getPurchaseOrders()
- * - vendors         → actor.getVendors(profileKey)
- * - goals           → actor.getGoalMasterData(profileKey)
- * - medicalIssues   → actor.getMedicalIssueMasterData(profileKey)
- * - bodyComposition → actor.getBodyCompositionHistory() [requires customer context]
- * - stageInventory  → actor.getStagedInventory()
- * - leads           → actor.getLeads()
- * - users           → actor.getAllUsersRaw(profileKey) or getUsersByProfile fallback
- * - profiles        → actor.getAllProfilesRaw() or getAllProfilesForAdmin fallback
+ * QUERY MAPPING PER TYPE:
+ *   customers       → actor.getCustomers()                        [editable]
+ *   sales           → actor.getSales()                            [read-only]
+ *   notifications   → actor.getSuperAdminNotifications()          [read-only]
+ *                     NOT getNotifications(profileKey, role)!
+ *   inventory       → actor.getInventoryMovements()               [read-only]
+ *   products        → actor.getProducts()                         [editable]
+ *   categories      → actor.getCategories()                       [editable]
+ *   purchaseOrders  → actor.getPurchaseOrders()                   [read-only]
+ *   vendors         → actor.getVendors(profileKey)                [editable]
+ *   goals           → actor.getGoalMasterData(profileKey)         [editable]
+ *   medicalIssues   → actor.getMedicalIssueMasterData(profileKey) [editable]
+ *   bodyComposition → actor.getBodyCompositionHistory()           [read-only]
+ *   stageInventory  → actor.getStagedInventory()                  [read-only]
+ *   leads           → actor.getLeads()                            [read-only]
+ *   users           → actor.getAllUsersRaw(profileKey)            [read-only]
+ *   profiles        → actor.getAllProfilesRaw()                   [editable via updateProfileFields]
+ *
+ * SUPER ADMIN FILTRATION NOTE:
+ * Super Admin sees ALL data — no profileKey filter is applied to global types
+ * (customers, sales, products, etc.). Profile-scoped types (vendors, goals,
+ * medicalIssues, users) still require a profile selection to be meaningful.
  */
 const DATA_TYPES: DataTypeConfig[] = [
   { label: "Customers", key: "customers" },
-  { label: "Sales / Orders", key: "sales" },
+  {
+    label: "Sales / Orders",
+    key: "sales",
+    readOnly: true,
+    queryNote: "Read-only — total/items cannot be changed after creation",
+  },
   {
     label: "Notifications",
     key: "notifications",
+    readOnly: true,
     queryNote:
       "Uses getSuperAdminNotifications() — sentinel profile_key='superadmin'",
   },
-  { label: "Inventory Movements", key: "inventory" },
+  {
+    label: "Inventory Movements",
+    key: "inventory",
+    readOnly: true,
+    queryNote:
+      "Read-only audit trail — movements cannot be reversed via inspector",
+  },
   { label: "Products", key: "products" },
   { label: "Categories", key: "categories" },
-  { label: "Purchase Orders", key: "purchaseOrders" },
+  {
+    label: "Purchase Orders",
+    key: "purchaseOrders",
+    readOnly: true,
+    queryNote: "Read-only — use the PO page to modify purchase orders",
+  },
   { label: "Vendors", key: "vendors" },
   { label: "Customer Goals", key: "goals" },
   { label: "Medical Issues", key: "medicalIssues" },
   {
     label: "Body Composition",
     key: "bodyComposition",
+    readOnly: true,
     queryNote:
-      "Requires a customer to be selected — shows empty in global view",
+      "Read-only — requires a customer to be selected (empty in global view)",
   },
-  { label: "Stage Inventory", key: "stageInventory" },
-  { label: "Leads", key: "leads" },
+  {
+    label: "Stage Inventory",
+    key: "stageInventory",
+    readOnly: true,
+    queryNote: "Read-only — use the Stage Inventory page to review items",
+  },
+  {
+    label: "Leads",
+    key: "leads",
+    readOnly: true,
+    queryNote: "Read-only — manage leads from the Super Admin dashboard",
+  },
   {
     label: "Users (Profile)",
     key: "users",
+    readOnly: true,
     queryNote:
       "Uses getAllUsersRaw(profileKey) — select a profile to view its users",
   },
@@ -283,13 +358,39 @@ function RowDetail({ record }: { record: Record<string, unknown> }) {
   );
 }
 
+// ─── Read-only fields ─────────────────────────────────────────────────────────
+
+/**
+ * KEY_FIELDS_READONLY — fields that must never be editable in the inspector.
+ * These are primary identifiers, audit timestamps, and foreign keys.
+ * Editing them would corrupt data integrity.
+ */
+const KEY_FIELDS_READONLY = new Set([
+  "id",
+  "profile_key",
+  "profileKey",
+  "created_by",
+  "creation_date",
+  "owner_id",
+  "owner",
+  "batch_id",
+  "sale_id",
+  "customer_id",
+  "product_id",
+  "return_order_id",
+]);
+
 // ─── Edit Record Modal ────────────────────────────────────────────────────────
 
 interface EditRecordModalProps {
   /** The record being edited — all its fields will be shown as form inputs */
   record: Record<string, unknown>;
-  /** The data type — used to determine which backend update function to call */
+  /** The data type — determines which backend update function to call */
   dataType: DataType;
+  /** The active profileKey from ProfileContext (needed for some update functions) */
+  profileKey: string | null;
+  /** True when this data type is read-only and Save should be disabled */
+  isReadOnly: boolean;
   /** Called when the user clicks Cancel or closes the modal */
   onClose: () => void;
   /** Called after a successful save so the table can refetch */
@@ -299,35 +400,40 @@ interface EditRecordModalProps {
 }
 
 /**
- * EditRecordModal — a generic edit form for any backend record.
+ * EditRecordModal — generic edit form for any backend record.
  *
- * HOW IT WORKS:
- * 1. All fields from the selected record are rendered as text inputs.
- * 2. bigint values are converted to strings for editing and back to bigint on save.
- * 3. boolean values render as a checkbox.
- * 4. On Save, the modal attempts to call a type-specific update function or a
- *    generic updateRawRecord(type, id, updates) if available on the actor.
- * 5. If no update method is available, a warning toast is shown — no crash.
+ * FLOW:
+ *   1. All fields rendered as inputs; KEY_FIELDS_READONLY are disabled.
+ *   2. Read-only types (sales, notifications, inventory, etc.) disable Save entirely.
+ *   3. On Save, calls the correct mutation for the data type:
+ *      - profiles:      updateProfileFields(profileKey, { ...editableFields })
+ *      - customers:     updateCustomer(id, input)
+ *      - products:      updateProduct(id, input)
+ *      - categories:    updateCategory(id, input)
+ *      - vendors:       updateVendor(vendorId, input)
+ *      - goals:         updateGoalMaster(id, name, description, productBundle)
+ *      - medicalIssues: updateMedicalIssueMaster(id, name, description)
+ *      - all others:    shows "read-only" toast, no save
+ *   4. On success: invalidates the query, closes modal.
+ *   5. On error: shows toast with the error message.
  *
- * FIELD HANDLING:
- * - Text strings → <input type="text" />
- * - Numbers      → <input type="number" />
- * - Booleans     → <input type="checkbox" />
- * - bigints      → <input type="text" /> (user enters a plain number; we convert)
- * - Arrays/Objects → <input type="text" /> (JSON string; advanced editing only)
- *
- * VALIDATION:
- * No strict validation — this is a Super Admin debug tool. The backend will
- * reject invalid values and we surface that error in the toast.
+ * FIELD TYPE HANDLING:
+ *   text strings → <input type="text" />
+ *   numbers      → <input type="number" />
+ *   booleans     → <input type="checkbox" />
+ *   bigints      → <input type="text" /> (user enters plain number)
+ *   arrays/objects → <input type="text" /> (JSON string)
  */
 function EditRecordModal({
   record,
   dataType,
+  profileKey,
+  isReadOnly,
   onClose,
   onSaved,
   diagnosticsEnabled,
 }: EditRecordModalProps) {
-  // Local edit state — all field values as strings for input binding
+  // Local edit state — all field values stored as strings for input binding
   const [editValues, setEditValues] = useState<Record<string, string>>(() => {
     const initial: Record<string, string> = {};
     for (const [key, val] of Object.entries(record)) {
@@ -344,23 +450,28 @@ function EditRecordModal({
 
   const [isSaving, setIsSaving] = useState(false);
 
+  // Mutation hooks — only the ones actually used in handleSave
+  const updateProfileFieldsMutation = useUpdateProfileFields();
+  const updateCustomerMutation = useUpdateCustomer();
+  const updateProductMutation = useUpdateProduct();
+  const updateCategoryMutation = useUpdateCategory();
+  const updateVendorMutation = useUpdateVendor();
+  const updateGoalMasterMutation = useUpdateGoalMaster();
+  const updateMedicalIssueMutation = useUpdateMedicalIssueMaster();
+
   /**
-   * handleSave — attempts to persist the edited values back to the backend.
+   * handleSave — dispatches the correct update mutation for the current dataType.
    *
-   * Strategy (in order):
-   * 1. If the actor has a generic `updateRawRecord(dataType, id, fields)` method,
-   *    call it with the serialised edit values.
-   * 2. Otherwise, show an informational toast explaining that manual editing for
-   *    this data type is not yet wired to a specific backend method.
-   *
-   * This is a scaffolded approach — backend methods can be wired in without
-   * changing the UI by adding them to the actor and making the duck-type check
-   * here succeed.
+   * IMPORTANT DECISIONS:
+   * - Key fields (id, profile_key, created_by, etc.) are NEVER sent in the update payload.
+   *   They are rendered as disabled in the form but omitted from the mutation args.
+   * - bigint fields: user types a plain number string; we convert back to bigint before sending.
+   * - For data types without a wired mutation (sales, orders, etc.), we show a toast and abort.
    */
   const handleSave = useCallback(async () => {
     setIsSaving(true);
 
-    // Resolve the record's primary identifier (id field in various formats)
+    // Resolve the record's primary identifier for logging
     const recordId =
       editValues.id ??
       editValues.profile_key ??
@@ -369,31 +480,208 @@ function EditRecordModal({
 
     if (diagnosticsEnabled) {
       logApi(
-        `[DataInspector] Attempting to save edit for ${dataType} id=${String(recordId)}`,
+        `[DataInspector] Attempting save for ${dataType} id=${String(recordId)}`,
       );
     }
 
     try {
-      // NOTE: Backend generic update support is not yet deployed.
-      // When actor.updateRawRecord(type, id, fields) becomes available in the IDL,
-      // the duck-type check below will succeed and the edit will be persisted.
-      // Until then, the modal shows a warning that the save isn't wired yet.
-      // This prevents the UI from crashing while the feature is in progress.
+      if (isReadOnly) {
+        toast.info("This data type is read-only and cannot be edited here.");
+        onClose();
+        return;
+      }
 
-      // The toast below will be replaced by the actual save logic once
-      // updateRawRecord or type-specific update methods are wired here.
-      toast.warning(
-        `Manual edit for "${dataType}" records is not yet wired to a backend method. The changes were not saved. Contact the developer to wire the update function.`,
-        { duration: 6000 },
-      );
+      // Build a payload of only the non-readonly fields
+      const editableFields: Record<string, string> = {};
+      for (const [key, value] of Object.entries(editValues)) {
+        if (!KEY_FIELDS_READONLY.has(key)) {
+          editableFields[key] = value;
+        }
+      }
+
+      if (dataType === "profiles") {
+        // profiles: call updateProfileFields(profileKey, editableFields)
+        // The profileKey of the record being edited (not the Super Admin's active profile)
+        const targetProfileKey =
+          (record.profile_key as string) ?? profileKey ?? "";
+        if (!targetProfileKey) {
+          toast.error("Cannot update: profile_key is missing from the record.");
+          return;
+        }
+        const ok = await updateProfileFieldsMutation.mutateAsync({
+          profileKey: targetProfileKey,
+          fields: editableFields,
+        });
+        if (ok) {
+          toast.success("Profile updated successfully.");
+        } else {
+          toast.error("Update returned false — profile may not exist.");
+        }
+      } else if (dataType === "customers") {
+        // customers: updateCustomer(id, CustomerInput)
+        const customerId = BigInt(record.id as string | number);
+        // Build the minimum required fields — only send what we have
+        // The Data Inspector allows editing text fields; complex fields
+        // (notes array, goals array) are preserved from the original record
+        const input = {
+          name: editableFields.name ?? (record.name as string) ?? "",
+          phone: editableFields.phone ?? (record.phone as string) ?? "",
+          email: editableFields.email ?? (record.email as string) ?? "",
+          address:
+            editableFields.address ??
+            (record.address as string) ??
+            editableFields.address_line1 ??
+            (record.address_line1 as string) ??
+            "",
+          address_line1:
+            editableFields.address_line1 ??
+            (record.address_line1 as string) ??
+            "",
+          address_line2:
+            editableFields.address_line2 ??
+            (record.address_line2 as string) ??
+            "",
+          city: editableFields.city ?? (record.city as string) ?? "",
+          state: editableFields.state ?? (record.state as string) ?? "",
+          country: editableFields.country ?? (record.country as string) ?? "",
+          pin_code:
+            editableFields.pin_code ?? (record.pin_code as string) ?? "",
+          date_of_birth: editableFields.dob ?? (record.dob as string) ?? "",
+          gender: editableFields.sex ?? (record.sex as string) ?? "",
+          note: editableFields.note ?? (record.note as string) ?? "",
+          referred_by:
+            editableFields.referred_by ?? (record.referred_by as string) ?? "",
+          // Preserve complex fields unchanged from the original record
+          customer_type: record.customer_type,
+          notes: record.notes,
+          goals: record.goals,
+          medical_issues: record.medical_issues,
+        } as Parameters<typeof updateCustomerMutation.mutateAsync>[0]["input"];
+        const ok = await updateCustomerMutation.mutateAsync({
+          id: customerId,
+          input,
+        });
+        if (ok) toast.success("Customer updated.");
+        else toast.error("Update returned false.");
+      } else if (dataType === "products") {
+        // products: updateProduct(id, ProductInput)
+        const productId = BigInt(record.id as string | number);
+        const input = {
+          name: editableFields.name ?? (record.name as string) ?? "",
+          description:
+            editableFields.description ?? (record.description as string) ?? "",
+          category_id: BigInt(
+            editableFields.category_id ?? (record.category_id as string) ?? "0",
+          ),
+          mrp: Number(editableFields.mrp ?? record.mrp ?? 0),
+          cost_price: Number(
+            editableFields.cost_price ?? record.cost_price ?? 0,
+          ),
+          selling_price: Number(
+            editableFields.selling_price ?? record.selling_price ?? 0,
+          ),
+          volume_points: Number(
+            editableFields.volume_points ?? record.volume_points ?? 0,
+          ),
+          barcode: editableFields.barcode ?? (record.barcode as string) ?? "",
+          product_instructions:
+            editableFields.product_instructions ??
+            (record.product_instructions as string) ??
+            "",
+          serving_size:
+            editableFields.serving_size ??
+            (record.serving_size as string) ??
+            "",
+          uom: editableFields.uom ?? (record.uom as string) ?? "",
+          uom_value:
+            editableFields.uom_value ?? (record.uom_value as string) ?? "",
+          sku: editableFields.sku ?? (record.sku as string) ?? "",
+          earn_base: Number(editableFields.earn_base ?? record.earn_base ?? 0),
+          hsn_code:
+            editableFields.hsn_code ?? (record.hsn_code as string) ?? "",
+        };
+        const ok = await updateProductMutation.mutateAsync({
+          id: productId,
+          input,
+        });
+        if (ok) toast.success("Product updated.");
+        else toast.error("Update returned false.");
+      } else if (dataType === "categories") {
+        // categories: updateCategory(id, CategoryInput)
+        const catId = BigInt(record.id as string | number);
+        const input = {
+          name: editableFields.name ?? (record.name as string) ?? "",
+          description:
+            editableFields.description ?? (record.description as string) ?? "",
+        };
+        const ok = await updateCategoryMutation.mutateAsync({
+          id: catId,
+          input,
+        });
+        if (ok) toast.success("Category updated.");
+        else toast.error("Update returned false.");
+      } else if (dataType === "vendors") {
+        // vendors: updateVendor(vendorId, VendorInput)
+        const vendorId = String(record.id ?? record.vendor_id ?? "");
+        if (!vendorId) {
+          toast.error("Cannot update: vendor id is missing.");
+          return;
+        }
+        const input = {
+          name: editableFields.name ?? (record.name as string) ?? "",
+          contact_name:
+            editableFields.contact_name ??
+            (record.contact_name as string) ??
+            "",
+          phone: editableFields.phone ?? (record.phone as string) ?? "",
+          email: editableFields.email ?? (record.email as string) ?? "",
+          address: editableFields.address ?? (record.address as string) ?? "",
+          is_default: editableFields.is_default === "true",
+        };
+        const ok = await updateVendorMutation.mutateAsync({
+          vendorId,
+          input,
+        });
+        if (ok) toast.success("Vendor updated.");
+        else toast.error("Update returned false.");
+      } else if (dataType === "goals") {
+        // goals: updateGoalMaster(id, name, description, productBundle)
+        const goalId = BigInt(record.id as string | number);
+        const ok = await updateGoalMasterMutation.mutateAsync({
+          id: goalId,
+          name: editableFields.name ?? (record.name as string) ?? "",
+          description:
+            editableFields.description ?? (record.description as string) ?? "",
+          productBundle: record.product_bundle as bigint[],
+        });
+        if (ok) toast.success("Goal updated.");
+        else toast.error("Update returned false.");
+      } else if (dataType === "medicalIssues") {
+        // medicalIssues: updateMedicalIssueMaster(id, name, description)
+        const issueId = BigInt(record.id as string | number);
+        const ok = await updateMedicalIssueMutation.mutateAsync({
+          id: issueId,
+          name: editableFields.name ?? (record.name as string) ?? "",
+          description:
+            editableFields.description ?? (record.description as string) ?? "",
+        });
+        if (ok) toast.success("Medical issue updated.");
+        else toast.error("Update returned false.");
+      } else {
+        // All other types (sales, purchaseOrders, inventory, stageInventory, etc.) are read-only
+        toast.info(
+          `"${dataType}" records are read-only. Use the dedicated page to make changes.`,
+        );
+        onClose();
+        return;
+      }
 
       if (diagnosticsEnabled) {
         logDebug(
-          `[DataInspector] Save not wired for ${dataType} — showing user warning`,
+          `[DataInspector] Save succeeded for ${dataType} id=${String(recordId)}`,
         );
       }
 
-      // Still call onSaved so the table refreshes and the user sees current data
       onSaved();
       onClose();
     } catch (err) {
@@ -405,9 +693,25 @@ function EditRecordModal({
     } finally {
       setIsSaving(false);
     }
-  }, [editValues, dataType, onSaved, onClose, diagnosticsEnabled]);
+  }, [
+    editValues,
+    dataType,
+    record,
+    profileKey,
+    isReadOnly,
+    onSaved,
+    onClose,
+    diagnosticsEnabled,
+    updateProfileFieldsMutation,
+    updateCustomerMutation,
+    updateProductMutation,
+    updateCategoryMutation,
+    updateVendorMutation,
+    updateGoalMasterMutation,
+    updateMedicalIssueMutation,
+  ]);
 
-  // Determine the type of a field by looking at the original record value
+  // Determine the HTML input type for a field based on its original record value
   const getInputType = (key: string): "text" | "number" | "checkbox" => {
     const original = record[key];
     if (typeof original === "boolean") return "checkbox";
@@ -427,18 +731,28 @@ function EditRecordModal({
             <span className="text-muted-foreground font-mono text-sm">
               {dataType}
             </span>
+            {isReadOnly && (
+              <span className="ml-2 text-xs font-normal text-muted-foreground bg-muted rounded px-1.5 py-0.5">
+                Read only
+              </span>
+            )}
           </DialogTitle>
         </DialogHeader>
 
-        {/* ── Edit fields ── */}
+        {/* Read-only notice */}
+        {isReadOnly && (
+          <div className="px-1 py-2 rounded-md bg-muted/50 text-xs text-muted-foreground">
+            This data type is read-only. Records can be viewed but not edited
+            from the inspector.
+          </div>
+        )}
+
+        {/* Edit fields */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3 py-2">
           {Object.entries(record).map(([key, originalValue]) => {
             const inputType = getInputType(key);
-            const isReadOnly =
-              key === "id" ||
-              key === "profile_key" ||
-              key === "created_by" ||
-              key === "creation_date";
+            // A field is read-only if it's in the locked set OR if the entire type is read-only
+            const fieldReadOnly = KEY_FIELDS_READONLY.has(key) || isReadOnly;
 
             return (
               <div key={key} className="flex flex-col gap-1 min-w-0">
@@ -447,7 +761,7 @@ function EditRecordModal({
                   className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium"
                 >
                   {key}
-                  {isReadOnly && (
+                  {KEY_FIELDS_READONLY.has(key) && (
                     <span className="ml-1 text-[10px] text-muted-foreground/60 normal-case tracking-normal">
                       (read-only)
                     </span>
@@ -455,13 +769,12 @@ function EditRecordModal({
                 </Label>
 
                 {inputType === "checkbox" ? (
-                  /* Boolean field — render as checkbox */
                   <div className="flex items-center gap-2 h-9">
                     <input
                       id={`edit-field-${key}`}
                       type="checkbox"
                       checked={editValues[key] === "true"}
-                      disabled={isReadOnly}
+                      disabled={fieldReadOnly}
                       onChange={(e) =>
                         setEditValues((prev) => ({
                           ...prev,
@@ -476,13 +789,12 @@ function EditRecordModal({
                     </span>
                   </div>
                 ) : (
-                  /* Text / number field */
                   <Input
                     id={`edit-field-${key}`}
                     type={inputType}
                     value={editValues[key]}
-                    readOnly={isReadOnly}
-                    disabled={isReadOnly}
+                    readOnly={fieldReadOnly}
+                    disabled={fieldReadOnly}
                     onChange={(e) =>
                       setEditValues((prev) => ({
                         ...prev,
@@ -490,7 +802,7 @@ function EditRecordModal({
                       }))
                     }
                     className={`h-8 text-xs font-mono ${
-                      isReadOnly ? "opacity-50 cursor-not-allowed" : ""
+                      fieldReadOnly ? "opacity-50 cursor-not-allowed" : ""
                     }`}
                     title={
                       typeof originalValue === "bigint"
@@ -520,10 +832,10 @@ function EditRecordModal({
           <Button
             size="sm"
             onClick={handleSave}
-            disabled={isSaving}
+            disabled={isSaving || isReadOnly}
             data-ocid="data_inspector.edit_save_button"
           >
-            {isSaving ? "Saving…" : "Save changes"}
+            {isSaving ? "Saving…" : isReadOnly ? "Read only" : "Save changes"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -539,6 +851,8 @@ interface DataTableProps {
   isError: boolean;
   onRefresh: () => void;
   dataType: DataType;
+  profileKey: string | null;
+  isReadOnly: boolean;
   diagnosticsEnabled: boolean;
 }
 
@@ -546,8 +860,11 @@ interface DataTableProps {
  * DataTable — the main records table with search, expand-row, edit, and CSV export.
  *
  * Each row can be:
- * - Clicked to expand/collapse the full RowDetail panel
- * - Edited via the Pencil icon button (opens EditRecordModal)
+ *   - Clicked to expand/collapse the full RowDetail panel below
+ *   - Edited via the Pencil icon button (opens EditRecordModal)
+ *
+ * The Pencil icon is always shown so Super Admin can inspect any record;
+ * the EditRecordModal itself disables Save when the type is read-only.
  */
 function DataTable({
   records,
@@ -555,16 +872,21 @@ function DataTable({
   isError,
   onRefresh,
   dataType,
+  profileKey,
+  isReadOnly,
   diagnosticsEnabled,
 }: DataTableProps) {
+  // Current search filter string
   const [search, setSearch] = useState("");
+  // Which row index is currently expanded (null = none)
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
-  // Which record is currently open in the edit modal (null = none)
+  // Which record is open in the edit modal (null = none)
   const [editingRecord, setEditingRecord] = useState<Record<
     string,
     unknown
   > | null>(null);
 
+  // Filter records by search string — matches any field value
   const filtered = useMemo(() => {
     if (!search.trim()) return records;
     const q = search.toLowerCase();
@@ -573,6 +895,7 @@ function DataTable({
     );
   }, [records, search]);
 
+  // Derive column list from the first record (max 8 columns for readability)
   const columns = useMemo(() => getTableColumns(filtered), [filtered]);
 
   const handleExport = useCallback(() => {
@@ -589,7 +912,7 @@ function DataTable({
 
   const handleEditClick = useCallback(
     (e: React.MouseEvent, record: Record<string, unknown>) => {
-      // Stop click from propagating to the row toggle
+      // Stop propagation so the row toggle doesn't also fire
       e.stopPropagation();
       if (diagnosticsEnabled) {
         const id = record.id ?? record.profile_key ?? "?";
@@ -643,7 +966,7 @@ function DataTable({
         </Button>
       </div>
 
-      {/* States */}
+      {/* Loading state */}
       {isLoading && (
         <div data-ocid="data_inspector.loading_state" className="space-y-2">
           {Array.from({ length: 5 }).map((_, i) => (
@@ -653,6 +976,7 @@ function DataTable({
         </div>
       )}
 
+      {/* Error state */}
       {isError && !isLoading && (
         <div
           data-ocid="data_inspector.error_state"
@@ -669,6 +993,7 @@ function DataTable({
         </div>
       )}
 
+      {/* Empty state */}
       {!isLoading && !isError && filtered.length === 0 && (
         <div
           data-ocid="data_inspector.empty_state"
@@ -681,6 +1006,7 @@ function DataTable({
         </div>
       )}
 
+      {/* Records table */}
       {!isLoading && !isError && filtered.length > 0 && (
         <div className="rounded-lg border border-border overflow-auto">
           <Table>
@@ -763,7 +1089,7 @@ function DataTable({
                       })}
                     </TableRow>
 
-                    {/* Expanded detail panel — shown below the row when expanded */}
+                    {/* Expanded detail panel — shown below the row */}
                     {expandedRow === i && (
                       <TableRow
                         key={`${rowKey}-detail`}
@@ -787,6 +1113,8 @@ function DataTable({
         <EditRecordModal
           record={editingRecord}
           dataType={dataType}
+          profileKey={profileKey}
+          isReadOnly={isReadOnly}
           onClose={() => setEditingRecord(null)}
           onSaved={onRefresh}
           diagnosticsEnabled={diagnosticsEnabled}
@@ -801,33 +1129,33 @@ function DataTable({
 /**
  * useDataForType — maps a DataType key to its corresponding React Query result.
  *
- * NOTIFICATION NOTE (important):
- * The "notifications" type uses useGetSuperAdminNotifications() — NOT the regular
- * useGetNotifications(profileKey, role). This is because the Data Inspector is a
- * Super Admin tool and system notifications (new profile approvals, etc.) are stored
- * with profile_key = "superadmin" (sentinel) — they are NOT visible via the
- * profile-scoped getNotifications() query.
+ * NOTIFICATION SCOPING (CRITICAL):
+ * The "notifications" type calls useGetSuperAdminNotifications() — NOT
+ * useGetNotifications(profileKey, role). This is because:
+ *   - System notifications (new profile pending approval) are stored with
+ *     profile_key = "superadmin" (sentinel value) — they are NOT profile-scoped.
+ *   - getSuperAdminNotifications() returns ALL notifications with that sentinel key,
+ *     regardless of which profile the Super Admin currently has selected.
+ *   - Using useGetNotifications(profileKey, "admin") here would NEVER return those
+ *     system notifications because the profile_key wouldn't match.
  *
- * USER NOTE:
- * The "users" type requires a profileKey to be set (Super Admin must have an active
- * profile selected) — it fetches users via getAllUsersRaw(profileKey) with a fallback
- * to getUsersByProfile(profileKey).
+ * SUPER ADMIN DATA FILTRATION:
+ * Super Admin sees ALL records — no profileKey filter is applied to global types.
+ * Profile-scoped types (vendors, goals, medicalIssues, users, stageInventory)
+ * still accept a profileKey argument — they will return empty if none is selected.
  *
- * PROFILE NOTE:
- * The "profiles" type uses getAllProfilesRaw() with a fallback to getAllProfilesForAdmin()
- * — no profileKey required.
+ * @param dataType  - the selected data type
+ * @param profileKey - the currently active profile (null if Super Admin has none selected)
  */
 function useDataForType(dataType: DataType, profileKey: string | null) {
+  // Global types — no profileKey filter applied (Super Admin sees ALL records)
   const customers = useGetCustomers();
   const sales = useGetSales();
 
   /**
-   * CRITICAL: Use useGetSuperAdminNotifications() — NOT useGetNotifications().
-   * Regular notifications are profile-scoped (profileKey + role filter).
-   * Super Admin system notifications use profile_key = "superadmin" (sentinel)
-   * and are only returned by getSuperAdminNotifications(). If we used
-   * useGetNotifications(profileKey, "admin") here, we would NEVER see the
-   * system notifications, because they are stored with a different profile_key.
+   * CRITICAL: Always use useGetSuperAdminNotifications() for the notifications type.
+   * Never use useGetNotifications(profileKey, role) here — it would filter out
+   * system notifications that use the "superadmin" sentinel profile_key.
    */
   const notifications = useGetSuperAdminNotifications();
 
@@ -835,18 +1163,25 @@ function useDataForType(dataType: DataType, profileKey: string | null) {
   const products = useGetProducts();
   const categories = useGetCategories();
   const purchaseOrders = useGetPurchaseOrders();
+
+  // Profile-scoped types — profileKey required; Super Admin selects an active profile
   const vendors = useGetVendors(profileKey);
   const goals = useGetGoalMasterData(profileKey);
   const medicalIssues = useGetMedicalIssueMasterData(profileKey);
-  // Body composition requires a customerId — shows empty in global view (no customer selected)
+
+  // Body composition requires a customerId — empty in global view (no customer selected)
   const bodyComp = useGetBodyCompositionHistory(null);
+
   const stageInventory = useGetStagedInventory(profileKey);
   const leads = useGetLeads();
-  // Super Admin raw user list — uses getAllUsersRaw (falls back to getUsersByProfile)
-  const users = useGetAllUsersRaw(profileKey);
-  // Super Admin raw profile list — uses getAllProfilesRaw (falls back to getAllProfilesForAdmin)
+
+  // Super Admin raw user list — uses getAllUsersForAdmin (falls back to getUsersByProfile)
+  const users = useGetAllUsersForAdmin();
+
+  // Super Admin raw profile list — uses getAllProfilesRaw (no profileKey needed)
   const profiles = useGetAllProfilesRaw();
 
+  // Map DataType → query result
   const map = {
     customers,
     sales,
@@ -873,26 +1208,34 @@ function useDataForType(dataType: DataType, profileKey: string | null) {
 /**
  * DataInspectorPage — the Super Admin raw data browser.
  *
- * Layout:
- * - Left sidebar: scrollable list of all 15 data types as clickable buttons
- * - Right panel: Card containing the DataTable for the selected type
+ * LAYOUT:
+ *   Left sidebar → scrollable list of all 15 data types as clickable buttons
+ *   Right panel  → Card containing the DataTable for the selected type
  *
- * The page reads profileKey from ProfileContext — Super Admin must select an active
- * profile to see profile-scoped data (vendors, users, goals, medical issues).
- * Profile-independent types (notifications, products, sales, etc.) work without
- * a selected profile.
+ * PROFILE CONTEXT:
+ *   Super Admin must select an active profile to see profile-scoped data
+ *   (vendors, users, goals, medical issues, stage inventory).
+ *   Profile-independent types (notifications, products, sales, etc.) work without
+ *   a selected profile.
+ *
+ * DATA ORDER:
+ *   Records are returned in the order the backend provides them. The table
+ *   displays records in descending order by date when the backend supports it.
+ *   Super Admin can use the search bar to filter any field.
  */
 export function DataInspectorPage() {
   const { profile } = useProfile();
   const { diagnosticsEnabled } = useUserPreferences();
+  // profileKey is used for profile-scoped types; null = Super Admin has no active profile
   const profileKey = profile?.profile_key ?? null;
 
+  // Currently selected data type — defaults to customers
   const [selectedType, setSelectedType] = useState<DataType>("customers");
 
   // Log page load to diagnostics
   useEffect(() => {
     if (diagnosticsEnabled) {
-      logNav(
+      logDebug(
         `[DataInspector] Page loaded — profileKey=${profileKey ?? "none"}`,
       );
     }
@@ -912,7 +1255,7 @@ export function DataInspectorPage() {
   useEffect(() => {
     if (!diagnosticsEnabled) return;
     if (isLoading) {
-      logApi(`[DataInspector] Loading ${selectedType}...`);
+      logDebug(`[DataInspector] Loading ${selectedType}...`);
     } else if (isError) {
       logError(`[DataInspector] Error loading ${selectedType}`);
     } else if (data) {
@@ -932,6 +1275,8 @@ export function DataInspectorPage() {
   }, [data]);
 
   const selectedConfig = DATA_TYPES.find((d) => d.key === selectedType)!;
+  // Whether the currently selected type is read-only (Save will be disabled)
+  const isReadOnly = selectedConfig.readOnly === true;
 
   // Log type selection to diagnostics
   const handleTypeSelect = useCallback(
@@ -956,7 +1301,8 @@ export function DataInspectorPage() {
             Data Inspector
           </h1>
           <p className="text-xs text-muted-foreground">
-            Browse raw backend records — Super Admin only
+            Browse and edit raw backend records — Super Admin only · All data,
+            no filtration
           </p>
         </div>
       </div>
@@ -986,6 +1332,11 @@ export function DataInspectorPage() {
                       }`}
                     >
                       {dt.label}
+                      {dt.readOnly && (
+                        <span className="ml-1.5 text-[9px] font-mono text-muted-foreground/60 bg-muted rounded px-1">
+                          RO
+                        </span>
+                      )}
                     </button>
                   </li>
                 ))}
@@ -1003,7 +1354,7 @@ export function DataInspectorPage() {
                   {selectedConfig.label}
                 </CardTitle>
                 <div className="flex items-center gap-2 flex-wrap">
-                  {/* Special context badges for types that need extra setup */}
+                  {/* Context badges */}
                   {selectedType === "bodyComposition" && (
                     <Badge variant="outline" className="text-[10px]">
                       Requires customer context
@@ -1022,9 +1373,17 @@ export function DataInspectorPage() {
                       System notifications only
                     </Badge>
                   )}
+                  {isReadOnly && (
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] text-muted-foreground"
+                    >
+                      Read only
+                    </Badge>
+                  )}
                 </div>
               </div>
-              {/* Show query note if available (explains which backend method is used) */}
+              {/* Query note explaining which backend method is used */}
               {selectedConfig.queryNote && (
                 <p className="text-[10px] text-muted-foreground mt-1">
                   {selectedConfig.queryNote}
@@ -1038,6 +1397,8 @@ export function DataInspectorPage() {
                 isError={isError}
                 onRefresh={refetch}
                 dataType={selectedType}
+                profileKey={profileKey}
+                isReadOnly={isReadOnly}
                 diagnosticsEnabled={diagnosticsEnabled}
               />
             </CardContent>

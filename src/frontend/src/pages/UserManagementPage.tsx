@@ -1,3 +1,56 @@
+/*
+ * PAGE: UserManagementPage
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Admin team member management. Shows all users in the profile, handles
+ *   Staff and Referral User approval/rejection, and allows setting per-module
+ *   permissions and toggling active/inactive status per user.
+ *
+ * ROLE ACCESS:
+ *   admin only — superAdmin sees this when impersonating Admin role
+ *
+ * FLOW:
+ *   1. Mount / initialization
+ *      ├─ profileKey from ProfileContext
+ *      ├─ useGetUsersByProfile(profileKey) → all users in this profile
+ *      └─ useGetPendingApprovalUsers(profileKey) → users awaiting approval
+ *   2. Pending Approvals section
+ *      ├─ shown when pendingApprovalUsers.length > 0
+ *      ├─ each row: user name, email, role (Staff / Referral), Approve/Reject buttons
+ *      ├─ Approve → useApproveUser.mutateAsync({ userId, approved: true })
+ *      │    └─ user gains access, notification sent to them
+ *      └─ Reject → useApproveUser.mutateAsync({ userId, approved: false })
+ *           └─ user remains locked out
+ *   3. Team Members list
+ *      ├─ Loading → skeleton rows
+ *      └─ Data → table: name, email, role badge, active status switch, permissions button
+ *   4. Module Permissions
+ *      ├─ "Permissions" button on each user row → opens PermissionsDialog
+ *      ├─ checkboxes: Customers, Sales, Products, Purchase Orders, Inventory
+ *      ├─ useAssignUserRole.mutateAsync({ targetUserId, newRole, profileKey })
+ *      └─ success → toast + user list refetch
+ *   5. Active / Inactive toggle
+ *      ├─ Switch on each user row
+ *      └─ useAssignUserRole (or a dedicated updateUserActive call)
+ *   6. Join Link sharing
+ *      ├─ "Copy Join Link" button copies the profile join URL to clipboard
+ *      └─ link contains the profileKey so the invitee can join directly
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VARIABLES INITIALIZED:
+ *   - permissionsDialogUser: UserProfilePublic | null  // user being edited
+ *   - helpOpen: boolean = false                        // HelpPanel state
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SIDE EFFECTS (useEffect):
+ *   none
+ * ─────────────────────────────────────────────────────────────────────────────
+ * KEY HANDLERS:
+ *   - handleApproveUser: approves pending Staff/Referral user
+ *   - handleRejectUser: rejects pending user (stays locked out)
+ *   - handlePermissionsSave: saves module permissions for a user
+ *   - handleCopyJoinLink: copies profile join URL to clipboard
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 import { HelpPanel } from "@/components/HelpPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

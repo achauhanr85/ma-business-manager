@@ -1,3 +1,58 @@
+/*
+ * PAGE: VendorsPage
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Vendor (supplier) management. Admin can add, edit, and delete vendors for the
+ *   active profile. Vendors are used in Purchase Orders for supplier tracking.
+ *
+ * ROLE ACCESS:
+ *   admin, superAdmin (impersonating) — staff view only
+ *
+ * FLOW:
+ *   1. Mount / initialization
+ *      ├─ profileKey resolved: ImpersonationContext.activeProfileKey if set,
+ *      │    else ProfileContext.profile.profile_key
+ *      └─ useGetVendors(profileKey) → loads vendor list for this profile
+ *   2. Vendor list rendering
+ *      ├─ Loading → skeleton cards
+ *      ├─ Empty → "No vendors yet" empty state with Add Vendor button
+ *      └─ Data → list of vendor cards with name, contact, phone, email, address
+ *           ├─ Default badge shown on is_default === true vendor
+ *           ├─ Edit button → opens VendorDialog pre-filled
+ *           └─ Delete button → AlertDialog confirmation
+ *   3. Create Vendor
+ *      ├─ "Add Vendor" button → VendorDialog opens with empty form
+ *      ├─ fields: name, contact_name, phone, email, address, is_default
+ *      ├─ useCreateVendor.mutateAsync({ input, profileKey })
+ *      └─ success → toast + list refetches
+ *   4. Edit Vendor
+ *      ├─ Pencil icon → VendorDialog opens pre-filled with existing values
+ *      ├─ useUpdateVendor.mutateAsync({ vendorId, input })
+ *      └─ success → toast + list refetches
+ *   5. Delete Vendor
+ *      ├─ Trash icon → AlertDialog confirmation
+ *      ├─ useDeleteVendor.mutateAsync(vendorId)
+ *      └─ success → toast + list refetches
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VARIABLES INITIALIZED:
+ *   - dialogOpen: boolean = false          // VendorDialog open/closed
+ *   - editingVendor: Vendor | null         // null = create, object = edit
+ *   - deleteTarget: string | null          // vendor id pending delete confirm
+ *   - form: VendorInput = EMPTY_FORM       // form field values
+ *   - searchQuery: string = ""             // search filter on vendor list
+ *   - profileKey: string                   // impersonation-aware profile key
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SIDE EFFECTS (useEffect):
+ *   none
+ * ─────────────────────────────────────────────────────────────────────────────
+ * KEY HANDLERS:
+ *   - handleOpenCreate: clears form, opens dialog
+ *   - handleOpenEdit: fills form with vendor data, opens dialog
+ *   - handleDelete: AlertDialog confirm → useDeleteVendor
+ *   - VendorDialog.handleSubmit: create or update based on editingVendor
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 import {
   AlertDialog,
   AlertDialogAction,

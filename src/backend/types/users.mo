@@ -1,17 +1,32 @@
 /*
- * types/users.mo — User Profile and Preferences Type Definitions
- *
- * WHAT THIS FILE DOES:
+ * FILE: types/users.mo
+ * MODULE: type
+ * ─────────────────────────────────────────────────────────────────────
+ * PURPOSE:
  *   Defines the data shapes for user records in the system:
  *     - UserProfile: full internal record for a user (includes who-columns)
  *     - UserProfileInput: what the frontend sends when updating a user
  *     - UserProfilePublic: what gets returned to the frontend (no who-columns)
- *     - UserPreferences: fast pre-render query result for language/theme/format settings
+ *     - UserPreferences: fast pre-render query result for language/theme/format/diagnostics settings
  *     - ApprovalStatus: typed variant for pending/approved/rejected states
  *
- * WHO USES IT:
- *   lib/profile.mo, mixins/profile-api.mo, and many other modules that look up
- *   the caller's role or profile_key.
+ * FLOW:
+ *   On every authenticated call: mixin reads userStore.get(caller) → UserProfile
+ *   On login: getUserPreferences() → UserPreferences (pre-render, no flash-to-English)
+ *   On preference save: updateUserPreferences() → persists language/theme/diagnosticsLevel
+ *
+ * DEPENDENCIES:
+ *   imports: types/common.mo
+ *   called by: lib/profile.mo, mixins/profile-api.mo, lib/sales.mo, lib/customers.mo,
+ *              lib/catalog.mo, lib/inventory.mo, lib/purchases.mo, lib/vendors.mo,
+ *              lib/customer-goals-medical.mo, lib/customer-notes.mo
+ *   calls: types/common.mo (UserId, ProfileKey, etc.)
+ *
+ * KEY TYPES:
+ *   UserProfile       — full internal record per user principal (stored in userStore)
+ *   UserProfilePublic — public projection (no who-columns, returned to frontend)
+ *   UserProfileInput  — input accepted from frontend for updates
+ *   UserPreferences   — fast pre-render query (language, theme, dateFormat, diagnosticsLevel)
  *
  * IMPORTANT — Language Loading:
  *   getUserPreferences() (in lib/profile.mo) returns the stored language BEFORE
@@ -23,6 +38,12 @@
  *   New Staff and Referral Users start with approval_status = "pending".
  *   They are blocked from accessing the app until Admin approves them.
  *   The blocking is done in lib/profile.mo getRoutingStatus() → returns #pending_approval.
+ *
+ * IMPORTANT — Diagnostics Level:
+ *   diagnosticsLevel is a Nat (0-4) controlling the log verbosity in the frontend:
+ *     0 = TRACE (most verbose), 1 = DEBUG, 2 = INFO (default), 3 = WARN, 4 = ERROR
+ *   Only stored and returned when diagnostics is enabled in preferences.
+ * ─────────────────────────────────────────────────────────────────────
  */
 
 import Common "common";
@@ -58,6 +79,9 @@ module {
     date_format : Text;                      // e.g. "DD/MM/YYYY", "MM/DD/YYYY", "YYYY-MM-DD"
     default_receipt_language : Text;         // BCP-47 language code for generated receipts, default "en"
     theme : Text;                            // UI theme name: "dark" | "minimalist" | "herbal" | "punk", default "dark"
+    // Diagnostics level: 0=TRACE, 1=DEBUG, 2=INFO (default), 3=WARN, 4=ERROR
+    // Only used when diagnostics is enabled in preferences. Valid range: 0-4.
+    diagnostics_level : Nat;
 
     // Who-columns
     created_by : Common.UserId;
@@ -80,6 +104,8 @@ module {
     date_format : ?Text;
     default_receipt_language : ?Text;
     theme : ?Text;                       // UI theme: "dark" | "minimalist" | "herbal" | "punk"
+    // Diagnostics level 0-4 (0=TRACE,1=DEBUG,2=INFO,3=WARN,4=ERROR). null = use default (2)
+    diagnostics_level : ?Nat;
   };
 
   // Public projection
@@ -99,16 +125,23 @@ module {
     date_format : Text;
     default_receipt_language : Text;
     theme : Text;                        // UI theme name
+    // Diagnostics level 0-4 (0=TRACE,1=DEBUG,2=INFO,3=WARN,4=ERROR). Default=2 (INFO).
+    diagnostics_level : Nat;
   };
 
   // ── UserPreferences ───────────────────────────────────────────────────────────
   // Returned by getUserPreferences() — a fast, pre-render query so the frontend
   // never falls back to "en" after a user has explicitly saved a different language.
+  // Also returns diagnosticsLevel so the frontend diagnostics panel can apply the
+  // user's saved log verbosity level immediately on load.
   public type UserPreferences = {
     language : Text;               // BCP-47 language code, e.g. "en", "hi", "gu"
     dateFormat : Text;             // e.g. "DD/MM/YYYY"
     defaultReceiptLanguage : Text; // BCP-47 language code for generated receipts
     whatsappNumber : Text;         // WhatsApp number mapped to this user
     theme : Text;                  // UI theme: "dark" | "minimalist" | "herbal" | "punk"
+    // Diagnostics level: 0=TRACE, 1=DEBUG, 2=INFO (default), 3=WARN, 4=ERROR
+    // The frontend diagnostics panel respects this value to filter log output.
+    diagnosticsLevel : Nat;
   };
 };

@@ -1,26 +1,43 @@
 /*
- * types/profile.mo — Business Profile Type Definitions
+ * FILE: types/profile.mo
+ * MODULE: type
+ * ─────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Defines the data shapes for business profile records.
  *
- * WHAT THIS FILE DOES:
- *   Defines the data shapes for business profile records:
- *     - Profile: full internal record (includes who-columns, governance fields)
- *     - ProfileInput: what the frontend sends when creating/updating a profile
- *     - ProfilePublic: what gets returned to the frontend (no who-columns)
- *     - ProfileStatus: governance snapshot (is_enabled, approval status, window)
- *     - ProfileApprovalStatus: variant for pending/approved/suspended
- *     - ProfileAccessError: errors from checkProfileAccess() (used as gate before transactions)
+ * FLOW:
+ *   PAGE: Create Profile
+ *     Frontend sends ProfileInput → backend stores as Profile{status=#pending_super_admin_approval}
+ *     Super Admin later approves → status changes to #approved
  *
- * WHO USES IT:
- *   lib/profile.mo (all profile write logic)
- *   mixins/profile-api.mo (public API)
- *   lib/sales.mo, lib/purchases.mo (check profile access before creating orders)
+ *   PAGE: Super Admin Dashboard / Data Inspector
+ *     Backend returns ProfilePublic (no who-columns) for all list/query calls
+ *     Super Admin can update via ProfileUpdateInput (partial update, all fields optional)
+ *
+ *   PAGE: Governance Gate (every transaction)
+ *     lib/profile.mo checks: profile_approval_status == #approved AND is_enabled == true
+ *     AND start_date <= now <= end_date (if set)
+ *     Failure returns ProfileAccessError variant used by front-end to show correct message
+ *
+ * DEPENDENCIES:
+ *   imports: types/common.mo
+ *   called by: lib/profile.mo, mixins/profile-api.mo, lib/sales.mo, lib/purchases.mo
+ *
+ * KEY TYPES:
+ *   Profile              — full internal record (in profileStore, Map<ProfileKey, Profile>)
+ *   ProfilePublic        — public projection returned to frontend (no who-columns)
+ *   ProfileInput         — frontend → backend create/update payload
+ *   ProfileUpdateInput   — partial update payload for Data Inspector (all fields optional)
+ *   ProfileApprovalStatus — variant: #pending_super_admin_approval | #approved | #suspended
+ *   ProfileStatus        — governance snapshot (is_enabled, approval, window dates)
+ *   ProfileAccessError   — error variant for checkProfileAccess gate
  *
  * GOVERNANCE MODEL:
  *   New profiles start as #pending_super_admin_approval.
  *   Super Admin must approve → #approved before the profile can transact.
  *   Super Admin can also suspend (#suspended) or re-approve at any time.
- *   is_enabled / start_date / end_date provide a secondary governance window
- *   that Super Admin can use to time-limit a profile's activity.
+ *   is_enabled / start_date / end_date provide a secondary governance window.
+ * ─────────────────────────────────────────────────────────────────────
  */
 
 import Common "common";
@@ -97,6 +114,23 @@ module {
     theme_color : Text;
     receipt_notes : Text;        // Rich-text notes printed on customer receipts
     instagram_handle : Text;     // Instagram account handle (without @)
+  };
+
+  // Partial update input for the Data Inspector — Super Admin only.
+  // All fields are optional; omit any field to keep its existing value.
+  // Key/ID fields (profile_key, owner, created_by, creation_date) are NEVER accepted here.
+  // last_updated_by and last_update_date are auto-populated by the backend.
+  public type ProfileUpdateInput = {
+    business_name : ?Text;
+    phone_number : ?Text;
+    business_address : ?Text;
+    fssai_number : ?Text;
+    email : ?Text;
+    logo_url : ?Text;
+    theme_color : ?Text;
+    receipt_notes : ?Text;
+    instagram_handle : ?Text;
+    is_enabled : ?Bool;          // Governance toggle — true=enabled, false=disabled
   };
 
   // Public projection — never exposes internal who-columns to untrusted callers

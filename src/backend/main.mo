@@ -1,20 +1,65 @@
 // main.mo — Composition Root
 //
-// WHAT THIS FILE DOES:
-//   This is the entry point of the entire backend. It does three things:
-//     1. Declares all the in-memory data stores (think of them as database tables)
-//     2. Wires those stores into each domain module (called "mixins") that provides the public API
-//     3. Runs a recurring background timer every 6 hours for notification checks
+// FILE: main.mo
+// MODULE: main
+// ─────────────────────────────────────────────────────────────────────
+// PURPOSE:
+//   This is the entry point of the entire backend canister. It owns all
+//   in-memory data stores and wires them into domain mixins. Zero business logic lives here.
 //
-// WHO USES IT:
-//   The Internet Computer runtime loads this file as the canister actor.
-//   All frontend API calls arrive here via the public functions exposed by the mixins.
+// FLOW:
+//   CANISTER START:
+//     1. All Map stores are initialized (empty)
+//     2. LocationMasterLib.seedIfEmpty() pre-populates Indian States/Cities/Countries
+//     3. Background timer registered (6-hour recurring tick)
+//
+//   EVERY AUTHENTICATED REQUEST:
+//     Frontend calls a public function → dispatched to the owning mixin
+//     Mixin reads/writes the stores it received as parameters
+//     No direct state access from main.mo after initialization
+//
+//   BACKGROUND TICK (every 6 hours):
+//     1. Remind Super Admin of pending profile approvals
+//     2. Run overdue-payment + 20-day follow-up checks per profile
+//     3. Silent 3-month customer inactivity update
+//     4. Lead follow-up due alerts to Admin
+//
+//   initSuperAdmin / claimSuperAdmin:
+//     The FIRST caller of initSuperAdmin() becomes Super Admin (principal locked in).
+//     Subsequent calls by the same principal refresh the SA user record.
+//     Other principals cannot claim SA.
+//
+// DEPENDENCIES:
+//   imports: mo:core/Map, mo:core/Runtime, mo:core/Time, mo:core/Timer
+//            lib/* (all domain libs), mixins/* (all API mixins), types/common, types/users
+//   calls: LocationMasterLib.seedIfEmpty, NotificationsLib.check*
+//
+// STORES (18 total):
+//   profileStore, userStore           — profile/user management (ProfileApi)
+//   categoryStore, productStore       — catalog (CatalogApi)
+//   customerStore, bodyCompositionStore — customers (CustomersApi)
+//   batchStore, movementStore         — inventory (InventoryApi)
+//   saleStore, saleItemStore          — sales (SalesApi)
+//   poStore, poItemStore              — purchase orders (PurchasesApi)
+//   vendorStore                       — vendors (VendorsApi)
+//   locationMasterStore               — location dropdowns (LocationMasterApi)
+//   notificationsStore                — all notifications (NotificationsApi + ProfileApi)
+//   goalStore, medicalIssueStore, bodyInchesStore — LEGACY goals (GoalsApi)
+//   goalMasterStore, medicalIssueMasterStore, bodyInchesStore2, customerNoteStore — ACTIVE goals
+//   customerNotesStore                — V2 notes (CustomerNotesApi)
+//   leadStore                         — marketing leads (LeadsApi)
 //
 // ARCHITECTURE NOTE — multi-file split:
 //   This file contains ZERO business logic. All logic lives in:
 //     lib/*.mo    → pure domain logic (no async, no caller checks)
 //     mixins/*.mo → public API layer (caller auth, ID counters, delegates to lib/)
 //     types/*.mo  → data shape definitions
+//
+// DIAGNOSTICS:
+//   Users can enable diagnostics in Preferences (diagnostics_level: 0-4).
+//   The frontend writes logs to the diagnostics panel for every API call, navigation
+//   event, and auth event — but ONLY when diagnostics is enabled.
+//   Levels: 0=TRACE, 1=DEBUG, 2=INFO (default), 3=WARN, 4=ERROR
 //
 // ACTIVE GOAL/MEDICAL SYSTEM:
 //   There are TWO goal/medical module pairs in this project:
@@ -24,6 +69,7 @@
 //   The legacy system's public functions (getGoalMasterData, createGoalMaster, etc.)
 //   are still exposed to avoid breaking any call that may reference them.
 //   See lib/goals.mo and mixins/goals-api.mo for full deprecation notes.
+// ─────────────────────────────────────────────────────────────────────
 
 import Map "mo:core/Map";
 import Runtime "mo:core/Runtime";
@@ -67,11 +113,17 @@ import CustomerGoalsMedicalApi "mixins/customer-goals-medical-api";
 import CustomerNotesApi "mixins/customer-notes-api";
 import LeadsApi "mixins/leads-api";
 
+// ── Migration import ──────────────────────────────────────────────────────────
+// Handles the userStore schema change: adds diagnostics_level field to UserProfile
+// with default value 2 (INFO) for all existing users on canister upgrade.
+import Migration "migration";
+
 // ── Shared type imports ───────────────────────────────────────────────────────
 import Common "types/common";
 import UserTypes "types/users";
 
 
+(with migration = Migration.run)
 actor {
 
   // ── Profile and User stores ───────────────────────────────────────────────
@@ -292,7 +344,9 @@ actor {
           language_preference = "en";
           date_format = "DD/MM/YYYY";
           default_receipt_language = "en";
-          theme = "dark";
+          theme = "herbal";
+          // Diagnostics default: 2 = INFO
+          diagnostics_level = 2;
           created_by = principal;
           last_updated_by = principal;
           creation_date = now;

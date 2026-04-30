@@ -1,33 +1,48 @@
 /**
  * Header.tsx — Sticky top bar shown on every authenticated page.
  *
- * WHAT THIS FILE DOES:
- * The header contains:
- *   - Left: hamburger menu toggle (mobile only) + app logo + page title
- *   - Right: quick-action icon buttons + notification bell + help icon + user name
+ * ═══════════════════════════════════════════════════════════════════════════
+ * PAGE FLOW
+ * ═══════════════════════════════════════════════════════════════════════════
  *
- * QUICK-ACTION ICONS:
- * Each icon is only shown if the user has access to that module. The icons are:
- *   Home        — always visible, navigates to /dashboard
- *   Inventory   — visible if user has inventory module access
- *   Customer    — visible if user has customer module access
- *   PO          — visible if user has purchase order module access
- *   Sale        — visible if user has sales module access
- *   Notification bell — always visible, shows unread count badge
- *   Help        — always visible, opens the help panel
- *   User name   — always visible, shows the logged-in user's display name (NOT profile name)
+ * RENDER FLOW:
+ *   1. useGetUserProfile() — freshest data from React Query
+ *   2. Falls back to useProfile() context value (may be slightly stale)
+ *   3. resolvedProfile = userProfileData ?? userProfile
+ *   4. Derive displayName, role, moduleAccess from resolvedProfile
+ *   5. isSuperAdmin + isImpersonating → showOperationalIcons computed
+ *   6. hasModuleAccess() called for each quick-action icon
+ *   7. Icons rendered conditionally based on access
  *
- * Super Admin: all operational icons are hidden UNLESS they are currently impersonating.
- * This prevents Super Admin from accidentally navigating to data pages from their own dashboard.
+ * PERMISSION CHECK FLOW (hasModuleAccess):
+ *   role === ADMIN or SUPER_ADMIN → always true (full access)
+ *   role === STAFF → parse moduleAccess JSON or CSV string → check module key
+ *   role === REFERRAL_USER → covered by Sidebar (only Customers accessible)
+ *
+ * SUPER ADMIN ICON VISIBILITY FLOW:
+ *   isSuperAdmin + !isImpersonating → showOperationalIcons = false
+ *     → all create/action icons hidden (SA uses their own dashboard)
+ *   isSuperAdmin + isImpersonating → showOperationalIcons = true
+ *     → SA sees the same icons as the impersonated role
+ *
+ * NAVIGATION FLOW:
+ *   User clicks quick-action icon → nav(path) called
+ *   → onNavigate(path) prop called → router navigates
+ *
+ * DIAGNOSTIC LOGGING:
+ *   TRACE (0): variable initialization (displayName, role, permissions)
+ *   DEBUG (1): function entry, nav() called with path
+ *   WARN  (3): role check failures, missing moduleAccess
  *
  * WHO USES THIS:
- *   Layout.tsx — renders Header at the top of every page
+ *   Layout.tsx — renders Header at the top of every authenticated page
  */
 
 import { Button } from "@/components/ui/button";
 import { useImpersonation } from "@/contexts/ImpersonationContext";
 import { useProfile } from "@/contexts/ProfileContext";
 import { useGetUserProfile } from "@/hooks/useBackend";
+import { logDebug, logTrace, logWarn } from "@/lib/logger";
 import { useTranslation } from "@/translations";
 import { ROLES } from "@/types";
 import {
@@ -42,29 +57,26 @@ import {
 } from "lucide-react";
 import { NotificationsBellButton } from "./NotificationsPanel";
 
-/** Props accepted by the Header component */
 interface HeaderProps {
-  /** Called when the hamburger menu icon is clicked on mobile */
   onMenuToggle: () => void;
-  /** Human-readable page title shown in the centre/left of the header */
   pageTitle: string;
-  /** Number of unread notifications — drives the badge on the bell icon */
   notificationCount?: number;
-  /** Called when the bell icon is clicked — opens the notifications panel */
   onNotificationsClick?: () => void;
-  /** Called when any quick-action icon is clicked with the target route path */
   onNavigate?: (path: string) => void;
-  /** Called when the help icon is clicked — opens the help panel */
   onHelpOpen?: () => void;
 }
 
 /**
  * hasModuleAccess — checks whether the user has access to a given module.
- * Admins and Super Admins always have access to everything.
- * Staff access is controlled by the `module_access` field on their user profile.
  *
- * `moduleAccess` is a JSON array string or comma-separated string of module keys
- * e.g. `["sales","customer","inventory"]` or `"sales,customer"`.
+ * FLOW:
+ *   1. Admin or Super Admin → return true (full access, no module restriction)
+ *   2. No moduleAccess string → return false (Staff with no permissions)
+ *   3. Parse moduleAccess: try JSON array first, fall back to CSV split
+ *   4. Return true if module key is in the parsed list
+ *
+ * VARIABLE INITIALIZATION:
+ *   modules: string[] — parsed from moduleAccess JSON or CSV
  *
  * @param moduleAccess - The user's module_access field from their profile
  * @param role         - The user's role string
@@ -75,10 +87,16 @@ function hasModuleAccess(
   role: string | undefined | null,
   module: string,
 ): boolean {
-  // Admins and Super Admins always have full access — no restriction needed
+  // Admins and Super Admins always have full access
   if (role === ROLES.ADMIN || role === ROLES.SUPER_ADMIN) return true;
-  if (!moduleAccess) return false;
-  // Parse the module_access field — try JSON first, fall back to comma-split
+  if (!moduleAccess) {
+    logWarn("hasModuleAccess: no moduleAccess for non-admin user", {
+      role,
+      module,
+    });
+    return false;
+  }
+  // Parse module_access — try JSON first, fall back to CSV
   let modules: string[];
   try {
     const parsed = JSON.parse(moduleAccess);
@@ -86,6 +104,8 @@ function hasModuleAccess(
   } catch {
     modules = moduleAccess.split(",").map((m) => m.trim());
   }
+  // TRACE: variable initialization for parsed modules
+  logTrace("hasModuleAccess: parsed modules", { modules, module });
   return modules.includes(module);
 }
 
@@ -100,8 +120,9 @@ export function Header({
   onNavigate,
   onHelpOpen,
 }: HeaderProps) {
-  // Try the React Query hook first — it returns the freshest data.
-  // Fall back to the context value which may be slightly stale after an update.
+  logDebug("Entering Header render", { pageTitle });
+
+  // Freshest data from React Query; context value as fallback
   const { data: userProfileData } = useGetUserProfile();
   const { userProfile } = useProfile();
   const { isImpersonating } = useImpersonation();
@@ -109,17 +130,33 @@ export function Header({
 
   // Use the freshest available profile data
   const resolvedProfile = userProfileData ?? userProfile;
-  // Display name falls back to "User" if empty — this is the PERSON's name, not the business name
+
+  // TRACE: variable initialization for display values
   const displayName = resolvedProfile?.display_name?.trim() || "User";
   const role = resolvedProfile?.role as string | undefined;
   const moduleAccess = resolvedProfile?.module_access;
 
-  // Super Admin: hide all operational create icons unless they are impersonating a profile.
-  // When impersonating, they should see the same icons a normal user would see.
+  logTrace("Header: resolved user data", {
+    displayName,
+    role,
+    hasModuleAccess: !!moduleAccess,
+  });
+
+  /**
+   * isSuperAdmin — true when the current user is Super Admin.
+   * FLOW: SA + not impersonating → hide all operational icons
+   *       SA + impersonating → show icons for impersonated role
+   */
   const isSuperAdmin = role === ROLES.SUPER_ADMIN;
   const showOperationalIcons = !isSuperAdmin || isImpersonating;
 
-  // Generate avatar initials from the display name (up to 2 words)
+  logTrace("Header: permission flags", {
+    isSuperAdmin,
+    isImpersonating,
+    showOperationalIcons,
+  });
+
+  // Avatar initials from the display name (up to 2 words)
   // e.g. "Ankit Chauhan" → "AC", "Staff One" → "SO"
   const initials = displayName
     .split(" ")
@@ -127,7 +164,8 @@ export function Header({
     .map((w) => w[0]?.toUpperCase() ?? "")
     .join("");
 
-  // Permission checks for each quick-action icon — uses hasModuleAccess() helper above
+  // Permission checks for each quick-action icon
+  // TRACE: computed access flags
   const canSales =
     showOperationalIcons && hasModuleAccess(moduleAccess, role, "sales");
   const canCustomer =
@@ -137,15 +175,23 @@ export function Header({
   const canInventory =
     showOperationalIcons && hasModuleAccess(moduleAccess, role, "inventory");
 
+  logTrace("Header: icon access flags", {
+    canSales,
+    canCustomer,
+    canPO,
+    canInventory,
+  });
+
   /** Safe navigate — handles case where onNavigate prop is not provided */
   function nav(path: string) {
+    logDebug("Header: navigating", { path });
     if (onNavigate) {
       onNavigate(path);
     }
   }
 
-  /** Safe notifications click — handles case where onNotificationsClick is not provided */
   function handleNotificationsClick() {
+    logDebug("Header: notifications bell clicked");
     if (onNotificationsClick) {
       onNotificationsClick();
     }
@@ -156,9 +202,9 @@ export function Header({
       className="sticky top-0 z-30 flex items-center justify-between px-4 h-14 bg-card border-b border-border shadow-xs"
       data-ocid="header"
     >
-      {/* ── Left section: menu toggle + logo + page title ── */}
+      {/* ── Left: menu toggle + logo + page title ── */}
       <div className="flex items-center gap-3 min-w-0">
-        {/* Hamburger button — only visible on mobile/tablet (hidden on lg+) */}
+        {/* Hamburger — only on mobile/tablet */}
         <Button
           variant="ghost"
           size="icon"
@@ -170,7 +216,7 @@ export function Header({
           <Menu className="w-5 h-5" />
         </Button>
 
-        {/* App logo mark — only shown on desktop (sidebar shows it on mobile) */}
+        {/* App logo mark — desktop only (sidebar has it on mobile) */}
         <div className="hidden lg:flex items-center gap-2 flex-shrink-0">
           <div className="w-7 h-7 rounded-md bg-primary flex items-center justify-center">
             <Leaf className="w-3.5 h-3.5 text-primary-foreground" />
@@ -183,9 +229,9 @@ export function Header({
         </h1>
       </div>
 
-      {/* ── Right section: quick-action icons + bell + help + user ── */}
+      {/* ── Right: quick-action icons + bell + help + user ── */}
       <div className="flex items-center gap-1 flex-shrink-0">
-        {/* Home — always visible to all roles, navigates to /dashboard */}
+        {/* Home — always visible, navigates to /dashboard */}
         <Button
           variant="ghost"
           size="icon"
@@ -198,7 +244,7 @@ export function Header({
           <Home className="w-4 h-4" />
         </Button>
 
-        {/* Inventory icon — visible only when user has inventory module access */}
+        {/* Inventory — visible only when user has inventory module access */}
         {canInventory && (
           <Button
             variant="ghost"
@@ -213,7 +259,7 @@ export function Header({
           </Button>
         )}
 
-        {/* Create Customer icon — visible only when user has customer module access */}
+        {/* Create Customer — visible only when user has customer module access */}
         {canCustomer && (
           <Button
             variant="ghost"
@@ -228,7 +274,7 @@ export function Header({
           </Button>
         )}
 
-        {/* Create Purchase Order icon — visible only when user has PO module access */}
+        {/* Create PO — visible only when user has PO module access */}
         {canPO && (
           <Button
             variant="ghost"
@@ -243,7 +289,7 @@ export function Header({
           </Button>
         )}
 
-        {/* Create Sale icon — visible only when user has sales module access */}
+        {/* Create Sale — visible only when user has sales module access */}
         {canSales && (
           <Button
             variant="ghost"
@@ -269,7 +315,10 @@ export function Header({
           variant="ghost"
           size="icon"
           className="h-8 w-8"
-          onClick={() => onHelpOpen?.()}
+          onClick={() => {
+            logDebug("Header: help button clicked");
+            onHelpOpen?.();
+          }}
           aria-label={t.nav.help}
           data-ocid="header.help_button"
           title={t.nav.help}
@@ -277,15 +326,13 @@ export function Header({
           <BookOpen className="w-4 h-4" />
         </Button>
 
-        {/* User avatar + display name — shows the PERSON's name, NOT the business name */}
+        {/* User avatar + display name — shows the PERSON's name, not the business name */}
         <div className="flex items-center gap-2 pl-1 border-l border-border ml-1">
-          {/* Avatar circle with initials — used instead of a photo */}
           <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center border border-border flex-shrink-0">
             <span className="text-xs font-semibold text-primary">
               {initials || "U"}
             </span>
           </div>
-          {/* Display name — hidden on very small screens to save space */}
           <span
             className="hidden sm:block text-sm text-muted-foreground max-w-[120px] truncate"
             data-ocid="header.user_name"

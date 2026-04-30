@@ -1,3 +1,49 @@
+/*
+ * PAGE: SuperAdminSetupPage
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   One-time Super Admin initialization screen. Shown at /super-admin-setup
+ *   when the app is first deployed or when the Super Admin principal needs to
+ *   be re-established. After completion, routes to the onboarding/business setup.
+ *
+ * ROLE ACCESS:
+ *   authenticated users who are navigating to /Admin (Super Admin bootstrap path)
+ *
+ * FLOW:
+ *   1. Mount / initialization
+ *      └─ useGetUserProfile() checks if user already has Super Admin role
+ *           ├─ role === superAdmin → call onComplete() immediately (skip screen)
+ *           └─ otherwise → show setup UI
+ *   2. Render decision
+ *      ├─ isLoading → return null (blank during profile check)
+ *      ├─ hasWrongRole (has a profile but wrong role) → Show "Claim" screen
+ *      │    └─ explains that this principal is the designated Super Admin
+ *      └─ no profile → Show "Initialize" screen
+ *           └─ first-time setup: creates Super Admin user record
+ *   3. handleSetup (Case A: no profile)
+ *      ├─ calls useInitSuperAdmin.mutateAsync()
+ *      ├─ success → toast + onComplete()
+ *      └─ "already set up" → toast.info + onComplete() (idempotent)
+ *   4. handleClaim (Case B: has profile but wrong role)
+ *      ├─ calls useClaimSuperAdmin.mutateAsync()
+ *      │    └─ backend: verifies caller's principal matches stored SA principal
+ *      ├─ success → toast + role promoted → App re-routes to SA dashboard
+ *      └─ failure → toast.error + onComplete() (proceed as normal user)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VARIABLES INITIALIZED:
+ *   - existingUserProfile: UserProfile | null  // from useGetUserProfile
+ *   - isLoading: boolean                       // from useGetUserProfile
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SIDE EFFECTS (useEffect):
+ *   - Trigger: [existingUserProfile, isLoading, onComplete]
+ *     →  Action: if already superAdmin, call onComplete() to skip this screen
+ * ─────────────────────────────────────────────────────────────────────────────
+ * KEY HANDLERS:
+ *   - handleSetup: initializes Super Admin for the first time
+ *   - handleClaim: claims Super Admin role for current principal
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 import { UserRole } from "@/backend";
 import { Button } from "@/components/ui/button";
 import {

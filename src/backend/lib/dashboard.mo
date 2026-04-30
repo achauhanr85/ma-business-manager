@@ -1,3 +1,43 @@
+/*
+ * FILE: lib/dashboard.mo
+ * MODULE: lib
+ * ─────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Implements all KPI and analytics query logic for the Dashboard page.
+ *   All queries are read-only — no writes happen here.
+ *
+ * FLOW:
+ *   PAGE: Dashboard (Home)
+ *     getDashboardStats(caller) →
+ *       • Monthly sales volume points (VP) and profit
+ *       • Recent sales list (last 10 orders)
+ *       • Out-of-stock and low-stock product counts
+ *       • Customer status counts (Lead / Active / Inactive)
+ *       Returned as DashboardStats record
+ *
+ *     getSalesCount(profileKey, filterBy) →
+ *       filterBy: "all" | "self" | principalText (specific staff member)
+ *       Returns count of sales matching the filter for this month
+ *
+ *   PAGE: Analytics / Dashboard
+ *     getReferralCommissionByMonth(profileKey) →
+ *       Groups sales by month × referral_user_principal
+ *       Returns [ReferralCommissionEntry] for chart rendering
+ *
+ *   PAGE: Super Admin Dashboard
+ *     getSuperAdminStats() → total profiles, users, cycles balance, per-profile stats
+ *
+ * DEPENDENCIES:
+ *   imports: mo:core/Map, mo:core/Time, mo:core/Runtime, types/common,
+ *            types/dashboard, types/sales, types/inventory, types/profile,
+ *            types/users, types/customers
+ *   called by: mixins/dashboard-api.mo
+ *
+ * KEY TYPES:
+ *   DashboardStats — returned by getDashboardStats()
+ * ─────────────────────────────────────────────────────────────────────
+ */
+
 import Map "mo:core/Map";
 import Time "mo:core/Time";
 import Runtime "mo:core/Runtime";

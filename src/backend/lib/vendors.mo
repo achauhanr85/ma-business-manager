@@ -1,3 +1,41 @@
+/*
+ * FILE: lib/vendors.mo
+ * MODULE: lib
+ * ─────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Implements CRUD for vendor/supplier records used on Purchase Orders.
+ *   Admin, Staff, and Super Admin can create and update vendors.
+ *
+ * FLOW:
+ *   PAGE: Vendor page (sidebar under Purchasing)
+ *     getVendors(profileKey) → all vendors for the profile
+ *     createVendor(profileKey, input) → creates vendor with unique timestamp-based ID
+ *       If input.is_default=true: clears is_default on all other vendors first
+ *     updateVendor(vendorId, input) → update all mutable fields
+ *     deleteVendor(vendorId) → Admin only (not staff)
+ *
+ *   PAGE: Create PO
+ *     getVendors() is called to populate the vendor selector
+ *     If only one vendor exists → auto-selected as default
+ *     If no vendor exists → "Quick Create Vendor" inline form shown
+ *       → calls createVendor() from within the PO form
+ *     getVendor(vendorId) → single vendor lookup for PO detail view
+ *
+ * DEPENDENCIES:
+ *   imports: mo:core/Map, mo:core/Time, mo:core/Runtime, types/common,
+ *            types/vendors, types/users
+ *   called by: mixins/vendors-api.mo, lib/purchases.mo (vendor lookup)
+ *
+ * KEY TYPES:
+ *   Store     — Map<Text, Vendor>  (Text key = generated ID)
+ *   UserStore — Map<UserId, UserProfile>
+ *
+ * IMPORTANT — Vendor ID generation:
+ *   Vendor IDs are generated as: profileKey + "-vendor-" + timestamp + "-" + store.size()
+ *   This ensures uniqueness without a separate counter variable.
+ * ─────────────────────────────────────────────────────────────────────
+ */
+
 import Map "mo:core/Map";
 import Time "mo:core/Time";
 import Runtime "mo:core/Runtime";

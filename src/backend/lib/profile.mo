@@ -1,28 +1,62 @@
 /*
- * lib/profile.mo — Profile and User Management Business Logic
+ * FILE: lib/profile.mo
+ * MODULE: lib
+ * ─────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Handles all the domain logic for business profiles and user management.
+ *   This is the authoritative source for all profile/user write operations.
  *
- * WHAT THIS FILE DOES:
- *   Handles all the domain logic for:
- *     - Creating and managing business profiles (multi-tenant isolation key)
- *     - User registration flows: createProfile (→ Admin), joinProfile (→ Staff),
- *       createReferralUser (→ ReferralUser)
- *     - Profile approval by Super Admin and user approval by Admin
- *     - User preferences (language, theme, date format, receipt language)
- *     - Profile key updates with cascading user migration
- *     - Profile deletion with full cascade (users, products, customers, sales, POs)
- *     - Routing status logic — tells the frontend which screen to show on login
+ * FLOW:
+ *   PAGE: Login / Onboarding
+ *     caller → getRoutingStatus() → checks userStore, profileStore, approval gates
+ *              → returns one of: #noprofile / #pending_approval /
+ *                #profile_pending_super_admin / #active / #superAdmin
  *
- * WHO USES IT:
- *   mixins/profile-api.mo (delegates all public functions here)
+ *   PAGE: Create Profile (new user)
+ *     caller → createProfile(input) → stores Profile{status=#pending_super_admin_approval}
+ *              → assigns caller role=#admin in userStore
+ *              → writes NewProfilePendingApproval notification (profile_key="superadmin" sentinel,
+ *                target_role="superAdmin") so Super Admin sees it regardless of active profile
  *
- * KEY DESIGN DECISIONS:
- *   - Profile creator always gets role=#admin (not #staff) — enforced in createProfile()
- *   - joinProfile() always assigns role=#staff with approval_status="pending"
- *   - Super Admin bypasses all approval gates (checked in checkProfileAccess and getRoutingStatus)
- *   - Super Admin notifications use profile_key="superadmin" with NO profileKey filter
- *     so they appear in the Super Admin panel regardless of which profile is selected
- *   - Language preference is loaded via getUserPreferences() BEFORE first render
- *     to prevent the "flash to English" bug
+ *   PAGE: Join Profile (staff onboarding)
+ *     caller → joinProfile(profileKey, displayName, warehouseName)
+ *              → assigns caller role=#staff with approval_status="pending"
+ *              → writes StaffPendingApproval notification to Admin of that profile
+ *
+ *   PAGE: Super Admin Profile Approval
+ *     caller → getPendingProfiles() → lists all profiles with #pending_super_admin_approval
+ *     caller → approveProfile(profileKey, true)  → sets #approved + notifies profile creator
+ *     caller → approveProfile(profileKey, false) → sets #suspended + notifies profile creator
+ *
+ *   PAGE: Preferences
+ *     caller → getUserPreferences() → returns lang/theme/dateFormat/diagnosticsLevel
+ *     caller → updateUserPreferences(...) → persists preferences incl. diagnosticsLevel
+ *
+ *   PAGE: Super Admin Data Inspector
+ *     caller → updateProfileFields(profileKey, fields) → partial update (no key/owner changes)
+ *
+ * DEPENDENCIES:
+ *   imports: types/common, types/profile, types/users, types/catalog, types/inventory,
+ *            types/sales, types/purchases, types/customers, lib/notifications
+ *   called by: mixins/profile-api.mo
+ *   calls: lib/notifications.mo (createNotification, createWelcomeNotification)
+ *
+ * KEY TYPES:
+ *   Store     — Map<ProfileKey, Profile>
+ *   UserStore — Map<UserId, UserProfile>
+ *   RoutingStatus — variant returned to frontend on every login
+ *
+ * PUBLIC FUNCTIONS:
+ *   createProfile(store, userStore, notifStore, caller, input) → Bool
+ *   joinProfile(store, userStore, notifStore, caller, profileKey, displayName, warehouse) → Bool
+ *   approveProfile(store, userStore, notifStore, caller, profileKey, approved) → Bool
+ *   rejectProfile = approveProfile(..., false)
+ *   getPendingProfiles(store) → [ProfilePublic]
+ *   getAllProfilesForAdmin(store) → [ProfilePublic]
+ *   getUserPreferences(userStore, caller) → UserPreferences  [diagnosticsLevel included]
+ *   updateUserPreferences(userStore, caller, lang, fmt, rcptLang, wa, theme, diagLevel) → Bool
+ *   updateProfileFields(store, userStore, caller, profileKey, fields) → Bool
+ * ─────────────────────────────────────────────────────────────────────
  */
 
 import Map "mo:core/Map";
@@ -178,6 +212,89 @@ module {
     getAllProfilesForAdmin(store)
   };
 
+  /// Returns all profiles with profile_approval_status = #pending_super_admin_approval.
+  ///
+  /// FLOW (Profile Approval Page):
+  ///   1. Frontend calls getPendingProfiles() on the Super Admin approval page
+  ///   2. Each row shows: business_name, profile_key, created_at, owner
+  ///   3. Super Admin clicks Approve → approveProfile(profileKey, true)
+  ///   4. Super Admin clicks Reject  → approveProfile(profileKey, false)
+  ///   5. After approve/reject, the profile is removed from this list and the
+  ///      profile creator receives a notification
+  ///
+  /// Super Admin only — enforced in the mixin caller check.
+  /// Returns [] if no profiles are pending (not an error).
+  public func getPendingProfiles(store : Store) : [ProfileTypes.ProfilePublic] {
+    store.entries()
+      .filter(func((_k, p) : (Common.ProfileKey, ProfileTypes.Profile)) : Bool {
+        p.profile_approval_status == #pending_super_admin_approval
+      })
+      .map(func((_k, p) : (Common.ProfileKey, ProfileTypes.Profile)) : ProfileTypes.ProfilePublic {
+        toPublic(p)
+      })
+      .toArray()
+  };
+
+  /// Partial update of profile fields — Super Admin only (for Data Inspector).
+  ///
+  /// FLOW (Data Inspector edit):
+  ///   1. Super Admin opens Data Inspector → Profiles table
+  ///   2. Clicks edit on a row → modal opens with current values
+  ///   3. Changes desired fields → clicks Save
+  ///   4. Frontend calls updateProfileFields(profileKey, fields)
+  ///   5. Backend validates: caller must be superAdmin
+  ///   6. Only mutable fields are updated — key/id/owner fields are NEVER changed
+  ///
+  /// Updatable fields (all optional — omit to keep existing value):
+  ///   business_name, phone_number, business_address, fssai_number, email,
+  ///   logo_url, theme_color, receipt_notes, instagram_handle,
+  ///   is_enabled (governance toggle)
+  ///
+  /// NOT updatable via this function:
+  ///   profile_key, owner, created_by, creation_date, created_at
+  ///   (use dedicated functions: enableProfile, approveProfile, etc. for governance)
+  public func updateProfileFields(
+    store : Store,
+    userStore : UserStore,
+    caller : Common.UserId,
+    profileKey : Common.ProfileKey,
+    fields : ProfileTypes.ProfileUpdateInput,
+  ) : Bool {
+    // Step 1: verify caller is Super Admin
+    switch (userStore.get(caller)) {
+      case (?up) {
+        if (up.role != #superAdmin) return false;
+      };
+      case null return false;
+    };
+    // Step 2: look up profile
+    switch (store.get(profileKey)) {
+      case null false;
+      case (?existing) {
+        // Step 3: apply only provided (non-null) fields using record spread
+        // Fields not provided keep their existing value.
+        let updated : ProfileTypes.Profile = {
+          existing with
+          business_name = switch (fields.business_name) { case (?v) v; case null existing.business_name };
+          phone_number = switch (fields.phone_number) { case (?v) v; case null existing.phone_number };
+          business_address = switch (fields.business_address) { case (?v) v; case null existing.business_address };
+          fssai_number = switch (fields.fssai_number) { case (?v) v; case null existing.fssai_number };
+          email = switch (fields.email) { case (?v) v; case null existing.email };
+          logo_url = switch (fields.logo_url) { case (?v) v; case null existing.logo_url };
+          theme_color = switch (fields.theme_color) { case (?v) v; case null existing.theme_color };
+          receipt_notes = switch (fields.receipt_notes) { case (?v) v; case null existing.receipt_notes };
+          instagram_handle = switch (fields.instagram_handle) { case (?v) v; case null existing.instagram_handle };
+          is_enabled = switch (fields.is_enabled) { case (?v) v; case null existing.is_enabled };
+          // Auto-populate who-columns
+          last_updated_by = caller;
+          last_update_date = Time.now();
+        };
+        store.add(profileKey, updated);
+        true
+      };
+    }
+  };
+
   /// Returns all UserProfiles across every profile — Super Admin only
   public func getAllUsersForAdmin(userStore : UserStore) : [UserTypes.UserProfilePublic] {
     userStore.entries()
@@ -196,6 +313,7 @@ module {
           date_format = up.date_format;
           default_receipt_language = up.default_receipt_language;
           theme = up.theme;
+          diagnostics_level = up.diagnostics_level;
         }
       })
       .toArray()
@@ -226,6 +344,7 @@ module {
           date_format = up.date_format;
           default_receipt_language = up.default_receipt_language;
           theme = up.theme;
+          diagnostics_level = up.diagnostics_level;
         }
       })
       .toArray()
@@ -252,6 +371,7 @@ module {
           date_format = up.date_format;
           default_receipt_language = up.default_receipt_language;
           theme = up.theme;
+          diagnostics_level = up.diagnostics_level;
         }
       })
       .toArray()
@@ -331,11 +451,13 @@ module {
           // Profile creator is immediately approved as Admin
           approval_status = ?"approved";
           module_access = null;
-          // User preferences — default to English / DD/MM/YYYY / dark theme
+          // User preferences — default to English / DD/MM/YYYY / herbal theme
           language_preference = "en";
           date_format = "DD/MM/YYYY";
           default_receipt_language = "en";
-          theme = "dark";
+          theme = "herbal";
+          // Diagnostics level default: 2 = INFO
+          diagnostics_level = 2;
           // Who-columns
           created_by = caller;
           last_updated_by = caller;
@@ -398,11 +520,13 @@ module {
           // Staff members start as pending until approved by Admin
           approval_status = ?"pending";
           module_access = null;
-          // User preferences — default to English / DD/MM/YYYY / dark theme
+          // User preferences — default to English / DD/MM/YYYY / herbal theme
           language_preference = "en";
           date_format = "DD/MM/YYYY";
           default_receipt_language = "en";
-          theme = "dark";
+          theme = "herbal";
+          // Diagnostics level default: 2 = INFO
+          diagnostics_level = 2;
           // Who-columns
           created_by = caller;
           last_updated_by = caller;
@@ -444,7 +568,8 @@ module {
           language_preference = "en";
           date_format = "DD/MM/YYYY";
           default_receipt_language = "en";
-          theme = "dark";
+          theme = "herbal";
+          diagnostics_level = 2;
           created_by = caller;
           last_updated_by = caller;
           creation_date = now;
@@ -722,6 +847,7 @@ module {
         date_format = up.date_format;
         default_receipt_language = up.default_receipt_language;
         theme = up.theme;
+        diagnostics_level = up.diagnostics_level;
       };
       case null null;
     }
@@ -787,6 +913,14 @@ module {
 
   /// Returns user preferences for a given principal — fast query, called before first render.
   /// Returns defaults when user is not found (anonymous / brand-new user).
+  ///
+  /// FLOW:
+  ///   Frontend calls getUserPreferences() BEFORE rendering anything.
+  ///   This prevents the "flash to English" bug — stored language is applied immediately.
+  ///   Also returns diagnosticsLevel so the diagnostics panel respects the user's saved level.
+  ///
+  /// Diagnostics level values:
+  ///   0=TRACE (most verbose), 1=DEBUG, 2=INFO (default), 3=WARN, 4=ERROR
   public func getUserPreferences(userStore : UserStore, caller : Common.UserId) : UserTypes.UserPreferences {
     switch (userStore.get(caller)) {
       case (?up) {
@@ -796,15 +930,26 @@ module {
           defaultReceiptLanguage = up.default_receipt_language;
           whatsappNumber = switch (up.email) { case (?e) e; case null "" };
           theme = up.theme;
+          // Return stored diagnostics level; default to 2 (INFO) if somehow 0 is stored
+          // (0 is a valid value meaning TRACE, so we keep whatever is stored)
+          diagnosticsLevel = up.diagnostics_level;
         }
       };
       case null {
-        { language = "en"; dateFormat = "DD/MM/YYYY"; defaultReceiptLanguage = "en"; whatsappNumber = ""; theme = "dark" }
+        // Brand-new or anonymous user — return sensible defaults
+        { language = "en"; dateFormat = "DD/MM/YYYY"; defaultReceiptLanguage = "en"; whatsappNumber = ""; theme = "herbal"; diagnosticsLevel = 2 }
       };
     }
   };
 
   /// Updates user preferences — always succeeds (creates entry if missing).
+  ///
+  /// FLOW:
+  ///   1. User changes preferences in the Preferences page
+  ///   2. Clicks Save → frontend calls updateUserPreferences(...)
+  ///   3. diagnosticsLevel is validated to 0-4 (invalid values default to 2 = INFO)
+  ///   4. Returns true on success; false if user record not found
+  ///   5. User should log out and log back in for language/theme changes to fully apply
   public func updateUserPreferences(
     userStore : UserStore,
     caller : Common.UserId,
@@ -813,8 +958,11 @@ module {
     defaultReceiptLanguage : Text,
     whatsappNumber : Text,
     theme : Text,
+    diagnosticsLevel : Nat,
   ) : Bool {
     let now = Time.now();
+    // Clamp diagnostics level to valid range 0-4; invalid values → default 2 (INFO)
+    let diagLevel : Nat = if (diagnosticsLevel > 4) 2 else diagnosticsLevel;
     switch (userStore.get(caller)) {
       case null false; // user must exist before preferences can be updated
       case (?existing) {
@@ -824,6 +972,7 @@ module {
           date_format = dateFormat;
           default_receipt_language = defaultReceiptLanguage;
           theme;
+          diagnostics_level = diagLevel;
           email = if (whatsappNumber == "") existing.email else ?whatsappNumber;
           last_updated_by = caller;
           last_update_date = now;
@@ -915,6 +1064,7 @@ module {
           date_format = up.date_format;
           default_receipt_language = up.default_receipt_language;
           theme = up.theme;
+          diagnostics_level = up.diagnostics_level;
         }
       })
       .toArray()
@@ -946,8 +1096,23 @@ module {
   };
 
   /// Approve or reject a profile — Super Admin only.
-  /// approved=true → #approved; approved=false → #suspended.
-  public func approveProfile(store : Store, userStore : UserStore, caller : Common.UserId, profile_key : Common.ProfileKey, approved : Bool) : Bool {
+  /// approved=true → #approved + notifies profile creator; approved=false → #suspended + notifies.
+  ///
+  /// FLOW:
+  ///   1. Verify caller is superAdmin
+  ///   2. Look up profile by profileKey
+  ///   3. Update profile_approval_status (#approved or #suspended)
+  ///   4. Write a ProfileApproved / ProfileRejected notification to the profile OWNER
+  ///      so they know the outcome. Notification is scoped to the profile (real profileKey,
+  ///      not the "superadmin" sentinel) and targeted at "admin" role.
+  public func approveProfile(
+    store : Store,
+    userStore : UserStore,
+    notificationsStore : NotificationsLib.Store,
+    caller : Common.UserId,
+    profile_key : Common.ProfileKey,
+    approved : Bool,
+  ) : Bool {
     switch (userStore.get(caller)) {
       case (?up) {
         if (up.role != #superAdmin) return false;
@@ -964,6 +1129,29 @@ module {
           last_updated_by = caller;
           last_update_date = Time.now();
         });
+        // ── Notify the profile owner of the outcome ───────────────────────
+        // Write a notification scoped to the profile (real profileKey) so the
+        // profile's Admin sees it in their notification panel once approved.
+        // We use target_role="admin" so it routes to the profile's admin user.
+        let (notifType, notifMsg) = if (approved) {
+          (
+            "ProfileApproved",
+            "Your business profile '" # existing.business_name # "' has been approved by Super Admin. You can now access all features.",
+          )
+        } else {
+          (
+            "ProfileRejected",
+            "Your business profile '" # existing.business_name # "' has been suspended by Super Admin. Contact support for assistance.",
+          )
+        };
+        let _ = NotificationsLib.createNotification(
+          notificationsStore,
+          profile_key,   // real profile key — notification visible to the profile's admin
+          notifType,
+          notifMsg,
+          ?profile_key,  // related_id = profile key for reference
+          "admin",       // target_role = admin (the profile creator/owner)
+        );
         true
       };
     }
@@ -991,6 +1179,7 @@ module {
           date_format = up.date_format;
           default_receipt_language = up.default_receipt_language;
           theme = up.theme;
+          diagnostics_level = up.diagnostics_level;
         }
       })
       .toArray()

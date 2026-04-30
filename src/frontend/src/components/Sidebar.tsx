@@ -1,24 +1,40 @@
 /**
  * Sidebar.tsx — The left navigation sidebar for authenticated users.
  *
- * WHAT THIS FILE DOES:
- * Renders the fixed sidebar with a grouped navigation menu. The nav items shown
- * depend on the user's role and module access permissions:
+ * ═══════════════════════════════════════════════════════════════════════════
+ * PAGE FLOW
+ * ═══════════════════════════════════════════════════════════════════════════
  *
- *   Super Admin (not impersonating): sees only admin-specific items
- *   Super Admin (impersonating): sees items appropriate to the impersonated role
- *   Admin: sees all items for their profile
- *   Staff: sees only items for their permitted modules
- *   Referral User: sees ONLY the Customers item
+ * RENDER FLOW:
+ *   1. Read: currentRole from useProfile(), isImpersonating from useImpersonation()
+ *   2. Parse moduleAccess field (CSV string → string[] or null for Admin/SA)
+ *   3. effectiveRole = isImpersonating ? impersonateAsRole : currentRole
+ *      (SA impersonating as staff → sees staff nav items)
+ *   4. For each NAV_SECTION: filter items via filterItem()
+ *   5. Hide entire section if no visible items remain after filtering
+ *   6. Render visible sections and items
  *
- * MENU GROUPING STRUCTURE:
- *   1. Order Management — Customer, Customer Goals, Medical Issues, Sales
- *   2. Purchasing       — Vendor, Purchase Order
- *   3. Inventory        — Inventory, Movement, Loaner, Stage
- *   4. Catalog          — Products & Categories
- *   5. Settings         — User Management, Preferences, Analytics
- *   6. Super Admin      — SA Dashboard, Data Inspector, Tests (SA only)
- *   7. Account          — Business Profile (all roles)
+ * FILTERING FLOW (filterItem):
+ *   - Referral users: only /customers allowed
+ *   - Role restriction: item.roles must include effectiveRole
+ *   - Super Admin + not impersonating: skip items marked superAdminDisabled
+ *   - Staff module access: check moduleAccess array against item.module
+ *
+ * NAVIGATION FLOW:
+ *   User clicks nav item → handleNav(path) called
+ *   → onNavigate(path) prop called → router navigates
+ *   → onClose() called → mobile sidebar overlay closes
+ *
+ * LOGOUT FLOW:
+ *   User clicks Logout → logout() called
+ *   → Internet Identity session cleared
+ *   → isAuthenticated = false → App.tsx shows login view
+ *
+ * DIAGNOSTIC LOGGING:
+ *   TRACE (0): module access parsing, effective role computation
+ *   DEBUG (1): function entry, nav events, filter decisions
+ *   INFO  (2): logout initiated
+ *   WARN  (3): item filtered out for unexpected reasons
  *
  * WHO USES THIS:
  *   Layout.tsx — renders Sidebar inside the main layout wrapper
@@ -28,6 +44,7 @@ import { Button } from "@/components/ui/button";
 import { useImpersonation } from "@/contexts/ImpersonationContext";
 import { useProfile } from "@/contexts/ProfileContext";
 import { useAuth } from "@/hooks/useAuth";
+import { logDebug, logInfo, logTrace } from "@/lib/logger";
 import { ROUTES } from "@/lib/routes";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/translations";
@@ -58,7 +75,6 @@ import {
   X,
 } from "lucide-react";
 
-/** Props accepted by the Sidebar component */
 interface SidebarProps {
   currentPath: string;
   onNavigate: (path: string) => void;
@@ -68,7 +84,11 @@ interface SidebarProps {
 
 /**
  * MODULE_PATH_MAP — maps each module key to the route paths it controls.
- * Used to check whether a Staff member's module_access grants them a specific nav item.
+ * Used to check whether a Staff member's module_access grants a specific nav item.
+ *
+ * VARIABLE INITIALIZATION:
+ *   Each key is a module name (e.g. "sales", "po", "customer").
+ *   Each value is an array of route paths that module controls.
  */
 const MODULE_PATH_MAP: Record<string, string[]> = {
   sales: [ROUTES.sales, ROUTES.salesSummary],
@@ -88,20 +108,20 @@ const MODULE_PATH_MAP: Record<string, string[]> = {
   analytics: [ROUTES.analytics],
 };
 
-/** Shape of a single navigation item */
 interface NavItem {
   labelKey: string;
   path: string;
   icon: React.ElementType;
+  /** null = visible to all roles */
   roles: readonly string[] | null;
+  /** null = no module restriction */
   module: string | null;
+  /** true = hide for SA when not impersonating */
   superAdminDisabled: boolean;
 }
 
-/** A labelled group of nav items */
 interface NavSection {
   id: string;
-  /** Displayed directly (no translation key needed for section headers) */
   label: string;
   items: NavItem[];
 }
@@ -109,8 +129,16 @@ interface NavSection {
 /**
  * NAV_SECTIONS — the full navigation structure.
  *
- * IMPORTANT: Each item appears EXACTLY ONCE — no duplicates.
- * Sections with no visible items (after permission filtering) are hidden.
+ * MENU GROUPING (per spec):
+ *   1. Order Management — Customer, Customer Goals, Medical Issues, Sales, Sales Summary
+ *   2. Purchasing       — Vendor, Purchase Order
+ *   3. Inventory        — Inventory, Movement, Loaner, Stage
+ *   4. Catalog          — Products, Categories
+ *   5. Settings         — User Management, Preferences, Analytics
+ *   6. Super Admin      — SA Dashboard, Profile Approvals, Data Inspector, Tests
+ *   7. Account          — Business Profile
+ *
+ * IMPORTANT: Each item appears EXACTLY ONCE — no duplicates across sections.
  */
 const NAV_SECTIONS: NavSection[] = [
   // ── 1. Order Management ──────────────────────────────────────────────────
@@ -151,7 +179,6 @@ const NAV_SECTIONS: NavSection[] = [
         superAdminDisabled: true,
       },
       {
-        // Sales Summary — payment status and history for all orders
         labelKey: "nav.salesSummary",
         path: ROUTES.salesSummary,
         icon: FileText,
@@ -168,7 +195,6 @@ const NAV_SECTIONS: NavSection[] = [
     label: "Purchasing",
     items: [
       {
-        // Vendor management — suppliers for purchase orders
         labelKey: "nav.vendors",
         path: ROUTES.vendors,
         icon: Building2,
@@ -217,7 +243,6 @@ const NAV_SECTIONS: NavSection[] = [
         superAdminDisabled: true,
       },
       {
-        // Stage Inventory — returned items pending Admin/Staff review
         labelKey: "nav.stageInventory",
         path: ROUTES.stageInventory,
         icon: ClipboardCheck,
@@ -229,15 +254,11 @@ const NAV_SECTIONS: NavSection[] = [
   },
 
   // ── 4. Catalog ────────────────────────────────────────────────────────────
-  // Products and Categories are on the same page (tabs).
-  // "Product" opens /products (defaults to Products tab).
-  // "Category" opens /products?tab=categories (pre-selects the Categories tab).
   {
     id: "catalog",
     label: "Catalog",
     items: [
       {
-        // Product — opens the products tab of the Products & Categories page
         labelKey: "nav.productsOnly",
         path: ROUTES.products,
         icon: Tag,
@@ -246,7 +267,6 @@ const NAV_SECTIONS: NavSection[] = [
         superAdminDisabled: true,
       },
       {
-        // Category — opens the categories tab of the Products & Categories page
         labelKey: "nav.categories",
         path: ROUTES.categories,
         icon: Grid3X3,
@@ -263,7 +283,6 @@ const NAV_SECTIONS: NavSection[] = [
     label: "Settings",
     items: [
       {
-        // User Management — Admin only
         labelKey: "nav.userManagement",
         path: ROUTES.userManagement,
         icon: Users2,
@@ -272,16 +291,14 @@ const NAV_SECTIONS: NavSection[] = [
         superAdminDisabled: false,
       },
       {
-        // Preferences — all roles can access their own preferences
         labelKey: "nav.userPreferences",
         path: ROUTES.userPreferences,
         icon: Settings,
-        roles: null,
+        roles: null, // all roles can access preferences
         module: null,
         superAdminDisabled: false,
       },
       {
-        // Analytics — Admin-scoped KPI and reporting
         labelKey: "nav.analytics",
         path: ROUTES.analytics,
         icon: BarChart3,
@@ -293,7 +310,7 @@ const NAV_SECTIONS: NavSection[] = [
   },
 
   // ── 6. Super Admin ────────────────────────────────────────────────────────
-  // `superAdminDisabled: false` means SA CAN see these items even without impersonating.
+  // superAdminDisabled: false = SA CAN see these even without impersonating
   {
     id: "super-admin-tools",
     label: "Super Admin",
@@ -307,7 +324,6 @@ const NAV_SECTIONS: NavSection[] = [
         superAdminDisabled: false,
       },
       {
-        // Profile Approvals — Super Admin approves/rejects new profile registrations
         labelKey: "nav.profileApprovals",
         path: ROUTES.profileApprovals,
         icon: ClipboardCheck,
@@ -343,7 +359,7 @@ const NAV_SECTIONS: NavSection[] = [
         labelKey: "nav.profile",
         path: ROUTES.profile,
         icon: User,
-        roles: null,
+        roles: null, // all roles can access their own business profile
         module: null,
         superAdminDisabled: false,
       },
@@ -354,11 +370,17 @@ const NAV_SECTIONS: NavSection[] = [
 /**
  * filterItem — determines whether a nav item should be visible for the current user.
  *
- * Rules in order:
- *   1. Referral users see ONLY /customers
- *   2. Role restriction — if `item.roles` is set, user's role must be in the list
- *   3. Super Admin + not impersonating: hide items marked `superAdminDisabled`
- *   4. Staff module access — if `item.module` is set and user is Staff, check module_access
+ * RULES (in order):
+ *   1. Referral users: ONLY /customers allowed
+ *   2. Role restriction: if item.roles is set, effectiveRole must be in the list
+ *   3. Super Admin + not impersonating: hide items marked superAdminDisabled
+ *   4. Staff module access: if item.module set and user is Staff, check moduleAccess
+ *
+ * VARIABLE INITIALIZATION:
+ *   effectiveRole: string | undefined — impersonated role or current role
+ *   moduleAccess: string[] | null — parsed from profile field
+ *   modulePaths: string[] — paths controlled by a module (from MODULE_PATH_MAP)
+ *   allowed: boolean — whether Staff has access to this module
  */
 function filterItem(
   item: NavItem,
@@ -367,31 +389,38 @@ function filterItem(
   isImpersonating: boolean,
   moduleAccess: string[] | null,
 ): boolean {
-  // Referral users are restricted to the Customers page only
+  // Rule 1: Referral users only see /customers
   if (effectiveRole === ROLES.REFERRAL_USER) {
     return item.path === ROUTES.customers;
   }
 
-  // Role restriction check — if roles array is set, user must have a matching role
+  // Rule 2: Role restriction
   if (item.roles) {
     if (!effectiveRole) return false;
     if (!(item.roles as readonly string[]).includes(effectiveRole))
       return false;
   }
 
-  // Super Admin sees operational items ONLY when impersonating a profile
+  // Rule 3: Super Admin operational item visibility
   if (isSuperAdmin && !isImpersonating && item.superAdminDisabled) {
     return false;
   }
 
-  // Staff module access check — only applies to Staff users (Admins bypass this)
+  // Rule 4: Staff module access check
   if (item.module && moduleAccess !== null && effectiveRole === ROLES.STAFF) {
     const modulePaths = MODULE_PATH_MAP[item.module] ?? [];
     const allowed =
       moduleAccess.some((mod) =>
         (MODULE_PATH_MAP[mod] ?? []).some((p) => modulePaths.includes(p)),
       ) || moduleAccess.includes(item.module);
-    if (!allowed) return false;
+    if (!allowed) {
+      logTrace("filterItem: Staff access denied for module", {
+        module: item.module,
+        path: item.path,
+        moduleAccess,
+      });
+      return false;
+    }
   }
 
   return true;
@@ -399,7 +428,7 @@ function filterItem(
 
 /**
  * resolveLabel — resolves a dot-path translation key into the matching string.
- * e.g. "nav.dashboard" → looks up t["nav"]["dashboard"] → "Dashboard"
+ * e.g. "nav.dashboard" → t["nav"]["dashboard"] → "Dashboard"
  * Falls back to the key itself if the path doesn't resolve.
  */
 function resolveLabel(t: Record<string, unknown>, key: string): string {
@@ -431,8 +460,13 @@ export function Sidebar({
   const currentRole = userProfile?.role;
   const isSuperAdmin = currentRole === ROLES.SUPER_ADMIN;
 
-  // Parse the `module_access` field (stored as comma-separated string) into an array.
-  // null = no module restrictions (Admin/SA bypass module filtering anyway)
+  /**
+   * moduleAccess — parsed from the user's module_access field.
+   *
+   * VARIABLE INITIALIZATION:
+   *   null = no module restrictions (Admin/SA bypass module filtering)
+   *   string[] = modules the Staff member can access
+   */
   const moduleAccess: string[] | null = userProfile?.module_access
     ? userProfile.module_access
         .split(",")
@@ -440,18 +474,33 @@ export function Sidebar({
         .filter(Boolean)
     : null;
 
-  // While impersonating, use the impersonated role for filtering instead of Super Admin
+  /**
+   * effectiveRole — the role used for nav item filtering.
+   *
+   * VARIABLE INITIALIZATION:
+   *   isImpersonating = true  → use impersonateAsRole ("admin" | "staff")
+   *   isImpersonating = false → use currentRole from userProfile
+   */
   const effectiveRole = isImpersonating
     ? impersonateAsRole
     : (currentRole as string | undefined);
 
+  logTrace("Sidebar: role computation", {
+    currentRole,
+    isImpersonating,
+    impersonateAsRole,
+    effectiveRole,
+    isSuperAdmin,
+    moduleAccess,
+  });
+
   /** handleNav — navigate to a path AND close the mobile overlay */
   const handleNav = (path: string) => {
+    logDebug("Sidebar: navigating", { path, effectiveRole });
     onNavigate(path);
     onClose();
   };
 
-  // Cast translation to plain record for resolveLabel traversal
   const tExt = t as Record<string, unknown>;
 
   return (
@@ -565,7 +614,7 @@ export function Sidebar({
               ),
             );
 
-            // Hide entire section if no items are visible
+            // Hide entire section if no items visible
             if (visibleItems.length === 0) return null;
 
             return (
@@ -620,7 +669,10 @@ export function Sidebar({
         <div className="px-2 py-3 border-t border-sidebar-border">
           <button
             type="button"
-            onClick={logout}
+            onClick={() => {
+              logInfo("Sidebar: logout button clicked");
+              logout();
+            }}
             data-ocid="sidebar.logout_button"
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-sidebar-accent-foreground hover:bg-destructive/10 hover:text-destructive transition-smooth"
           >

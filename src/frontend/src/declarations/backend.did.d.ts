@@ -428,6 +428,18 @@ export interface ProfileStatus {
   'is_within_window' : boolean,
   'profile_approval_status' : ProfileApprovalStatus,
 }
+export interface ProfileUpdateInput {
+  'is_enabled' : [] | [boolean],
+  'business_name' : [] | [string],
+  'email' : [] | [string],
+  'business_address' : [] | [string],
+  'logo_url' : [] | [string],
+  'instagram_handle' : [] | [string],
+  'receipt_notes' : [] | [string],
+  'phone_number' : [] | [string],
+  'theme_color' : [] | [string],
+  'fssai_number' : [] | [string],
+}
 export interface PurchaseOrder {
   'id' : PurchaseOrderId,
   'status' : POStatus,
@@ -570,6 +582,7 @@ export type UserId = Principal;
 export interface UserPreferences {
   'theme' : string,
   'defaultReceiptLanguage' : string,
+  'diagnosticsLevel' : bigint,
   'language' : string,
   'whatsappNumber' : string,
   'dateFormat' : string,
@@ -584,6 +597,7 @@ export interface UserProfileInput {
   'language_preference' : [] | [string],
   'date_format' : [] | [string],
   'warehouse_name' : WarehouseName,
+  'diagnostics_level' : [] | [bigint],
   'profile_key' : ProfileKey,
 }
 export interface UserProfilePublic {
@@ -599,6 +613,7 @@ export interface UserProfilePublic {
   'language_preference' : string,
   'date_format' : string,
   'warehouse_name' : WarehouseName,
+  'diagnostics_level' : bigint,
   'profile_key' : ProfileKey,
 }
 export type UserRole = { 'admin' : null } |
@@ -708,6 +723,11 @@ export interface _SERVICE {
   'deleteMedicalIssue' : ActorMethod<[bigint], boolean>,
   'deleteMedicalIssueMaster' : ActorMethod<[bigint], boolean>,
   'deleteProduct' : ActorMethod<[ProductId], boolean>,
+  /**
+   * / Creates or updates the userStore entry for the given principal with role=#superAdmin.
+   * / Called by initSuperAdmin() and claimSuperAdmin() to ensure the Super Admin always
+   * / has an approved, correctly-roled user record even after a clearAllData().
+   */
   'deleteProfile' : ActorMethod<[ProfileKey], boolean>,
   'deleteVendor' : ActorMethod<[string], boolean>,
   /**
@@ -781,6 +801,7 @@ export interface _SERVICE {
     [ProfileKey],
     Array<UserProfilePublic>
   >,
+  'getPendingProfiles' : ActorMethod<[], Array<ProfilePublic>>,
   'getProducts' : ActorMethod<[], Array<Product>>,
   'getProfile' : ActorMethod<[], [] | [ProfilePublic]>,
   'getProfileByKey' : ActorMethod<[ProfileKey], [] | [ProfilePublic]>,
@@ -866,10 +887,14 @@ export interface _SERVICE {
   >,
   'updateProduct' : ActorMethod<[ProductId, ProductInput], boolean>,
   'updateProfile' : ActorMethod<[ProfileInput], boolean>,
+  'updateProfileFields' : ActorMethod<
+    [ProfileKey, ProfileUpdateInput],
+    boolean
+  >,
   'updateProfileKey' : ActorMethod<[ProfileKey, ProfileKey], boolean>,
   'updateSale' : ActorMethod<[UpdateSaleInput], boolean>,
   'updateUserPreferences' : ActorMethod<
-    [string, string, string, string, string],
+    [string, string, string, string, string, bigint],
     boolean
   >,
   'updateUserProfile' : ActorMethod<[UserProfileInput], boolean>,

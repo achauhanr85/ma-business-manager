@@ -1,30 +1,66 @@
 /*
- * mixins/profile-api.mo — Profile and User Management Public API
+ * FILE: mixins/profile-api.mo
+ * MODULE: mixin
+ * ─────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Exposes all public canister functions related to profile and user management.
+ *   This is the public API surface — all business logic is delegated to lib/profile.mo.
  *
- * WHAT THIS FILE DOES:
- *   Exposes all public canister functions related to profile and user management:
- *     - getUserProfile / getRoutingStatus / getUserPreferences / updateUserPreferences
- *     - getProfile / getProfileByKey / getAllProfilesForAdmin
- *     - createProfile (→ assigns #admin role) / joinProfile (→ assigns #staff, pending approval)
- *     - createReferralUser / approveUser / getPendingApprovalUsers
- *     - approveProfile / rejectProfile / enableProfile / deleteProfile / updateProfileKey
- *     - setSuperAdminActiveProfile / getSuperAdminActiveProfile (impersonation context)
- *     - updateUserProfile / updateUserPreferences / getReferralUsers
+ * FLOW:
+ *   PAGE: Login
+ *     getRoutingStatus() → ProfileLib.getRoutingStatus()
+ *       → returns #superAdmin / #active / #pending_approval / #profile_pending_super_admin / #noprofile
+ *     getUserPreferences() → returns lang/theme/dateFormat/diagnosticsLevel (called BEFORE render)
  *
- * WHO USES IT:
- *   Included in main.mo via "include ProfileApi(...)". All frontend profile/user
- *   calls arrive at the functions defined here.
+ *   PAGE: Create Profile
+ *     createProfile(input) → ProfileLib.createProfile() → assigns #admin, creates SA notification
  *
- * IMPORTANT — Role Assignment:
- *   createProfile() → caller gets role=#admin (profile creator is the admin)
- *   joinProfile()   → caller gets role=#staff with approval_status="pending"
- *   These are enforced in lib/profile.mo, never overridden here.
+ *   PAGE: Join Profile (Staff onboarding)
+ *     joinProfile(profileKey, displayName, warehouseName) → ProfileLib.joinProfile()
+ *       → assigns #staff pending, notifies Admin
  *
- * IMPORTANT — Super Admin Routing:
- *   getRoutingStatus() is the FIRST call the frontend makes on login.
- *   It returns one of: #noprofile / #pending_approval / #profile_pending_super_admin
- *                      / #active / #superAdmin
- *   Super Admin always returns #superAdmin — bypasses all approval gates.
+ *   PAGE: Super Admin Profile Approval
+ *     getPendingProfiles() → ProfileLib.getPendingProfiles()
+ *       → returns all profiles with #pending_super_admin_approval status
+ *     approveProfile(profileKey) → ProfileLib.approveProfile(..., true)
+ *       → sets #approved + notifies profile creator
+ *     rejectProfile(profileKey) → ProfileLib.approveProfile(..., false)
+ *       → sets #suspended + notifies profile creator
+ *
+ *   PAGE: User Preferences
+ *     updateUserPreferences(lang, fmt, rcptLang, wa, theme, diagLevel) → persists all prefs
+ *       → diagLevel is validated to 0-4 range (invalid → default 2=INFO)
+ *
+ *   PAGE: Super Admin Data Inspector
+ *     updateProfileFields(profileKey, fields) → ProfileLib.updateProfileFields()
+ *       → partial update (only non-null fields changed, key/owner never changed)
+ *
+ * DEPENDENCIES:
+ *   imports: types/common, types/profile, types/users, lib/profile, lib/catalog,
+ *            lib/customers, lib/inventory, lib/sales, lib/purchases, lib/notifications
+ *   called by: main.mo (include ProfileApi(...))
+ *   calls: lib/profile.mo (all functions)
+ *
+ * KEY TYPES:
+ *   ProfileInput      — create/update payload
+ *   ProfileUpdateInput — partial update for Data Inspector
+ *   UserPreferences   — pre-render query result (includes diagnosticsLevel)
+ *
+ * PUBLIC FUNCTIONS:
+ *   getUserProfile() → ?UserProfilePublic
+ *   getRoutingStatus() → RoutingStatus
+ *   getUserPreferences() → UserPreferences  [includes diagnosticsLevel]
+ *   updateUserPreferences(lang,fmt,rcptLang,wa,theme,diagLevel) → Bool
+ *   createProfile(input) → Bool
+ *   joinProfile(profileKey,displayName,warehouseName) → Bool
+ *   getPendingProfiles() → [ProfilePublic]
+ *   approveProfile(profileKey) → Bool
+ *   rejectProfile(profileKey) → Bool
+ *   updateProfileFields(profileKey, fields) → Bool
+ *   getAllProfilesForAdmin() → [ProfilePublic]
+ *   getAllUsersRaw(profileKey) → [UserProfilePublic]
+ *   getAllProfilesRaw() → [ProfilePublic]
+ * ─────────────────────────────────────────────────────────────────────
  */
 
 import Runtime "mo:core/Runtime";
@@ -75,22 +111,25 @@ mixin (
   /// so the app can immediately apply the correct language without a flash to English.
   public shared query ({ caller }) func getUserPreferences() : async UserTypes.UserPreferences {
     if (caller.isAnonymous()) {
-      return { language = "en"; dateFormat = "DD/MM/YYYY"; defaultReceiptLanguage = "en"; whatsappNumber = ""; theme = "dark" };
+      return { language = "en"; dateFormat = "DD/MM/YYYY"; defaultReceiptLanguage = "en"; whatsappNumber = ""; theme = "herbal"; diagnosticsLevel = 2 };
     };
     ProfileLib.getUserPreferences(userStore, caller)
   };
 
-  /// Saves user preferences (language, date format, receipt language, whatsapp number, theme).
+  /// Saves user preferences (language, date format, receipt language, whatsapp number, theme, diagnosticsLevel).
   /// Returns true on success.  Frontend should log out and prompt re-login to apply language.
+  /// diagnosticsLevel: 0=TRACE, 1=DEBUG, 2=INFO (default), 3=WARN, 4=ERROR.
+  /// Invalid values (>4) are silently defaulted to 2 (INFO) by the backend.
   public shared ({ caller }) func updateUserPreferences(
     language : Text,
     dateFormat : Text,
     defaultReceiptLanguage : Text,
     whatsappNumber : Text,
     theme : Text,
+    diagnosticsLevel : Nat,
   ) : async Bool {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
-    ProfileLib.updateUserPreferences(userStore, caller, language, dateFormat, defaultReceiptLanguage, whatsappNumber, theme)
+    ProfileLib.updateUserPreferences(userStore, caller, language, dateFormat, defaultReceiptLanguage, whatsappNumber, theme, diagnosticsLevel)
   };
 
   /// Returns the active profile_key for Super Admin impersonation context.
@@ -243,6 +282,7 @@ mixin (
 
   /// Approve a pending profile — Super Admin only.
   /// Sets profile_approval_status to #approved, allowing all transactions.
+  /// Notifies the profile creator (Admin) so they know access is now available.
   public shared ({ caller }) func approveProfile(profile_key : Common.ProfileKey) : async Bool {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
     switch (userStore.get(caller)) {
@@ -251,11 +291,12 @@ mixin (
       };
       case null Runtime.trap("Caller has no profile");
     };
-    ProfileLib.approveProfile(profileStore, userStore, caller, profile_key, true)
+    ProfileLib.approveProfile(profileStore, userStore, notificationsStore, caller, profile_key, true)
   };
 
   /// Reject/suspend a profile — Super Admin only.
   /// Sets profile_approval_status to #suspended.
+  /// Notifies the profile creator (Admin) that their profile was suspended.
   public shared ({ caller }) func rejectProfile(profile_key : Common.ProfileKey) : async Bool {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
     switch (userStore.get(caller)) {
@@ -264,7 +305,7 @@ mixin (
       };
       case null Runtime.trap("Caller has no profile");
     };
-    ProfileLib.approveProfile(profileStore, userStore, caller, profile_key, false)
+    ProfileLib.approveProfile(profileStore, userStore, notificationsStore, caller, profile_key, false)
   };
 
   /// Set the active governance window for a profile — Super Admin only.
@@ -337,5 +378,51 @@ mixin (
       case null Runtime.trap("Caller has no profile");
     };
     ProfileLib.getAllProfilesRaw(profileStore)
+  };
+
+  /// Returns all profiles with profile_approval_status = #pending_super_admin_approval.
+  ///
+  /// FLOW (Profile Approval Page — Super Admin):
+  ///   1. Page loads → calls getPendingProfiles()
+  ///   2. Renders a table of profiles awaiting approval
+  ///   3. Super Admin clicks Approve → approveProfile(profileKey)
+  ///   4. Super Admin clicks Reject  → rejectProfile(profileKey)
+  ///   5. Both actions send a notification to the profile creator
+  ///
+  /// Super Admin only.  Returns [] when no profiles are pending (not an error).
+  public shared query ({ caller }) func getPendingProfiles() : async [ProfileTypes.ProfilePublic] {
+    if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
+    switch (userStore.get(caller)) {
+      case (?up) {
+        if (up.role != #superAdmin) Runtime.trap("Super Admin only");
+      };
+      case null Runtime.trap("Caller has no profile");
+    };
+    ProfileLib.getPendingProfiles(profileStore)
+  };
+
+  /// Partial update of profile fields — Super Admin only (for Data Inspector).
+  ///
+  /// FLOW (Data Inspector edit modal):
+  ///   1. Super Admin opens edit modal for a profile record
+  ///   2. Changes desired fields (business_name, phone, address, etc.)
+  ///   3. Frontend calls updateProfileFields(profileKey, fields)
+  ///   4. Backend applies only non-null fields; key/owner fields are immutable
+  ///   5. Returns true on success, false if profile not found or caller not SA
+  ///
+  /// NOTE: Use enableProfile() for the is_enabled toggle if you want the dedicated function.
+  /// updateProfileFields also accepts is_enabled as an optional convenience.
+  public shared ({ caller }) func updateProfileFields(
+    profileKey : Common.ProfileKey,
+    fields : ProfileTypes.ProfileUpdateInput,
+  ) : async Bool {
+    if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
+    switch (userStore.get(caller)) {
+      case (?up) {
+        if (up.role != #superAdmin) Runtime.trap("Super Admin only");
+      };
+      case null Runtime.trap("Caller has no profile");
+    };
+    ProfileLib.updateProfileFields(profileStore, userStore, caller, profileKey, fields)
   };
 };

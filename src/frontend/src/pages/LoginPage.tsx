@@ -1,3 +1,43 @@
+/*
+ * PAGE: LoginPage
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Internet Identity login screen. Shown to unauthenticated users before any
+ *   protected content is rendered. Displays app branding, feature highlights,
+ *   and a Login button that triggers the II authentication flow.
+ *
+ * ROLE ACCESS:
+ *   public — rendered for unauthenticated users only
+ *
+ * FLOW:
+ *   1. Mount / initialization
+ *      ├─ ProfileLogoDisplay: fetches getAllProfilesForAdmin() anonymously
+ *      │    ├─ if a profile logo exists → renders it above the login card
+ *      │    └─ if none or fetch fails → renders nothing (graceful)
+ *      └─ useAuth() provides login() and loginStatus
+ *   2. User clicks Login
+ *      ├─ login() called → Internet Identity popup opens
+ *      │    ├─ success → principal resolved → App.tsx re-evaluates routing
+ *      │    └─ cancelled → loginStatus returns to idle
+ *      └─ loginStatus === "logging-in" → button shows spinner + "Signing in…"
+ *   3. Post-login routing (handled in App.tsx, not here)
+ *      ├─ superAdmin role → /super-admin
+ *      ├─ no profile assigned → /onboarding
+ *      ├─ pending approval → access denied screen + logout
+ *      └─ admin/staff/referralUser → /dashboard
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VARIABLES INITIALIZED:
+ *   - logoUrl: string | null = null   // fetched profile logo URL
+ *   - checked: boolean = false        // whether logo fetch completed
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SIDE EFFECTS (useEffect):
+ *   - Trigger: [actor, isFetching]  →  Action: fetch first profile logo
+ * ─────────────────────────────────────────────────────────────────────────────
+ * KEY HANDLERS:
+ *   - login(): triggers Internet Identity authentication
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 import { createActor } from "@/backend";
 import type { ProfilePublic } from "@/backend";
 import { Button } from "@/components/ui/button";

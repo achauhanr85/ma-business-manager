@@ -1,3 +1,52 @@
+/*
+ * PAGE: DashboardPage
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Main home page for Admin and Staff. Shows KPI cards, sales trend chart,
+ *   referral commission breakdown, inventory alerts, and quick-action tiles.
+ *
+ * ROLE ACCESS:
+ *   admin, staff — superAdmin redirected to /super-admin; referralUser to /customers
+ *
+ * FLOW:
+ *   1. Mount / initialization
+ *      ├─ profileKey from ProfileContext (impersonation-aware)
+ *      ├─ userProfile from ProfileContext for role checks
+ *      └─ calls multiple hooks in parallel:
+ *           ├─ useGetDashboardStats()         → KPI counts
+ *           ├─ useGetSales()                  → for filtered sales count
+ *           ├─ useGetInventoryLevels()        → for low-stock/out-of-stock
+ *           ├─ useGetMonthlySalesTrend()      → for line chart
+ *           ├─ useGetReferralCommissionByMonth() → for commission chart
+ *           ├─ useGetProducts()               → for product name lookups
+ *           ├─ useGetCategories()             → for category name lookups
+ *           └─ useGetUsersByProfile(profileKey) → for staff selector filter
+ *   2. Render logic
+ *      ├─ Loading → skeleton KPI cards + skeleton chart
+ *      ├─ KPI cards: Total Revenue, Sales Count, Active Customers, Inventory Alerts
+ *      ├─ Sales count filter: All / Self / per-staff selector (Admin only)
+ *      ├─ Monthly Sales Trend line chart (via Recharts LineChart)
+ *      ├─ Referral Commission chart (multi-line, per Referral User)
+ *      └─ Quick links: Create Sale, Create Customer, Purchase Order
+ *   3. Manual notification refresh
+ *      ├─ Admin/SuperAdmin sees "Refresh Notifications" button
+ *      └─ calls useRunBackgroundChecks() → triggers all notification jobs
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VARIABLES INITIALIZED:
+ *   - selectedStaff: string = "all"      // sales filter: "all" | "self" | userId
+ *   - helpOpen: boolean = false           // HelpPanel open state
+ *   - selectedInventoryProduct: bigint | null // for inventory batch drill-down
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SIDE EFFECTS (useEffect):
+ *   none (all data loaded via React Query hooks)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * KEY HANDLERS:
+ *   - handleRefreshNotifications: calls useRunBackgroundChecks mutation
+ *   - handleStaffFilter: updates selectedStaff for sales count filter
+ *   - onNavigate: navigates to sale/customer/po pages
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 import { HelpPanel } from "@/components/HelpPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

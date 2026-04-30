@@ -1,3 +1,55 @@
+/*
+ * PAGE: ProfilePage
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Business profile settings page. Admin can update the business profile fields
+ *   (name, address, logo, Instagram, receipt notes, theme color). Super Admin
+ *   sees a read-only summary with a link to the SA dashboard for profile edits.
+ *
+ * ROLE ACCESS:
+ *   admin (edit), superAdmin (view + link to SA dashboard), staff (read-only view)
+ *
+ * FLOW:
+ *   1. Mount / initialization
+ *      ├─ useGetProfile() → current business profile
+ *      ├─ useGetUserProfile() → current user (for role checks)
+ *      ├─ useGetAllProfilesForAdmin() → SA profile selector (superAdmin only)
+ *      └─ useGetSuperAdminStats() → SA stats (superAdmin only)
+ *   2. For Admin:
+ *      ├─ Form pre-fills all business profile fields on mount
+ *      ├─ Logo upload: file → base64 → logo_url field
+ *      ├─ Theme colour picker: hex colour → live preview via CSS var
+ *      ├─ Receipt notes: ReactQuill rich text editor
+ *      └─ useUpdateProfile.mutateAsync(input) on Save
+ *           └─ success → toast + profile refetch
+ *   3. For Super Admin:
+ *      ├─ shows profile selector (from useGetAllProfilesForAdmin)
+ *      ├─ selecting a profile loads and pre-fills all its fields
+ *      ├─ SA can save changes to any profile via updateProfile
+ *      └─ direct link to SA dashboard for profile management
+ *   4. For Staff:
+ *      └─ read-only view of the business profile fields
+ *   5. Personal profile section
+ *      ├─ display name, phone (for all roles)
+ *      └─ useUpdateUserProfile.mutateAsync(input)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VARIABLES INITIALIZED:
+ *   - businessForm: BusinessForm  // profile fields being edited
+ *   - personalForm: PersonalForm  // user profile fields (name, phone)
+ *   - logoPreview: string         // base64 preview of uploaded logo
+ *   - themeHex: string            // hex colour for live preview
+ *   - helpOpen: boolean = false
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SIDE EFFECTS (useEffect):
+ *   - Trigger: [profileData]  →  Action: pre-fill businessForm with loaded profile
+ * ─────────────────────────────────────────────────────────────────────────────
+ * KEY HANDLERS:
+ *   - handleBusinessSave: validates and calls useUpdateProfile
+ *   - handlePersonalSave: validates and calls useUpdateUserProfile
+ *   - handleLogoUpload: reads file as base64, sets logoPreview + form.logo_url
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 import type { ProfileInput, ProfilePublic, UserProfileInput } from "@/backend";
 import { UserRole } from "@/backend";
 import { HelpPanel } from "@/components/HelpPanel";

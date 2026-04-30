@@ -1,3 +1,49 @@
+/*
+ * PAGE: InventoryPage
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Read-only inventory dashboard showing current stock levels per product
+ *   across all warehouses. Shows KPI cards for out-of-stock and low-stock counts.
+ *   Admin sees all warehouses; Staff sees only their assigned warehouse.
+ *
+ * ROLE ACCESS:
+ *   admin, staff (with inventory module permission), superAdmin (when impersonating)
+ *
+ * FLOW:
+ *   1. Mount / initialization
+ *      ├─ userProfile from ProfileContext for warehouse/role filtering
+ *      ├─ useGetInventoryLevels() → current stock per product per warehouse
+ *      ├─ useGetProducts() → for product name / category name lookups
+ *      ├─ useGetCategories() → for category name lookups
+ *      └─ useGetDashboardStats() → for out-of-stock / low-stock KPI counts
+ *   2. Warehouse filter
+ *      ├─ Admin/SuperAdmin: "All Warehouses" + per-warehouse selector
+ *      └─ Staff: sees only their assigned warehouse (filtered by warehouseName)
+ *   3. Inventory table rendering
+ *      ├─ Loading → skeleton rows
+ *      ├─ Empty (no stock) → empty state message
+ *      └─ Data → table: Product, Category, Warehouse, Qty, Unit Cost, Value
+ *           ├─ Low stock rows highlighted (qty < LOW_STOCK_THRESHOLD = 10)
+ *           └─ Out-of-stock rows shown with destructive badge
+ *   4. Batch drill-down
+ *      ├─ clicking a product row expands to show individual FIFO batches
+ *      └─ useGetInventoryBatches(productId) → batch list with cost and qty
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VARIABLES INITIALIZED:
+ *   - selectedWarehouse: string = "all"         // warehouse filter
+ *   - searchQuery: string = ""                  // product search filter
+ *   - selectedProduct: bigint | null            // for batch drill-down
+ *   - helpOpen: boolean = false                 // HelpPanel state
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SIDE EFFECTS (useEffect):
+ *   none
+ * ─────────────────────────────────────────────────────────────────────────────
+ * KEY HANDLERS:
+ *   - handleWarehouseChange: updates selectedWarehouse filter
+ *   - handleProductClick: toggles batch drill-down for a product row
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 import { HelpPanel } from "@/components/HelpPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

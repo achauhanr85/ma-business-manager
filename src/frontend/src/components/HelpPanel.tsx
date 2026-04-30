@@ -1,3 +1,43 @@
+/*
+ * COMPONENT: HelpPanel
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Slide-out help sheet accessible from the Help icon in the Header.
+ *   Shows page-specific help content first, then lets users browse all topics.
+ *
+ * ROLE ACCESS:
+ *   all authenticated roles — topics are filtered by user role
+ *
+ * FLOW:
+ *   1. Mount / initialization
+ *      ├─ currentPage: string → from props, determines page-specific topics
+ *      ├─ userRole: string → from ProfileContext, filters visible topics
+ *      └─ allowedPageKeys = getAllowedPageKeys(role) → pages this role can see
+ *   2. Initial view: page-specific topics
+ *      ├─ getHelpTopicsForPage(currentPage) → list of topics for current page
+ *      └─ each topic rendered with title + content + "Go to page" navigation link
+ *   3. "Browse all topics" button
+ *      └─ switches to full topic list (filtered by role)
+ *   4. Search mode
+ *      ├─ search input filters all topics by title or content text
+ *      └─ matching topics shown in the list
+ *   5. Topic click
+ *      └─ opens topic detail view (back button returns to list)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VARIABLES INITIALIZED:
+ *   - showAll: boolean = false          // browsing all vs page-specific topics
+ *   - selectedTopic: HelpTopic | null  // topic open in detail view
+ *   - searchQuery: string = ""          // search filter
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SIDE EFFECTS (useEffect):
+ *   - Trigger: [currentPage, isOpen]  →  Action: reset to page-specific view
+ * ─────────────────────────────────────────────────────────────────────────────
+ * KEY HANDLERS:
+ *   - handleTopicClick: opens topic detail view
+ *   - handleBack: returns from detail to list view
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

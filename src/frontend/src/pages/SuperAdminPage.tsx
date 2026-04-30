@@ -1,3 +1,65 @@
+/*
+ * PAGE: SuperAdminPage
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Super Admin control center. Provides profile governance (enable/disable/delete),
+ *   impersonation, canister cycles info, lead management, and quick links to
+ *   the approval page, data inspector, and test suite.
+ *
+ * ROLE ACCESS:
+ *   superAdmin only — enforced by parent router in App.tsx
+ *
+ * FLOW:
+ *   1. Mount / initialization
+ *      ├─ useGetAllProfilesForAdmin() → all business profiles
+ *      ├─ useGetAllUsersForAdmin() → all users across all profiles
+ *      ├─ useGetSuperAdminStats() → total cycles, per-profile stats
+ *      ├─ useGetCanisterCyclesInfo() → detailed canister cycles breakdown
+ *      └─ useGetLeads() → leads from the public index page
+ *   2. Dashboard KPIs
+ *      ├─ Total profiles, total users, active cycles
+ *      └─ Pending approvals count (links to ProfileApprovalPage)
+ *   3. Profile list
+ *      ├─ each profile card: name, key, user count, is_enabled toggle
+ *      ├─ Enable/Disable → useEnableProfile.mutateAsync({ profileKey, enabled })
+ *      ├─ Delete → AlertDialog → useDeleteProfile.mutateAsync(profileKey)
+ *      ├─ "Approve/Reject" (pending profiles) → inline buttons or link to approval page
+ *      └─ Side panel: edit profile fields + date window + key rename
+ *   4. Impersonation
+ *      ├─ role selector (Admin / Staff) per profile
+ *      ├─ setImpersonatedProfile(profileKey) + setImpersonationRole(role)
+ *      └─ impersonation banner shown in Layout.tsx when active
+ *   5. Leads management
+ *      ├─ table of all leads from the public marketing page
+ *      ├─ WhatsApp contact button → opens wa.me link with pre-filled message
+ *      ├─ "Close Lead" → useCloseLead.mutateAsync({ id, profileLink })
+ *      │    sends a profile creation link to the closed lead
+ *      └─ Delete → useDeleteLead.mutateAsync(id)
+ *   6. Quick links
+ *      ├─ Profile Approvals → /profile-approvals
+ *      ├─ Data Inspector   → /data-inspector
+ *      └─ Test Suite        → /tests
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VARIABLES INITIALIZED:
+ *   - selectedProfileKey: string | null = null  // profile open in side panel
+ *   - sidePanelOpen: boolean = false
+ *   - impersonatingRole: ImpersonationRole | null
+ *   - helpOpen: boolean = false
+ *   - deleteTarget: string | null               // profileKey pending delete
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SIDE EFFECTS (useEffect):
+ *   none (all data via React Query hooks)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * KEY HANDLERS:
+ *   - handleEnableToggle: enables/disables a profile
+ *   - handleDeleteProfile: confirms and deletes a profile
+ *   - handleImpersonate: sets impersonation role + profile key
+ *   - handleStopImpersonating: clears impersonation state
+ *   - handleCloseLead: marks lead as closed with a profile creation link
+ *   - handleContactLead: opens WhatsApp with pre-filled intro message
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 import { HelpPanel } from "@/components/HelpPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

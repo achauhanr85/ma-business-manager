@@ -1,3 +1,61 @@
+/*
+ * PAGE: ReceiptPage
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Renders the printable/shareable receipt for a completed sale. Displays
+ *   business branding, customer info, line items, body composition history,
+ *   body inches, and notes. Supports PDF download and WhatsApp sharing.
+ *
+ * ROLE ACCESS:
+ *   admin, staff — accessed after sale confirmation or from history
+ *
+ * FLOW:
+ *   1. Mount / initialization
+ *      ├─ saleId comes from props (passed from SalesPage via router state)
+ *      │    ├─ saleId null → "No sale selected" message with Back button
+ *      │    └─ saleId valid → load all data in parallel
+ *      ├─ actor.getSale(saleId) → sale record (timestamp, total, payment, note)
+ *      ├─ actor.getSaleItems(saleId) → line items (product name snapshot, qty, price)
+ *      ├─ useGetCustomer(customerId) → customer name, phone, address
+ *      ├─ useGetProfile() → business name, address, logo, instagram
+ *      ├─ useGetBodyCompositionHistory(customerId) → body composition entries
+ *      └─ useGetBodyInchesHistory(customerId) → body inches entries
+ *   2. Data loading
+ *      ├─ Loading → skeleton receipt layout
+ *      └─ Loaded → full receipt rendered
+ *   3. Receipt layout (top to bottom)
+ *      ├─ Business name + address (left) + Logo (right)
+ *      ├─ Customer name, phone, address (left) + Receipt #, date, status (right)
+ *      ├─ Line items grid: product, qty, unit price, subtotal
+ *      ├─ Product instructions per line item
+ *      ├─ Business note (rich text stripped)
+ *      ├─ Sales note
+ *      ├─ Customer notes
+ *      ├─ Body composition table (all entries, sorted latest first)
+ *      └─ Body inches table (all entries, sorted latest first)
+ *   4. Actions
+ *      ├─ Print → window.print() with CSS print styles
+ *      ├─ Download PDF → html2canvas + jsPDF (or browser print-to-PDF)
+ *      ├─ WhatsApp share → buildWhatsAppText() → wa.me link opened in new tab
+ *      │    (uses customer phone number stored on the customer record)
+ *      └─ Language selector → controls date/number format for the receipt
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VARIABLES INITIALIZED:
+ *   - sale: Sale | null          // loaded from actor.getSale
+ *   - items: SaleItem[]          // loaded from actor.getSaleItems
+ *   - receiptLang: string        // from UserPreferences defaultReceiptLanguage
+ *   - isLoadingSale: boolean     // combined loading state
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SIDE EFFECTS (useEffect):
+ *   - Trigger: [actor, saleId]  →  Action: load sale + items directly from actor
+ * ─────────────────────────────────────────────────────────────────────────────
+ * KEY HANDLERS:
+ *   - handlePrint: triggers browser print dialog
+ *   - handleWhatsApp: builds and opens WhatsApp sharing URL
+ *   - handleLanguageChange: updates receiptLang for date/number formatting
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";

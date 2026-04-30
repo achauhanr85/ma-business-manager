@@ -36,6 +36,7 @@ type UserProfilePublic =
    approval_status: opt text;
    date_format: text;
    default_receipt_language: text;
+   diagnostics_level: nat;
    display_name: text;
    email: opt text;
    joined_at: Timestamp;
@@ -52,6 +53,7 @@ type UserProfileInput =
    approval_status: opt text;
    date_format: opt text;
    default_receipt_language: opt text;
+   diagnostics_level: opt nat;
    display_name: text;
    email: opt text;
    language_preference: opt text;
@@ -64,6 +66,7 @@ type UserPreferences =
  record {
    dateFormat: text;
    defaultReceiptLanguage: text;
+   diagnosticsLevel: nat;
    language: text;
    theme: text;
    whatsappNumber: text;
@@ -224,6 +227,19 @@ type PurchaseOrder =
    vendor_id: opt text;
    vendor_name: opt text;
    warehouse_name: WarehouseName;
+ };
+type ProfileUpdateInput = 
+ record {
+   business_address: opt text;
+   business_name: opt text;
+   email: opt text;
+   fssai_number: opt text;
+   instagram_handle: opt text;
+   is_enabled: opt bool;
+   logo_url: opt text;
+   phone_number: opt text;
+   receipt_notes: opt text;
+   theme_color: opt text;
  };
 type ProfileStatus = 
  record {
@@ -772,6 +788,9 @@ service : {
   deleteMedicalIssue: (id: nat) -> (bool);
   deleteMedicalIssueMaster: (id: nat) -> (bool);
   deleteProduct: (id: ProductId) -> (bool);
+  /// Creates or updates the userStore entry for the given principal with role=#superAdmin.
+  /// Called by initSuperAdmin() and claimSuperAdmin() to ensure the Super Admin always
+  /// has an approved, correctly-roled user record even after a clearAllData().
   deleteProfile: (profile_key: ProfileKey) -> (bool);
   deleteVendor: (vendorId: text) -> (bool);
   /// Public unauthenticated query — returns true if a Super Admin has been set up.
@@ -833,6 +852,7 @@ service : {
   getPaymentHistory: (sale_id: SaleId) -> (vec PaymentEntry) query;
   getPendingApprovalUsers: (profile_key: ProfileKey) ->
    (vec UserProfilePublic) query;
+  getPendingProfiles: () -> (vec ProfilePublic) query;
   getProducts: () -> (vec Product) query;
   getProfile: () -> (opt ProfilePublic) query;
   getProfileByKey: (profile_key: ProfileKey) -> (opt ProfilePublic) query;
@@ -904,11 +924,13 @@ service : {
    amountPaid: opt float64, paymentDueDate: opt text) -> (bool);
   updateProduct: (id: ProductId, input: ProductInput) -> (bool);
   updateProfile: (input: ProfileInput) -> (bool);
+  updateProfileFields: (profileKey: ProfileKey, fields:
+   ProfileUpdateInput) -> (bool);
   updateProfileKey: (oldKey: ProfileKey, newKey: ProfileKey) -> (bool);
   updateSale: (input: UpdateSaleInput) -> (bool);
   updateUserPreferences: (language: text, dateFormat: text,
-   defaultReceiptLanguage: text, whatsappNumber: text, theme: text) -> (
-   bool);
+   defaultReceiptLanguage: text, whatsappNumber: text, theme: text,
+   diagnosticsLevel: nat) -> (bool);
   updateUserProfile: (input: UserProfileInput) -> (bool);
   updateVendor: (vendorId: text, input: VendorInput) -> (bool);
 }

@@ -295,6 +295,18 @@ export interface MedicalIssueMasterPublic__1 {
     name: string;
     description: string;
 }
+export interface ProfileUpdateInput {
+    is_enabled?: boolean;
+    business_name?: string;
+    email?: string;
+    business_address?: string;
+    logo_url?: string;
+    instagram_handle?: string;
+    receipt_notes?: string;
+    phone_number?: string;
+    theme_color?: string;
+    fssai_number?: string;
+}
 export interface SaleInput {
     return_of_sale_id?: SaleId;
     payment_mode?: PaymentMode;
@@ -346,6 +358,7 @@ export interface ProfilePublic {
 export interface UserPreferences {
     theme: string;
     defaultReceiptLanguage: string;
+    diagnosticsLevel: bigint;
     language: string;
     whatsappNumber: string;
     dateFormat: string;
@@ -531,6 +544,7 @@ export interface UserProfilePublic {
     language_preference: string;
     date_format: string;
     warehouse_name: WarehouseName;
+    diagnostics_level: bigint;
     profile_key: ProfileKey;
 }
 export interface ReturnItem {
@@ -592,6 +606,7 @@ export interface UserProfileInput {
     language_preference?: string;
     date_format?: string;
     warehouse_name: WarehouseName;
+    diagnostics_level?: bigint;
     profile_key: ProfileKey;
 }
 export enum DiscountType {
@@ -710,6 +725,11 @@ export interface backendInterface {
     deleteMedicalIssue(id: bigint): Promise<boolean>;
     deleteMedicalIssueMaster(id: bigint): Promise<boolean>;
     deleteProduct(id: ProductId): Promise<boolean>;
+    /**
+     * / Creates or updates the userStore entry for the given principal with role=#superAdmin.
+     * / Called by initSuperAdmin() and claimSuperAdmin() to ensure the Super Admin always
+     * / has an approved, correctly-roled user record even after a clearAllData().
+     */
     deleteProfile(profile_key: ProfileKey): Promise<boolean>;
     deleteVendor(vendorId: string): Promise<boolean>;
     /**
@@ -760,6 +780,7 @@ export interface backendInterface {
     getNotificationsForUser(): Promise<Array<Notification>>;
     getPaymentHistory(sale_id: SaleId): Promise<Array<PaymentEntry>>;
     getPendingApprovalUsers(profile_key: ProfileKey): Promise<Array<UserProfilePublic>>;
+    getPendingProfiles(): Promise<Array<ProfilePublic>>;
     getProducts(): Promise<Array<Product>>;
     getProfile(): Promise<ProfilePublic | null>;
     getProfileByKey(profile_key: ProfileKey): Promise<ProfilePublic | null>;
@@ -818,9 +839,10 @@ export interface backendInterface {
     updatePaymentStatus(saleId: SaleId, paymentStatus: PaymentStatus, amountPaid: number | null, paymentDueDate: string | null): Promise<boolean>;
     updateProduct(id: ProductId, input: ProductInput): Promise<boolean>;
     updateProfile(input: ProfileInput): Promise<boolean>;
+    updateProfileFields(profileKey: ProfileKey, fields: ProfileUpdateInput): Promise<boolean>;
     updateProfileKey(oldKey: ProfileKey, newKey: ProfileKey): Promise<boolean>;
     updateSale(input: UpdateSaleInput): Promise<boolean>;
-    updateUserPreferences(language: string, dateFormat: string, defaultReceiptLanguage: string, whatsappNumber: string, theme: string): Promise<boolean>;
+    updateUserPreferences(language: string, dateFormat: string, defaultReceiptLanguage: string, whatsappNumber: string, theme: string, diagnosticsLevel: bigint): Promise<boolean>;
     updateUserProfile(input: UserProfileInput): Promise<boolean>;
     updateVendor(vendorId: string, input: VendorInput): Promise<boolean>;
 }

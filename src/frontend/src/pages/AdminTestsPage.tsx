@@ -1,3 +1,56 @@
+/*
+ * PAGE: AdminTestsPage
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Automated regression test suite — Super Admin only. Runs comprehensive
+ *   backend and frontend checks across all major modules. Direct link from
+ *   the Super Admin dashboard. Not accessible via sidebar for other roles.
+ *
+ * ROLE ACCESS:
+ *   superAdmin only — accessed via /tests route
+ *
+ * FLOW:
+ *   1. Mount / initialization
+ *      ├─ test sections loaded as static config (SECTIONS constant)
+ *      ├─ all tests start with status = "pending"
+ *      └─ actor from useActor(createActor) for direct backend calls
+ *   2. Run All Tests
+ *      ├─ "Run All Tests" button clicked
+ *      ├─ iterates through all sections and all test items in parallel
+ *      ├─ each test: status = "running" → execute → status = "pass" | "fail"
+ *      │    ├─ pass: test assertion returned true / no error thrown
+ *      │    └─ fail: test assertion false or caught error → reason stored
+ *      └─ summary bar updated: X passed / Y failed
+ *   3. Run Section (per-section buttons)
+ *      ├─ runs only the tests in that section
+ *      └─ other sections remain unchanged
+ *   4. Test sections covered
+ *      ├─ Backend CRUD: customers, products, categories, vendors, sales, POs
+ *      ├─ Role routing: correct redirect per role after login
+ *      ├─ FIFO inventory: stock decrements correctly across batches
+ *      ├─ Notifications: system events write notifications correctly
+ *      ├─ Audit trail: created_by, creation_date fields on all major records
+ *      ├─ UI smoke: pages load without crash per role (mock data)
+ *      └─ End-to-end: full sale flow, return flow, approval flow
+ *   5. Results display
+ *      ├─ Summary bar: total pass / fail counts
+ *      ├─ Each section: collapsible with pass/fail count badge
+ *      └─ Each test row: ✓ green or ✗ red + failure reason inline
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VARIABLES INITIALIZED:
+ *   - sections: TestSection[]  // all test sections with initial "pending" status
+ *   - isRunning: boolean = false
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SIDE EFFECTS (useEffect):
+ *   none
+ * ─────────────────────────────────────────────────────────────────────────────
+ * KEY HANDLERS:
+ *   - handleRunAll: runs all test sections sequentially
+ *   - handleRunSection(sectionId): runs only the specified section's tests
+ *   - toggleSection(sectionId): collapses/expands a section in the results view
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 import { createActor } from "@/backend";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

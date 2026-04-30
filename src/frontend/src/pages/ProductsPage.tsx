@@ -1,3 +1,61 @@
+/*
+ * PAGE: ProductsPage
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Full product and category management. Admin can create, edit, and delete
+ *   products and categories. Includes bulk CSV import/export and downloadable templates.
+ *
+ * ROLE ACCESS:
+ *   admin, superAdmin (impersonating) — staff view only
+ *
+ * FLOW:
+ *   1. Mount / initialization
+ *      ├─ useGetProducts() → all products for this profile
+ *      ├─ useGetCategories() → all categories (for product form dropdown)
+ *      └─ useGetInventoryLevels() → current stock per product (shown as badge)
+ *   2. Two tabs: Products | Categories
+ *   3. Products tab
+ *      ├─ Loading → skeleton rows
+ *      ├─ Empty → "No products" CTA
+ *      └─ Data → searchable list with category badge and stock level badge
+ *   4. Create / Edit Product dialog
+ *      ├─ fields (in order): Category (FIRST), Name, Description, MRP, Cost Price,
+ *      │    Selling Price, Volume Points, Barcode, Product Instructions,
+ *      │    Serving Size, UOM, UOM Value
+ *      ├─ Category field is intentionally FIRST per spec
+ *      ├─ Create → useCreateProduct.mutateAsync(input)
+ *      └─ Edit → useUpdateProduct.mutateAsync({ id, input })
+ *   5. Delete product
+ *      ├─ Trash icon → AlertDialog confirmation
+ *      └─ useDeleteProduct.mutateAsync(id)
+ *   6. Categories tab
+ *      ├─ Create / Edit / Delete categories via their own dialog
+ *      └─ useCreateCategory / useUpdateCategory / useDeleteCategory
+ *   7. CSV operations
+ *      ├─ Export products → CSV with all fields
+ *      ├─ Import products → parseCsvFile → create each product
+ *      ├─ Download template → CSV with column headers only
+ *      └─ Same pattern for categories
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VARIABLES INITIALIZED:
+ *   - activeTab: string = "products"       // "products" | "categories"
+ *   - productDialog: { open, editing }     // product form state
+ *   - categoryDialog: { open, editing }    // category form state
+ *   - deleteProductTarget: bigint | null
+ *   - deleteCategoryTarget: bigint | null
+ *   - searchQuery: string = ""
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SIDE EFFECTS (useEffect):
+ *   none
+ * ─────────────────────────────────────────────────────────────────────────────
+ * KEY HANDLERS:
+ *   - handleCreateProduct / handleUpdateProduct: form submit handlers
+ *   - handleDeleteProduct / handleDeleteCategory: delete with confirmation
+ *   - handleCsvImport: parses CSV and bulk-creates records
+ *   - handleCsvExport: serialises current list to CSV download
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 import {
   AlertDialog,
   AlertDialogAction,

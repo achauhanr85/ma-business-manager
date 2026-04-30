@@ -1,46 +1,56 @@
 /*
- * mixins/notifications-api.mo — Notifications Public API
+ * FILE: mixins/notifications-api.mo
+ * MODULE: mixin
+ * ─────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Exposes public canister functions for the notification system.
+ *   All logic is in lib/notifications.mo; this file handles auth and routing only.
  *
- * WHAT THIS FILE DOES:
- *   Exposes public canister functions for the notification system:
- *     - getNotifications(profileKey, targetRole) — merged panel query
- *       For Super Admin: also appends system-level "superAdmin" notifications
- *       For regular users: also includes personal "user:<principal>" notifications
- *     - getSuperAdminNotifications() — Super Admin system notifications only (dedicated)
- *     - getNotificationsForUser() — personal notifications only (welcome, etc.)
- *     - markNotificationRead(notificationId) — marks a single notification as read
- *     - checkAndCreateNotifications(profileKey) — manual trigger by Admin
- *     - runBackgroundChecks() — runs ALL checks for ALL profiles (Super Admin or timer)
- *     - getAllNotificationsRaw(profileKey) — Super Admin Data Inspector raw query
+ * FLOW:
+ *   PAGE: Notification Panel (bell icon, top-right header)
+ *     getNotifications(profileKey, targetRole) →
+ *       1. Fetch profile+role-scoped notifications (getNotifications in lib)
+ *       2. Fetch personal notifications (getNotificationsForUser in lib)
+ *       3. If caller is Super Admin: also fetch getSuperAdminNotifications()
+ *       4. Merge and return all three sets
+ *     markNotificationRead(notificationId) → sets is_read=true
  *
- * WHO USES IT:
- *   Included in main.mo. The Notification Panel in the frontend calls getNotifications()
- *   to populate the bell icon panel.
+ *   PAGE: Super Admin notification panel (dedicated SA call)
+ *     getSuperAdminNotifications() → returns ONLY target_role="superAdmin" records
+ *       Use this instead of getNotifications() on the SA approval page to avoid
+ *       missing SA system notifications due to profileKey mismatch.
  *
- * IMPORTANT — Super Admin Notifications:
- *   Super Admin system notifications (e.g. "New profile pending approval") are stored
- *   with profile_key="superadmin" (sentinel) and target_role="superAdmin".
- *   They must NEVER be filtered by a real profileKey — they always live under the
- *   sentinel key and are returned regardless of which profile the SA has active.
+ *   PAGE: Profile Approval (inline Approve/Reject in notification panel)
+ *     Notification type "NewProfilePendingApproval" has related_id = profileKey
+ *     Frontend reads related_id → calls approveProfile(related_id) or rejectProfile(related_id)
+ *     This avoids needing to navigate to the Profile Approval page.
  *
- *   Two paths exist for Super Admin to fetch these:
- *     1. getNotifications(any profileKey, "superAdmin")
- *        — appends superAdmin notifs via the isSuperAdmin check in this mixin.
- *        — Works for the notification panel.
- *     2. getSuperAdminNotifications()
- *        — dedicated query, always returns exactly the superAdmin-targeted records.
- *        — USE THIS in the DataInspectorPage and anywhere you only want SA notifs.
- *        — Does NOT require a profileKey argument — no risk of wrong-key filtering.
+ *   PAGE: Admin Dashboard (Manual Trigger button)
+ *     checkAndCreateNotifications(profileKey) → runs overdue+followup checks NOW
+ *       Caller must belong to profileKey (or be superAdmin)
+ *       Returns count of new notifications created
  *
- * DATA INSPECTOR:
- *   getAllNotificationsRaw("") returns all notifications across all profiles.
- *   getAllNotificationsRaw("somekey") returns records for that profile PLUS the
- *   "superadmin" sentinel records (so new-profile-approval notifs are always visible).
+ *   BACKGROUND TIMER (main.mo, every 6 hours)
+ *     runBackgroundChecks() → all checks for ALL profiles
+ *       Also callable by Super Admin from dashboard for on-demand refresh
  *
- * BACKGROUND CHECKS:
- *   runBackgroundChecks() is safe to call manually by Super Admin from the dashboard.
- *   It runs the same logic as the 6-hour recurring timer in main.mo.
- *   Anonymous callers (from the timer context) are also allowed.
+ *   PAGE: Super Admin Data Inspector (notifications table)
+ *     getAllNotificationsRaw(profileKey) →
+ *       profileKey="" → all records from all profiles + sentinel "superadmin" records
+ *       profileKey="somekey" → that profile's records + sentinel "superadmin" records
+ *       Always includes "superadmin" sentinel records so SA approval notifs are visible.
+ *
+ * DEPENDENCIES:
+ *   imports: mo:core/Map, mo:core/Runtime, lib/notifications, lib/sales,
+ *            lib/profile, lib/customers
+ *   called by: main.mo (include NotificationsApi(...))
+ *   calls: lib/notifications.mo (all logic functions)
+ *
+ * IMPORTANT — Diagnostics Log Levels:
+ *   0=TRACE, 1=DEBUG, 2=INFO (default), 3=WARN, 4=ERROR
+ *   Frontend logs API calls to this mixin to the diagnostics panel when enabled.
+ *   The user's saved diagnostics_level (from getUserPreferences) controls filter.
+ * ─────────────────────────────────────────────────────────────────────
  */
 
 import Map "mo:core/Map";

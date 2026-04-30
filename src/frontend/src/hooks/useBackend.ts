@@ -26,7 +26,7 @@
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-import { logApi, logError } from "@/lib/logger";
+import { logError, logInfo } from "@/lib/logger";
 import { useActor } from "@caffeineai/core-infrastructure";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PaymentMode, PaymentStatus, createActor } from "../backend";
@@ -72,10 +72,10 @@ import type {
  * @param fn   - Zero-argument async function that performs the actor call
  */
 async function loggedCall<T>(name: string, fn: () => Promise<T>): Promise<T> {
-  logApi(`→ ${name}`);
+  logInfo(`→ ${name}`);
   try {
     const result = await fn();
-    logApi(`← ${name} OK`);
+    logInfo(`← ${name} OK`);
     return result;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -1056,6 +1056,8 @@ export function useApproveProfile() {
       // Refresh the profile list so approved profiles disappear from the pending queue
       qc.invalidateQueries({ queryKey: ["admin-profiles"] });
       qc.invalidateQueries({ queryKey: ["super-admin-stats"] });
+      // Refresh the dedicated pending profiles list (ProfileApprovalPage)
+      qc.invalidateQueries({ queryKey: ["pending-profiles"] });
       // Also clear notifications so the approval badge updates
       qc.invalidateQueries({ queryKey: ["notifications"] });
       qc.invalidateQueries({ queryKey: ["super-admin-notifications"] });
@@ -1093,6 +1095,8 @@ export function useRejectProfile() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-profiles"] });
       qc.invalidateQueries({ queryKey: ["super-admin-stats"] });
+      // Refresh the dedicated pending profiles list (ProfileApprovalPage)
+      qc.invalidateQueries({ queryKey: ["pending-profiles"] });
       qc.invalidateQueries({ queryKey: ["notifications"] });
       qc.invalidateQueries({ queryKey: ["super-admin-notifications"] });
     },
@@ -2932,42 +2936,142 @@ export function useGetSuperAdminNotifications() {
 }
 
 /**
- * useGetAllUsersRaw — fetches all user profiles for a given profile key.
- * Used in the Data Inspector to show raw user records for Super Admin.
+ * useGetPendingProfiles — fetches only profiles with approval_status = #pending_super_admin_approval.
  *
- * @param profileKey - the profile to fetch users for (null = query disabled)
+ * WHY THIS EXISTS (vs useGetAllProfilesForAdmin + client-side filter):
+ * The previous ProfileApprovalPage called getAllProfilesForAdmin() and then filtered
+ * client-side. This was unreliable:
+ *   1. Returns ALL profiles including approved/rejected ones (large payload).
+ *   2. Client-side string matching could miss Candid variant serialisation edge cases.
+ * getPendingProfiles() is authoritative — the backend filters at the store level.
+ *
+ * GRACEFUL DEGRADATION:
+ * If getPendingProfiles() is not in the IDL (backend not yet redeployed), falls back
+ * to getAllProfilesForAdmin() and filters client-side by both "pending" status values.
+ * This ensures the page works on older deployments while waiting for an upgrade.
+ *
+ * CACHE KEY: ["pending-profiles"] — invalidated by useApproveProfile and useRejectProfile
+ * so the list refreshes automatically after any approval action.
  */
-export function useGetAllUsersRaw(profileKey: string | null) {
+export function useGetPendingProfiles() {
   const { actor, isFetching } = useBackendActor();
-  return useQuery<import("../backend").UserProfilePublic[]>({
-    queryKey: ["data-inspector-users", profileKey],
+  return useQuery<import("../backend").ProfilePublic[]>({
+    queryKey: ["pending-profiles"],
     queryFn: async () => {
-      if (!actor || !profileKey) return [];
-      // TODO: Once backend bindgen is run, getAllUsersRaw(profileKey) will be in the IDL.
-      // Remove the duck-type check and fallback below — call actor.getAllUsersRaw(profileKey) directly.
-      // Prefer getAllUsersRaw if available; fall back to getUsersByProfile
+      if (!actor) return [];
       const a = actor as unknown as Record<string, unknown>;
-      if (typeof a.getAllUsersRaw === "function") {
-        const result = await (
-          a.getAllUsersRaw as (
-            pk: string,
-          ) => Promise<import("../backend").UserProfilePublic[]>
-        )(profileKey);
-        return result ?? [];
+
+      // Prefer dedicated getPendingProfiles() if available
+      if (typeof a.getPendingProfiles === "function") {
+        try {
+          const result = await (
+            a.getPendingProfiles as () => Promise<
+              import("../backend").ProfilePublic[]
+            >
+          )();
+          return result ?? [];
+        } catch {
+          return [];
+        }
       }
-      // Fallback: getUsersByProfile returns the same data for the given profile
-      if (typeof actor.getUsersByProfile === "function") {
-        return actor.getUsersByProfile(profileKey);
+
+      // Fallback: getAllProfilesForAdmin + client-side filter
+      // Handles both "pending" and "pending_super_admin_approval" status values
+      if (typeof actor.getAllProfilesForAdmin === "function") {
+        try {
+          const all = await actor.getAllProfilesForAdmin();
+          return all.filter((p) => {
+            const status = (p as unknown as Record<string, unknown>)
+              .profile_approval_status as string | undefined;
+            return (
+              status === "pending_super_admin_approval" || status === "pending"
+            );
+          });
+        } catch {
+          return [];
+        }
       }
+
       return [];
     },
-    enabled: !!actor && !isFetching && !!profileKey,
+    enabled: !!actor && !isFetching,
+    staleTime: 0, // Always fresh — approval state must be accurate
+    refetchInterval: 30_000, // Poll every 30s for new registrations
+  });
+}
+
+/**
+ * useUpdateProfileFields — updates editable fields of a business profile record.
+ * Used by the Data Inspector to wire the Save button for the "profiles" data type.
+ *
+ * WHY THIS EXISTS:
+ * The Data Inspector Edit modal needs to save changes to profile records. The existing
+ * updateProfile() mutation works for the current user's own profile. For Super Admin
+ * editing ANY profile by key, we need updateProfileFields(profileKey, fields) which
+ * the backend exposes as a Super Admin-only endpoint.
+ *
+ * WHAT FIELDS CAN BE UPDATED:
+ * The backend accepts a record of Text fields (key-value pairs of field names to new values).
+ * Key fields (profile_key, owner, created_at, etc.) are rejected by the backend.
+ * The frontend also marks these as disabled in the edit form.
+ *
+ * CACHE INVALIDATION:
+ * Invalidates both "data-inspector-profiles" (for the inspector table refresh)
+ * and "admin-profiles" (for the Super Admin dashboard profile list).
+ *
+ * GRACEFUL DEGRADATION:
+ * If updateProfileFields is not in the IDL, throws with a clear error message
+ * so the Data Inspector can show a meaningful toast rather than silently failing.
+ */
+export function useUpdateProfileFields() {
+  const { actor } = useBackendActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      profileKey,
+      fields,
+    }: {
+      profileKey: string;
+      fields: Record<string, string>;
+    }) => {
+      if (!actor) throw new Error("Actor not ready");
+      const a = actor as unknown as Record<string, unknown>;
+      // Check if backend has the dedicated updateProfileFields method
+      if (typeof a.updateProfileFields === "function") {
+        return (
+          a.updateProfileFields as (
+            pk: string,
+            f: Record<string, string>,
+          ) => Promise<boolean>
+        )(profileKey, fields);
+      }
+      // Fallback: try generic updateRawRecord if available
+      if (typeof a.updateRawRecord === "function") {
+        return (
+          a.updateRawRecord as (
+            type: string,
+            id: string,
+            fields: Record<string, string>,
+          ) => Promise<boolean>
+        )("profiles", profileKey, fields);
+      }
+      throw new Error(
+        "updateProfileFields is not available on this backend version. Redeploy the backend to enable profile editing.",
+      );
+    },
+    onSuccess: () => {
+      // Refresh both the inspector table and the Super Admin profiles dashboard
+      qc.invalidateQueries({ queryKey: ["data-inspector-profiles"] });
+      qc.invalidateQueries({ queryKey: ["admin-profiles"] });
+      qc.invalidateQueries({ queryKey: ["pending-profiles"] });
+    },
   });
 }
 
 /**
  * useGetAllProfilesRaw — fetches the raw list of all profiles in the canister.
  * Used in the Data Inspector to show raw profile records for Super Admin.
+ *
  * No profile key required — Super Admin sees all profiles.
  */
 export function useGetAllProfilesRaw() {

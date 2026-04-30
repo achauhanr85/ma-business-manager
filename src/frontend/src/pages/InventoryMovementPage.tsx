@@ -1,3 +1,50 @@
+/*
+ * PAGE: InventoryMovementPage
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Allows Admin and Staff to move stock between warehouses. Also shows a
+ *   read-only history of all past inventory movements for audit purposes.
+ *
+ * ROLE ACCESS:
+ *   admin, staff (assigned warehouse only) — superAdmin when impersonating
+ *
+ * FLOW:
+ *   1. Mount / initialization
+ *      ├─ userProfile from ProfileContext for role + warehouse checks
+ *      ├─ useGetInventoryLevels() → source warehouse stock for movement
+ *      ├─ useGetProducts() → product name lookup in movement form
+ *      └─ useGetInventoryMovements() → history table
+ *   2. Move stock form
+ *      ├─ source warehouse: Staff sees only their assigned warehouse
+ *      │                     Admin sees all warehouses
+ *      ├─ destination warehouse: any warehouse in the profile
+ *      ├─ product: dropdown filtered to products with stock in source warehouse
+ *      ├─ quantity: validated against available stock (cannot exceed batch qty)
+ *      ├─ useMoveInventory.mutateAsync(input)
+ *      │    └─ backend: FIFO decrement from source + add to destination
+ *      └─ success → toast + inventory levels refetch + movements refetch
+ *   3. Staff restrictions
+ *      ├─ Staff can only MOVE FROM the Main warehouse to their assigned warehouse
+ *      └─ Staff CANNOT move between arbitrary warehouses
+ *   4. Movement history table
+ *      ├─ columns: date, product, from warehouse, to warehouse, qty, moved by
+ *      └─ sorted by most recent first
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VARIABLES INITIALIZED:
+ *   - fromWarehouse: string = ""       // source warehouse for movement
+ *   - toWarehouse: string = ""         // destination warehouse
+ *   - selectedProduct: string = ""     // product id for movement
+ *   - moveQty: string = ""             // quantity to move (as string for input)
+ *   - isMoving: boolean = false        // submission in progress
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SIDE EFFECTS (useEffect):
+ *   - Trigger: [userProfile]  →  Action: pre-fill fromWarehouse for Staff role
+ * ─────────────────────────────────────────────────────────────────────────────
+ * KEY HANDLERS:
+ *   - handleMoveStock: validates form, calls useMoveInventory mutation
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

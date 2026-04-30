@@ -377,6 +377,18 @@ export interface MedicalIssueMasterPublic__1 {
     name: string;
     description: string;
 }
+export interface ProfileUpdateInput {
+    is_enabled?: boolean;
+    business_name?: string;
+    email?: string;
+    business_address?: string;
+    logo_url?: string;
+    instagram_handle?: string;
+    receipt_notes?: string;
+    phone_number?: string;
+    theme_color?: string;
+    fssai_number?: string;
+}
 export interface SaleInput {
     return_of_sale_id?: SaleId;
     payment_mode?: PaymentMode;
@@ -428,6 +440,7 @@ export interface ProfilePublic {
 export interface UserPreferences {
     theme: string;
     defaultReceiptLanguage: string;
+    diagnosticsLevel: bigint;
     language: string;
     whatsappNumber: string;
     dateFormat: string;
@@ -613,6 +626,7 @@ export interface UserProfilePublic {
     language_preference: string;
     date_format: string;
     warehouse_name: WarehouseName;
+    diagnostics_level: bigint;
     profile_key: ProfileKey;
 }
 export interface ReturnItem {
@@ -674,6 +688,7 @@ export interface UserProfileInput {
     language_preference?: string;
     date_format?: string;
     warehouse_name: WarehouseName;
+    diagnostics_level?: bigint;
     profile_key: ProfileKey;
 }
 export enum DiscountType {
@@ -792,6 +807,11 @@ export interface backendInterface {
     deleteMedicalIssue(id: bigint): Promise<boolean>;
     deleteMedicalIssueMaster(id: bigint): Promise<boolean>;
     deleteProduct(id: ProductId): Promise<boolean>;
+    /**
+     * / Creates or updates the userStore entry for the given principal with role=#superAdmin.
+     * / Called by initSuperAdmin() and claimSuperAdmin() to ensure the Super Admin always
+     * / has an approved, correctly-roled user record even after a clearAllData().
+     */
     deleteProfile(profile_key: ProfileKey): Promise<boolean>;
     deleteVendor(vendorId: string): Promise<boolean>;
     /**
@@ -842,6 +862,7 @@ export interface backendInterface {
     getNotificationsForUser(): Promise<Array<Notification>>;
     getPaymentHistory(sale_id: SaleId): Promise<Array<PaymentEntry>>;
     getPendingApprovalUsers(profile_key: ProfileKey): Promise<Array<UserProfilePublic>>;
+    getPendingProfiles(): Promise<Array<ProfilePublic>>;
     getProducts(): Promise<Array<Product>>;
     getProfile(): Promise<ProfilePublic | null>;
     getProfileByKey(profile_key: ProfileKey): Promise<ProfilePublic | null>;
@@ -900,13 +921,14 @@ export interface backendInterface {
     updatePaymentStatus(saleId: SaleId, paymentStatus: PaymentStatus, amountPaid: number | null, paymentDueDate: string | null): Promise<boolean>;
     updateProduct(id: ProductId, input: ProductInput): Promise<boolean>;
     updateProfile(input: ProfileInput): Promise<boolean>;
+    updateProfileFields(profileKey: ProfileKey, fields: ProfileUpdateInput): Promise<boolean>;
     updateProfileKey(oldKey: ProfileKey, newKey: ProfileKey): Promise<boolean>;
     updateSale(input: UpdateSaleInput): Promise<boolean>;
-    updateUserPreferences(language: string, dateFormat: string, defaultReceiptLanguage: string, whatsappNumber: string, theme: string): Promise<boolean>;
+    updateUserPreferences(language: string, dateFormat: string, defaultReceiptLanguage: string, whatsappNumber: string, theme: string, diagnosticsLevel: bigint): Promise<boolean>;
     updateUserProfile(input: UserProfileInput): Promise<boolean>;
     updateVendor(vendorId: string, input: VendorInput): Promise<boolean>;
 }
-import type { BatchId as _BatchId, BodyCompositionEntry as _BodyCompositionEntry, BodyCompositionInput as _BodyCompositionInput, BodyInchesInput as _BodyInchesInput, BodyInchesPublic as _BodyInchesPublic, CartItem as _CartItem, CategoryId as _CategoryId, CustomerId as _CustomerId, CustomerInput as _CustomerInput, CustomerNote as _CustomerNote, CustomerNoteInput as _CustomerNoteInput, CustomerNotePublic as _CustomerNotePublic, CustomerOrderDetail as _CustomerOrderDetail, CustomerPublic as _CustomerPublic, DashboardStats as _DashboardStats, DiscountType as _DiscountType, DuplicateCheckResult as _DuplicateCheckResult, GoalMasterPublic as _GoalMasterPublic, InventoryBatchPublic as _InventoryBatchPublic, InventoryLevel as _InventoryLevel, InventoryMovementInput as _InventoryMovementInput, Lead as _Lead, LoanedItemStatus as _LoanedItemStatus, LocationMasterEntry as _LocationMasterEntry, MedicalIssueMasterPublic as _MedicalIssueMasterPublic, MovementId as _MovementId, Notification as _Notification, OrderType as _OrderType, POStatus as _POStatus, PaymentEntry as _PaymentEntry, PaymentMode as _PaymentMode, PaymentStatus as _PaymentStatus, Product as _Product, ProductId as _ProductId, ProductInput as _ProductInput, ProfileApprovalStatus as _ProfileApprovalStatus, ProfileKey as _ProfileKey, ProfilePublic as _ProfilePublic, ProfileStats as _ProfileStats, ProfileStatus as _ProfileStatus, PurchaseOrder as _PurchaseOrder, PurchaseOrderId as _PurchaseOrderId, PurchaseOrderInput as _PurchaseOrderInput, PurchaseOrderItemInput as _PurchaseOrderItemInput, ReturnOrderResult as _ReturnOrderResult, RoutingStatus as _RoutingStatus, Sale as _Sale, SaleId as _SaleId, SaleInput as _SaleInput, SaleItem as _SaleItem, StagedBatchStatus as _StagedBatchStatus, SuperAdminStats as _SuperAdminStats, Timestamp as _Timestamp, UpdateSaleInput as _UpdateSaleInput, UserId as _UserId, UserProfileInput as _UserProfileInput, UserProfilePublic as _UserProfilePublic, UserRole as _UserRole, Vendor as _Vendor, VendorInput as _VendorInput, WarehouseName as _WarehouseName } from "./declarations/backend.did.d.ts";
+import type { BatchId as _BatchId, BodyCompositionEntry as _BodyCompositionEntry, BodyCompositionInput as _BodyCompositionInput, BodyInchesInput as _BodyInchesInput, BodyInchesPublic as _BodyInchesPublic, CartItem as _CartItem, CategoryId as _CategoryId, CustomerId as _CustomerId, CustomerInput as _CustomerInput, CustomerNote as _CustomerNote, CustomerNoteInput as _CustomerNoteInput, CustomerNotePublic as _CustomerNotePublic, CustomerOrderDetail as _CustomerOrderDetail, CustomerPublic as _CustomerPublic, DashboardStats as _DashboardStats, DiscountType as _DiscountType, DuplicateCheckResult as _DuplicateCheckResult, GoalMasterPublic as _GoalMasterPublic, InventoryBatchPublic as _InventoryBatchPublic, InventoryLevel as _InventoryLevel, InventoryMovementInput as _InventoryMovementInput, Lead as _Lead, LoanedItemStatus as _LoanedItemStatus, LocationMasterEntry as _LocationMasterEntry, MedicalIssueMasterPublic as _MedicalIssueMasterPublic, MovementId as _MovementId, Notification as _Notification, OrderType as _OrderType, POStatus as _POStatus, PaymentEntry as _PaymentEntry, PaymentMode as _PaymentMode, PaymentStatus as _PaymentStatus, Product as _Product, ProductId as _ProductId, ProductInput as _ProductInput, ProfileApprovalStatus as _ProfileApprovalStatus, ProfileKey as _ProfileKey, ProfilePublic as _ProfilePublic, ProfileStats as _ProfileStats, ProfileStatus as _ProfileStatus, ProfileUpdateInput as _ProfileUpdateInput, PurchaseOrder as _PurchaseOrder, PurchaseOrderId as _PurchaseOrderId, PurchaseOrderInput as _PurchaseOrderInput, PurchaseOrderItemInput as _PurchaseOrderItemInput, ReturnOrderResult as _ReturnOrderResult, RoutingStatus as _RoutingStatus, Sale as _Sale, SaleId as _SaleId, SaleInput as _SaleInput, SaleItem as _SaleItem, StagedBatchStatus as _StagedBatchStatus, SuperAdminStats as _SuperAdminStats, Timestamp as _Timestamp, UpdateSaleInput as _UpdateSaleInput, UserId as _UserId, UserProfileInput as _UserProfileInput, UserProfilePublic as _UserProfilePublic, UserRole as _UserRole, Vendor as _Vendor, VendorInput as _VendorInput, WarehouseName as _WarehouseName } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
     constructor(private actor: ActorSubclass<_SERVICE>, private _uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, private _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, private processError?: (error: unknown) => never){}
     async addCustomerNote(arg0: CustomerId, arg1: CustomerNoteInput): Promise<CustomerNote | null> {
@@ -2064,6 +2086,20 @@ export class Backend implements backendInterface {
             return from_candid_vec_n71(this._uploadFile, this._downloadFile, result);
         }
     }
+    async getPendingProfiles(): Promise<Array<ProfilePublic>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getPendingProfiles();
+                return from_candid_vec_n66(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getPendingProfiles();
+            return from_candid_vec_n66(this._uploadFile, this._downloadFile, result);
+        }
+    }
     async getProducts(): Promise<Array<Product>> {
         if (this.processError) {
             try {
@@ -2806,6 +2842,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async updateProfileFields(arg0: ProfileKey, arg1: ProfileUpdateInput): Promise<boolean> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.updateProfileFields(arg0, to_candid_ProfileUpdateInput_n151(this._uploadFile, this._downloadFile, arg1));
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.updateProfileFields(arg0, to_candid_ProfileUpdateInput_n151(this._uploadFile, this._downloadFile, arg1));
+            return result;
+        }
+    }
     async updateProfileKey(arg0: ProfileKey, arg1: ProfileKey): Promise<boolean> {
         if (this.processError) {
             try {
@@ -2823,42 +2873,42 @@ export class Backend implements backendInterface {
     async updateSale(arg0: UpdateSaleInput): Promise<boolean> {
         if (this.processError) {
             try {
-                const result = await this.actor.updateSale(to_candid_UpdateSaleInput_n151(this._uploadFile, this._downloadFile, arg0));
+                const result = await this.actor.updateSale(to_candid_UpdateSaleInput_n153(this._uploadFile, this._downloadFile, arg0));
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.updateSale(to_candid_UpdateSaleInput_n151(this._uploadFile, this._downloadFile, arg0));
+            const result = await this.actor.updateSale(to_candid_UpdateSaleInput_n153(this._uploadFile, this._downloadFile, arg0));
             return result;
         }
     }
-    async updateUserPreferences(arg0: string, arg1: string, arg2: string, arg3: string, arg4: string): Promise<boolean> {
+    async updateUserPreferences(arg0: string, arg1: string, arg2: string, arg3: string, arg4: string, arg5: bigint): Promise<boolean> {
         if (this.processError) {
             try {
-                const result = await this.actor.updateUserPreferences(arg0, arg1, arg2, arg3, arg4);
+                const result = await this.actor.updateUserPreferences(arg0, arg1, arg2, arg3, arg4, arg5);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.updateUserPreferences(arg0, arg1, arg2, arg3, arg4);
+            const result = await this.actor.updateUserPreferences(arg0, arg1, arg2, arg3, arg4, arg5);
             return result;
         }
     }
     async updateUserProfile(arg0: UserProfileInput): Promise<boolean> {
         if (this.processError) {
             try {
-                const result = await this.actor.updateUserProfile(to_candid_UserProfileInput_n153(this._uploadFile, this._downloadFile, arg0));
+                const result = await this.actor.updateUserProfile(to_candid_UserProfileInput_n155(this._uploadFile, this._downloadFile, arg0));
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.updateUserProfile(to_candid_UserProfileInput_n153(this._uploadFile, this._downloadFile, arg0));
+            const result = await this.actor.updateUserProfile(to_candid_UserProfileInput_n155(this._uploadFile, this._downloadFile, arg0));
             return result;
         }
     }
@@ -3685,6 +3735,7 @@ function from_candid_record_n73(_uploadFile: (file: ExternalBlob) => Promise<Uin
     language_preference: string;
     date_format: string;
     warehouse_name: _WarehouseName;
+    diagnostics_level: bigint;
     profile_key: _ProfileKey;
 }): {
     theme: string;
@@ -3699,6 +3750,7 @@ function from_candid_record_n73(_uploadFile: (file: ExternalBlob) => Promise<Uin
     language_preference: string;
     date_format: string;
     warehouse_name: WarehouseName;
+    diagnostics_level: bigint;
     profile_key: ProfileKey;
 } {
     return {
@@ -3714,6 +3766,7 @@ function from_candid_record_n73(_uploadFile: (file: ExternalBlob) => Promise<Uin
         language_preference: value.language_preference,
         date_format: value.date_format,
         warehouse_name: value.warehouse_name,
+        diagnostics_level: value.diagnostics_level,
         profile_key: value.profile_key
     };
 }
@@ -4108,17 +4161,20 @@ function to_candid_PaymentStatus_n54(_uploadFile: (file: ExternalBlob) => Promis
 function to_candid_ProductInput_n38(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: ProductInput): _ProductInput {
     return to_candid_record_n39(_uploadFile, _downloadFile, value);
 }
+function to_candid_ProfileUpdateInput_n151(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: ProfileUpdateInput): _ProfileUpdateInput {
+    return to_candid_record_n152(_uploadFile, _downloadFile, value);
+}
 function to_candid_PurchaseOrderInput_n41(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: PurchaseOrderInput): _PurchaseOrderInput {
     return to_candid_record_n42(_uploadFile, _downloadFile, value);
 }
 function to_candid_SaleInput_n47(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: SaleInput): _SaleInput {
     return to_candid_record_n48(_uploadFile, _downloadFile, value);
 }
-function to_candid_UpdateSaleInput_n151(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: UpdateSaleInput): _UpdateSaleInput {
-    return to_candid_record_n152(_uploadFile, _downloadFile, value);
-}
-function to_candid_UserProfileInput_n153(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: UserProfileInput): _UserProfileInput {
+function to_candid_UpdateSaleInput_n153(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: UpdateSaleInput): _UpdateSaleInput {
     return to_candid_record_n154(_uploadFile, _downloadFile, value);
+}
+function to_candid_UserProfileInput_n155(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: UserProfileInput): _UserProfileInput {
+    return to_candid_record_n156(_uploadFile, _downloadFile, value);
 }
 function to_candid_UserRole_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: UserRole): _UserRole {
     return to_candid_variant_n6(_uploadFile, _downloadFile, value);
@@ -4160,6 +4216,42 @@ function to_candid_record_n145(_uploadFile: (file: ExternalBlob) => Promise<Uint
     };
 }
 function to_candid_record_n152(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+    is_enabled?: boolean;
+    business_name?: string;
+    email?: string;
+    business_address?: string;
+    logo_url?: string;
+    instagram_handle?: string;
+    receipt_notes?: string;
+    phone_number?: string;
+    theme_color?: string;
+    fssai_number?: string;
+}): {
+    is_enabled: [] | [boolean];
+    business_name: [] | [string];
+    email: [] | [string];
+    business_address: [] | [string];
+    logo_url: [] | [string];
+    instagram_handle: [] | [string];
+    receipt_notes: [] | [string];
+    phone_number: [] | [string];
+    theme_color: [] | [string];
+    fssai_number: [] | [string];
+} {
+    return {
+        is_enabled: value.is_enabled ? candid_some(value.is_enabled) : candid_none(),
+        business_name: value.business_name ? candid_some(value.business_name) : candid_none(),
+        email: value.email ? candid_some(value.email) : candid_none(),
+        business_address: value.business_address ? candid_some(value.business_address) : candid_none(),
+        logo_url: value.logo_url ? candid_some(value.logo_url) : candid_none(),
+        instagram_handle: value.instagram_handle ? candid_some(value.instagram_handle) : candid_none(),
+        receipt_notes: value.receipt_notes ? candid_some(value.receipt_notes) : candid_none(),
+        phone_number: value.phone_number ? candid_some(value.phone_number) : candid_none(),
+        theme_color: value.theme_color ? candid_some(value.theme_color) : candid_none(),
+        fssai_number: value.fssai_number ? candid_some(value.fssai_number) : candid_none()
+    };
+}
+function to_candid_record_n154(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     payment_mode?: PaymentMode;
     sale_note?: string;
     payment_status?: PaymentStatus;
@@ -4186,7 +4278,7 @@ function to_candid_record_n152(_uploadFile: (file: ExternalBlob) => Promise<Uint
         sale_id: value.sale_id
     };
 }
-function to_candid_record_n154(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function to_candid_record_n156(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     theme?: string;
     default_receipt_language?: string;
     email?: string;
@@ -4196,6 +4288,7 @@ function to_candid_record_n154(_uploadFile: (file: ExternalBlob) => Promise<Uint
     language_preference?: string;
     date_format?: string;
     warehouse_name: WarehouseName;
+    diagnostics_level?: bigint;
     profile_key: ProfileKey;
 }): {
     theme: [] | [string];
@@ -4207,6 +4300,7 @@ function to_candid_record_n154(_uploadFile: (file: ExternalBlob) => Promise<Uint
     language_preference: [] | [string];
     date_format: [] | [string];
     warehouse_name: _WarehouseName;
+    diagnostics_level: [] | [bigint];
     profile_key: _ProfileKey;
 } {
     return {
@@ -4219,6 +4313,7 @@ function to_candid_record_n154(_uploadFile: (file: ExternalBlob) => Promise<Uint
         language_preference: value.language_preference ? candid_some(value.language_preference) : candid_none(),
         date_format: value.date_format ? candid_some(value.date_format) : candid_none(),
         warehouse_name: value.warehouse_name,
+        diagnostics_level: value.diagnostics_level ? candid_some(value.diagnostics_level) : candid_none(),
         profile_key: value.profile_key
     };
 }

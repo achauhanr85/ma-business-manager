@@ -1,3 +1,63 @@
+/*
+ * PAGE: CustomerGoalsPage
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Master data management for customer goals. Admin creates/edits/deletes
+ *   goal definitions (e.g. "Weight Loss", "Muscle Gain") and can bundle
+ *   products to each goal so the cart pre-fills when a goal is selected on a sale.
+ *
+ * ROLE ACCESS:
+ *   admin, superAdmin (impersonating) — staff view only, no edit
+ *
+ * FLOW:
+ *   1. Mount / initialization
+ *      ├─ profileKey resolved: ImpersonationContext.activeProfileKey if set,
+ *      │    else ProfileContext.userProfile.profile_key
+ *      │    (CRITICAL: must use impersonation-aware key so Super Admin can manage
+ *      │     goals for any profile they are currently impersonating)
+ *      └─ useGetGoalMasterData(profileKey) → loads goals list for this profile
+ *   2. Goal list rendering
+ *      ├─ Loading → skeleton rows
+ *      ├─ Error / no profileKey → "Select a business profile" message
+ *      ├─ Empty → "No goals yet" empty state with Add button
+ *      └─ Data → list of goals with Edit / Delete buttons per row
+ *   3. Add goal
+ *      ├─ "Add Goal" button or inline add form at top of list
+ *      ├─ GoalDialog opens with empty form (name, description, product bundle)
+ *      ├─ useCreateGoalMaster.mutateAsync({ profileKey, name, description })
+ *      └─ success → toast + list refetches
+ *   4. Edit goal
+ *      ├─ Pencil icon on a goal row → GoalDialog opens pre-filled
+ *      ├─ useUpdateGoalMaster.mutateAsync({ id, name, description, productBundle })
+ *      └─ success → toast + list refetches
+ *   5. Delete goal
+ *      ├─ Trash icon → AlertDialog confirmation
+ *      ├─ useDeleteGoalMaster.mutateAsync(id)
+ *      └─ success → toast + list refetches
+ *   6. Product bundle management
+ *      ├─ within GoalDialog: products can be added/removed from the bundle
+ *      └─ stored as product_bundle: bigint[] on the goal record
+ *   7. CSV export / import
+ *      ├─ Export → exportToCsv(goals)
+ *      └─ Import → parseCsvFile() → createGoalMaster per row
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VARIABLES INITIALIZED:
+ *   - dialogOpen: boolean = false              // GoalDialog open state
+ *   - editingGoal: GoalMasterPublic | null     // goal being edited (null = create)
+ *   - deleteTarget: bigint | null              // goal id pending delete confirm
+ *   - profileKey: string                       // impersonation-aware active profile key
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SIDE EFFECTS (useEffect):
+ *   none
+ * ─────────────────────────────────────────────────────────────────────────────
+ * KEY HANDLERS:
+ *   - handleOpenCreate: clears form, opens dialog in create mode
+ *   - handleOpenEdit: fills form with goal data, opens dialog in edit mode
+ *   - handleDelete: confirms then calls useDeleteGoalMaster
+ *   - GoalDialog.handleSubmit: calls create or update mutation based on editingGoal
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 import {
   AlertDialog,
   AlertDialogAction,

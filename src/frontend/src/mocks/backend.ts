@@ -136,6 +136,7 @@ const mockUserProfile: UserProfilePublic = {
   date_format: "DD/MM/YYYY",
   default_receipt_language: "en",
   theme: "dark",
+  diagnostics_level: BigInt(0),
 };
 
 const mockCustomers: CustomerPublic[] = [
@@ -306,6 +307,7 @@ export const mockBackend: backendInterface = {
     defaultReceiptLanguage: "en",
     whatsappNumber: "",
     theme: "dark",
+    diagnosticsLevel: BigInt(2),
   }),
   updateUserPreferences: async () => true,
   // Super Admin active profile
@@ -349,5 +351,8 @@ export const mockBackend: backendInterface = {
   getAllCustomerNotesForProfile: async () => [],
   getCustomerNotes: async () => [],
   getSuperAdminNotifications: async () => [],
+  // New endpoints: pending profile approvals + profile field update
+  getPendingProfiles: async () => [],
+  updateProfileFields: async () => true,
   updateCustomerNote: async (): Promise<import("../backend").CustomerNotePublic | null> => null,
 };

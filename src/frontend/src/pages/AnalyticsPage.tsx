@@ -1,3 +1,28 @@
+/*
+ * PAGE: AnalyticsPage
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Placeholder for the upcoming advanced analytics feature. Currently shows a
+ *   "Coming Soon" message with navigation back to the dashboard.
+ *
+ * ROLE ACCESS:
+ *   admin, staff, superAdmin (impersonating)
+ *
+ * FLOW:
+ *   1. Mount → renders a centered empty state with icon and description
+ *   2. "Back to Dashboard" button → calls onNavigate("/")
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VARIABLES INITIALIZED:
+ *   none
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SIDE EFFECTS (useEffect):
+ *   none
+ * ─────────────────────────────────────────────────────────────────────────────
+ * KEY HANDLERS:
+ *   - onNavigate("/"): navigates back to dashboard
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 import { Button } from "@/components/ui/button";
 import { BarChart3 } from "lucide-react";
 

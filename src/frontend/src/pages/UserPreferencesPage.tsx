@@ -1,22 +1,44 @@
 /**
  * UserPreferencesPage.tsx — User-facing preferences form.
  *
- * WHAT THIS FILE DOES:
- * Allows users to configure:
- *   - UI Theme (Dark, Herbal, Minimalist, Punk) — live preview, saved on Save
- *   - Language (English, Gujarati, Hindi) — saved on Save, logout required to apply
- *   - Date Format — saved on Save
- *   - Default Receipt Language — saved on Save
- *   - Diagnostics Panel toggle — IN-MEMORY ONLY, takes effect immediately, not saved
+ * ═══════════════════════════════════════════════════════════════════════════
+ * PAGE FLOW
+ * ═══════════════════════════════════════════════════════════════════════════
  *
- * SAVE BEHAVIOUR:
- * All saved preferences (theme, language, date format, receipt language) require
- * clicking the Save button. After saving, the user is automatically logged out so
- * the new language/theme can reload cleanly.
+ * LOAD FLOW:
+ *   1. isLoading = true → show spinner (waiting for backend prefs to load)
+ *   2. isLoading = false → render all preference sections
+ *   3. All form fields initialized from context state (loaded from backend)
  *
- * EXCEPTION — Diagnostics:
- * The diagnostics toggle is the one auto-apply exception. It is stored in memory only
- * (resets on refresh) and takes effect the moment it is toggled — no Save button needed.
+ * FORM INTERACTION FLOW (local state only — no auto-save):
+ *   User changes theme → updateTheme() → CSS applied immediately (live preview)
+ *   User changes language → updateLanguage() → no visual change until Save
+ *   User changes date format → updateDateFormat() → no visual change until Save
+ *   User changes receipt language → updateDefaultReceiptLanguage()
+ *   User changes diagnostics toggle → setDiagnosticsEnabled() → panel shows/hides
+ *   User changes log level → setDiagnosticsLevelPref() → filter applied immediately
+ *
+ * SAVE FLOW:
+ *   1. User clicks Save → handleSave() called
+ *   2. setIsSaving(true) → button shows spinner
+ *   3. saveAllPreferences() called → writes all prefs to backend
+ *      (includes diagnosticsLevel, excludes diagnosticsEnabled per spec)
+ *   4. Success → toast shown → 1.8s timer → logout() called
+ *      (logout required so new language/theme applies cleanly on re-login)
+ *   5. Failure → toast error shown
+ *   6. setIsSaving(false) in finally block
+ *
+ * DIAGNOSTICS SECTION FLOW:
+ *   diagnosticsEnabled = false → toggle shown, level selector HIDDEN
+ *   diagnosticsEnabled = true  → toggle shown AND level selector shown
+ *   Level selector: 5 options (0=Trace through 4=Error)
+ *   Selecting level does NOT auto-save — included in Save click
+ *
+ * DIAGNOSTIC LOGGING:
+ *   TRACE (0): component mounted, initial values
+ *   DEBUG (1): each preference change event
+ *   INFO  (2): save initiated, save result
+ *   ERROR (4): save failure
  *
  * WHO USES THIS:
  *   App.tsx — rendered when route === ROUTES.userPreferences
@@ -32,6 +54,7 @@ import {
 } from "@/contexts/UserPreferencesContext";
 import type { ThemeName } from "@/contexts/UserPreferencesContext";
 import { useAuth } from "@/hooks/useAuth";
+import { logDebug, logError, logInfo, logTrace } from "@/lib/logger";
 import { useTranslation } from "@/translations";
 import {
   Bug,
@@ -60,13 +83,28 @@ const LANGUAGES = [
 
 type Language = "en" | "gu" | "hi";
 
-/** Visual theme options with emoji and translation key */
 const THEMES: { value: ThemeName; emoji: string; descKey: string }[] = [
   { value: "dark", emoji: "🌑", descKey: "themeDark" },
   { value: "herbal", emoji: "🌿", descKey: "themeHerbal" },
   { value: "minimalist", emoji: "⬜", descKey: "themeMinimalist" },
   { value: "punk", emoji: "⚡", descKey: "themePunk" },
 ];
+
+/**
+ * LOG_LEVEL_OPTIONS — the five selectable minimum log levels.
+ *
+ * VARIABLE INITIALIZATION:
+ *   value: number — the numeric level (0–4)
+ *   label: string — shown in the dropdown
+ *   description: string — hint text below the dropdown
+ */
+const LOG_LEVEL_OPTIONS = [
+  { value: 0, label: "0 — Trace (most verbose)" },
+  { value: 1, label: "1 — Debug" },
+  { value: 2, label: "2 — Info (default)" },
+  { value: 3, label: "3 — Warn" },
+  { value: 4, label: "4 — Error (least verbose)" },
+] as const;
 
 export function UserPreferencesPage({
   onNavigate: _onNavigate,
@@ -84,16 +122,32 @@ export function UserPreferencesPage({
     isLoading,
     diagnosticsEnabled,
     setDiagnosticsEnabled,
+    diagnosticsLevel,
+    setDiagnosticsLevelPref,
   } = useContext(UserPreferencesContext);
 
   const { logout } = useAuth();
   const t = useTranslation();
+
+  // TRACE: variable initialization for page state
   const [isSaving, setIsSaving] = useState(false);
   const logoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Clean up logout timer on unmount to avoid calling logout after navigation
+  logTrace("UserPreferencesPage: mounted", {
+    language,
+    theme,
+    dateFormat,
+    diagnosticsEnabled,
+    diagnosticsLevel,
+  });
+
+  // Clean up logout timer on unmount
   useEffect(() => {
+    logDebug("UserPreferencesPage: component mounted");
     return () => {
+      logDebug(
+        "UserPreferencesPage: component unmounting, clearing logout timer",
+      );
       if (logoutTimerRef.current !== null) {
         clearTimeout(logoutTimerRef.current);
       }
@@ -102,22 +156,40 @@ export function UserPreferencesPage({
 
   /**
    * handleSave — persists all saveable preferences to the backend.
-   * On success, auto-logs out after 1.8s so the new language/theme take effect.
-   * NOTE: diagnosticsEnabled is NOT saved here — it is in-memory only.
+   *
+   * FLOW:
+   *   1. setIsSaving(true) → button shows spinner
+   *   2. saveAllPreferences() → writes to backend (includes diagnosticsLevel)
+   *   3. Success → toast → 1.8s timer → logout() (new lang/theme needs fresh login)
+   *   4. Failure → toast error
+   *   5. finally → setIsSaving(false)
+   *
+   * NOTE: diagnosticsEnabled is NOT saved here — it is in-memory only per spec.
+   * diagnosticsLevel IS included in saveAllPreferences().
    */
   const handleSave = async () => {
+    logInfo("UserPreferencesPage: Save button clicked", {
+      language,
+      theme,
+      dateFormat,
+      diagnosticsLevel,
+    });
     setIsSaving(true);
     try {
       const ok = await saveAllPreferences();
       if (ok) {
+        logInfo("UserPreferencesPage: preferences saved successfully");
         toast.success(t.userPreferences.preferencesSaved, { duration: 5000 });
         logoutTimerRef.current = setTimeout(() => {
+          logInfo("UserPreferencesPage: auto-logout after save");
           logout();
         }, 1800);
       } else {
+        logError("UserPreferencesPage: saveAllPreferences returned false");
         toast.error("Failed to save preferences. Please try again.");
       }
-    } catch {
+    } catch (err) {
+      logError("UserPreferencesPage: handleSave threw an error", err);
       toast.error("Failed to save preferences. Please try again.");
     } finally {
       setIsSaving(false);
@@ -192,7 +264,12 @@ export function UserPreferencesPage({
                     name="theme"
                     value={th.value}
                     checked={theme === th.value}
-                    onChange={() => updateTheme(th.value)}
+                    onChange={() => {
+                      logDebug("UserPreferencesPage: theme changed", {
+                        theme: th.value,
+                      });
+                      updateTheme(th.value);
+                    }}
                     className="accent-primary"
                   />
                   <span className="text-lg">{th.emoji}</span>
@@ -242,7 +319,12 @@ export function UserPreferencesPage({
                   name="language"
                   value={lang.value}
                   checked={language === lang.value}
-                  onChange={() => updateLanguage(lang.value as Language)}
+                  onChange={() => {
+                    logDebug("UserPreferencesPage: language changed", {
+                      lang: lang.value,
+                    });
+                    updateLanguage(lang.value as Language);
+                  }}
                   className="accent-primary"
                 />
                 <span className="text-lg">{lang.flag}</span>
@@ -265,7 +347,6 @@ export function UserPreferencesPage({
             </p>
           </div>
 
-          {/* Refresh button — re-applies saved language without logging out */}
           <Button
             type="button"
             variant="outline"
@@ -310,7 +391,12 @@ export function UserPreferencesPage({
                   name="dateFormat"
                   value={fmt}
                   checked={dateFormat === fmt}
-                  onChange={() => updateDateFormat(fmt)}
+                  onChange={() => {
+                    logDebug("UserPreferencesPage: dateFormat changed", {
+                      fmt,
+                    });
+                    updateDateFormat(fmt);
+                  }}
                   className="accent-primary"
                 />
                 <span className="text-sm font-medium text-foreground font-mono">
@@ -359,9 +445,12 @@ export function UserPreferencesPage({
                   name="receiptLanguage"
                   value={lang.value}
                   checked={defaultReceiptLanguage === lang.value}
-                  onChange={() =>
-                    updateDefaultReceiptLanguage(lang.value as Language)
-                  }
+                  onChange={() => {
+                    logDebug("UserPreferencesPage: receiptLanguage changed", {
+                      lang: lang.value,
+                    });
+                    updateDefaultReceiptLanguage(lang.value as Language);
+                  }}
                   className="accent-primary"
                 />
                 <span className="text-lg">{lang.flag}</span>
@@ -379,10 +468,9 @@ export function UserPreferencesPage({
 
       <Separator />
 
-      {/* ── Diagnostics Panel toggle ──────────────────────────────────────────
-          This is the ONLY preference that auto-applies and is NOT saved to the
-          backend. It resets to OFF on every page refresh. Useful for debugging
-          backend calls and navigation events in the browser.
+      {/* ── Diagnostics Panel ─────────────────────────────────────────────────
+          Toggle: auto-applies immediately (in-memory only, not saved to backend)
+          Level: applies immediately via loggerSetLevel, saved to backend on Save
       ── */}
       <Card data-ocid="user_preferences.diagnostics_section">
         <CardHeader className="pb-3">
@@ -391,7 +479,8 @@ export function UserPreferencesPage({
             Diagnostics
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-4">
+          {/* Toggle row */}
           <div className="flex items-center justify-between gap-4">
             <div className="flex-1">
               <p className="text-sm font-medium text-foreground">
@@ -404,16 +493,63 @@ export function UserPreferencesPage({
             </div>
             <Switch
               checked={diagnosticsEnabled}
-              onCheckedChange={setDiagnosticsEnabled}
+              onCheckedChange={(enabled) => {
+                logDebug("UserPreferencesPage: diagnosticsEnabled toggled", {
+                  enabled,
+                });
+                setDiagnosticsEnabled(enabled);
+              }}
               data-ocid="user_preferences.diagnostics_toggle"
               aria-label="Enable diagnostics panel"
             />
           </div>
+
+          {/* Level selector — only shown when diagnostics is enabled */}
+          {diagnosticsEnabled && (
+            <div className="space-y-2 pt-1 border-t border-border">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-foreground">
+                    Minimum Log Level
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Shows only logs at this level and above.
+                  </p>
+                </div>
+              </div>
+              <select
+                value={diagnosticsLevel}
+                onChange={(e) => {
+                  const level = Number.parseInt(e.target.value, 10);
+                  logDebug("UserPreferencesPage: diagnosticsLevel changed", {
+                    level,
+                  });
+                  setDiagnosticsLevelPref(level);
+                }}
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                data-ocid="user_preferences.diagnostics_level_select"
+                aria-label="Minimum log level"
+              >
+                {LOG_LEVEL_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">
+                0=Trace captures everything. 4=Error only shows failures. 2=Info
+                (default) shows API calls and major events. Changes apply
+                immediately and are saved with your preferences.
+              </p>
+            </div>
+          )}
+
+          {/* Info box */}
           <div className="rounded-lg border border-blue-200/60 bg-blue-50/40 dark:bg-blue-950/20 dark:border-blue-800/30 px-3 py-2.5">
             <p className="text-xs text-blue-700 dark:text-blue-400 leading-relaxed">
-              <strong>Developer tool:</strong> This setting is in-memory only —
-              it resets to OFF when you refresh the page. It is not saved to
-              your account and does not affect other users.
+              <strong>Developer tool:</strong> The on/off toggle is in-memory
+              only — it resets to OFF when you refresh the page. The log level
+              is saved to your account when you click Save below.
             </p>
           </div>
         </CardContent>

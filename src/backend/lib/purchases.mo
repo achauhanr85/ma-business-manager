@@ -1,3 +1,43 @@
+/*
+ * FILE: lib/purchases.mo
+ * MODULE: lib
+ * ─────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Implements all Purchase Order business logic: PO creation, item recording,
+ *   and PO receiving (which replenishes inventory via InventoryLib).
+ *
+ * FLOW:
+ *   PAGE: Purchase Order list (top-panel PO icon)
+ *     getPurchaseOrders() → filter by profileKey → [PurchaseOrder] sorted desc
+ *     getPurchaseOrder(id) → single PO header
+ *     getPurchaseOrderItems(poId) → [PurchaseOrderItem]
+ *
+ *   PAGE: Create PO
+ *     1. User selects vendor (auto-defaults if only one exists)
+ *     2. Enters PO number (shown with "PO-" prefix)
+ *     3. Adds line items (product, quantity, unit_cost)
+ *     4. createPurchaseOrder(input) → stores PO{status=#Pending} + items
+ *        No inventory created yet — stock only arrives when PO is received
+ *
+ *   PAGE: Receive PO
+ *     receivePurchaseOrder(poId) →
+ *       1. Changes PO status from #Pending → #Received
+ *       2. For each PO item: calls InventoryLib.addBatch() to create a new batch
+ *          in the PO's warehouse_name with FIFO date = now
+ *       3. On any failure: rollback (PO stays #Pending, no batches created)
+ *
+ * DEPENDENCIES:
+ *   imports: mo:core/Map, mo:core/Time, mo:core/Runtime, types/common,
+ *            types/purchases, types/inventory, types/users, lib/inventory
+ *   called by: mixins/purchases-api.mo
+ *   calls: lib/inventory.mo (addBatch on receive)
+ *
+ * KEY TYPES:
+ *   POStore     — Map<PurchaseOrderId, PurchaseOrder>
+ *   POItemStore — Map<PurchaseOrderId, [PurchaseOrderItem]>
+ * ─────────────────────────────────────────────────────────────────────
+ */
+
 import Map "mo:core/Map";
 import Time "mo:core/Time";
 import Runtime "mo:core/Runtime";

@@ -1,3 +1,70 @@
+/*
+ * PAGE: SalesPage
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Combined sales page with three tabs: New Sale (cart), Sales History (list
+ *   of past orders), and Return Order. Handles the full sale lifecycle from
+ *   cart assembly through confirmation to receipt navigation.
+ *
+ * ROLE ACCESS:
+ *   admin, staff — referralUser has no sales access
+ *
+ * FLOW:
+ *   1. Mount / initialization
+ *      ├─ profileKey from ProfileContext (impersonation-aware)
+ *      ├─ useGetCustomers() → customer select dropdown
+ *      ├─ useGetProducts() → product search in cart
+ *      ├─ useGetInventoryLevels() → stock availability per product
+ *      └─ useGetSalesByProfile(profileKey) → sales history list
+ *   2. New Sale tab (cart)
+ *      ├─ customer selection → auto-fills last order items and sale note
+ *      ├─ "Copy from Previous Order" → fills cart from customer's last sale
+ *      ├─ product search + add to cart → each item shows qty, price, total
+ *      ├─ Temporary Item toggle → marks cart item as loaned (excluded from COGS)
+ *      ├─ payment fields: method + status (side by side), amount_paid, due date
+ *      │    (due date only shown when status = Pending or Partial)
+ *      ├─ "Confirm Sale" → useCreateSale.mutateAsync(cart)
+ *      │    ├─ success → navigates to ReceiptPage with saleId
+ *      │    └─ error   → toast with error message
+ *      └─ FIFO inventory decrement happens in backend on sale creation
+ *   3. Sales History tab
+ *      ├─ searchable/filterable list of all sales for this profile
+ *      ├─ each row: customer, date, total, payment status badge
+ *      ├─ Payments button → PaymentHistoryModal (add payment entries)
+ *      ├─ Print icon → navigates to ReceiptPage with that saleId
+ *      └─ payment_status is derived from amount_paid vs total (not stored field)
+ *   4. Return Order tab
+ *      ├─ select original order (only orders within 20 days)
+ *      ├─ item selection from that original order
+ *      ├─ per-item Usable / Non-usable toggle
+ *      ├─ useCreateReturnOrder.mutateAsync() called on Submit
+ *      │    └─ Usable items go to Stage Inventory (not main inventory)
+ *      │         Admin reviews them in StageInventoryPage
+ *      └─ success → toast, cart cleared
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VARIABLES INITIALIZED:
+ *   - activeTab: string = "new-sale"         // "new-sale" | "history" | "return"
+ *   - cart: CartItem[] = []                  // current cart items
+ *   - selectedCustomer: CustomerPublic | null
+ *   - saleNote: string = ""                  // note to include on sale
+ *   - paymentMode: string = "cash"
+ *   - paymentStatus: string = "paid"
+ *   - amountPaid: number = 0
+ *   - paymentDueDate: string = ""
+ *   - selectedReturnOrderId: bigint | null   // for return flow
+ *   - returnItems: ReturnOrderItem[]         // items selected for return
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SIDE EFFECTS (useEffect):
+ *   - Trigger: [selectedCustomer?.id]  →  loads last order for auto-fill
+ * ─────────────────────────────────────────────────────────────────────────────
+ * KEY HANDLERS:
+ *   - handleConfirmSale: validates cart + calls useCreateSale + navigates to receipt
+ *   - handleCopyPreviousOrder: fills cart from last sale for selected customer
+ *   - handleReturnSubmit: validates return items + calls useCreateReturnOrder
+ *   - handlePaymentEntryAdd: adds payment entry to existing sale
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 import { Variant_active_lead_inactive } from "@/backend";
 import { createActor } from "@/backend";
 import { Badge } from "@/components/ui/badge";

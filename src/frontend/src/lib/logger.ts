@@ -2,55 +2,59 @@
  * logger.ts — Gated in-memory logger for the Diagnostics Panel.
  *
  * ═══════════════════════════════════════════════════════════════════════════
- * ARCHITECTURE OVERVIEW
+ * PAGE FLOW / ARCHITECTURE
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * This module provides a ZERO-OVERHEAD logging system. The core design rule is:
+ * FLOW DIAGRAM:
+ *   [App code calls logTrace/logDebug/logInfo/logWarn/logError]
+ *          │
+ *          ▼
+ *   append(level, message, data?)
+ *          │
+ *          ├── _enabled? NO  → return immediately (ZERO overhead)
+ *          ├── entry.level < _minLevel? YES → return (filtered out)
+ *          │
+ *          ▼
+ *   Push LogEntry to circular buffer (max 200)
+ *          │
+ *          ▼
+ *   Notify all subscribers (DiagnosticsPanel re-renders)
  *
- *   ► If diagnostics is DISABLED — every log call returns immediately without
- *     doing ANY work. No string allocation, no array push, no listener notify.
- *     This is critical for production performance because log calls are spread
- *     throughout hooks and components that run on every render/mutation.
+ * LEVEL HIERARCHY (numeric, 0 = most verbose):
+ *   0 = TRACE — variable initialization, very fine-grained
+ *   1 = DEBUG — function entry, navigation, role checks
+ *   2 = INFO  — API calls and responses (default minimum)
+ *   3 = WARN  — warning conditions, empty results, fallbacks
+ *   4 = ERROR — caught exceptions and failures
  *
- *   ► If diagnostics is ENABLED — entries are appended to a circular buffer
- *     (max 200 entries) and all subscribed listeners are notified synchronously.
- *     The DiagnosticsPanel is the only subscriber in practice.
+ * ZERO-OVERHEAD GUARANTEE:
+ *   When _enabled = false, every log call returns immediately without
+ *   allocating strings, pushing to arrays, or notifying listeners.
+ *   _minLevel provides a second filter — entries below the minimum are
+ *   discarded even when diagnostics is enabled.
  *
- * ═══════════════════════════════════════════════════════════════════════════
- * SENTINEL DESIGN: setDiagnosticsEnabled()
- * ═══════════════════════════════════════════════════════════════════════════
+ * BACKWARD COMPATIBILITY:
+ *   Old named-level functions (logApi, logNav, logAuth, logDebug, logError)
+ *   are preserved and mapped to numeric levels so existing call sites
+ *   continue to work without changes.
  *
- * The enabled state is stored as a module-level boolean `_enabled`. It is
- * kept in sync with the React context via `setDiagnosticsEnabled()`, which
- * UserPreferencesContext calls whenever `diagnosticsEnabled` changes.
- *
- * Why not use the React context directly inside logger.ts?
- *   logger.ts has NO React dependency — it is imported from hooks, contexts,
- *   and utility files that run outside the React tree. Importing `useContext`
- *   here would cause a runtime error. Instead, the context "pushes" the value
- *   into the logger module via `setDiagnosticsEnabled()`.
- *
- * ═══════════════════════════════════════════════════════════════════════════
- * LOG LEVELS
- * ═══════════════════════════════════════════════════════════════════════════
- *
- *   debug — general debug info (grey)          logDebug()
- *   api   — backend actor call events (blue)   logApi()
- *   error — caught exceptions (red)            logError()
- *   nav   — route/navigation transitions (green) logNav()
- *   auth  — login / logout / role events (purple) logAuth()
- *
- * ═══════════════════════════════════════════════════════════════════════════
- * WHO USES THIS
- * ═══════════════════════════════════════════════════════════════════════════
- *
- *   hooks/useBackend.ts         — logApi() before/after every actor call
- *   App.tsx                     — logNav() on route changes
- *   contexts/UserPreferencesContext.tsx — setDiagnosticsEnabled() on pref change
- *   components/DiagnosticsPanel.tsx     — subscribe() + getEntries() to render
+ * WHO USES THIS:
+ *   hooks/useBackend.ts             — loggedCall wrapper (INFO level)
+ *   hooks/useAuth.ts                — login/logout events (DEBUG/INFO)
+ *   contexts/ProfileContext.tsx     — profile fetch events (DEBUG/INFO)
+ *   contexts/UserPreferencesContext.tsx — setDiagnosticsEnabled/setMinLevel
+ *   contexts/ImpersonationContext.tsx — impersonation events (DEBUG)
+ *   components/DiagnosticsPanel.tsx — subscribe() + getEntries()
+ *   All pages                       — useEffect, handler, fetch logging
  */
 
 // ── Types ────────────────────────────────────────────────────────────────────
+
+/** Numeric log levels — 0 is most verbose, 4 is most severe */
+export type LogLevel = 0 | 1 | 2 | 3 | 4;
+
+/** Human-readable level name displayed in the panel badge */
+export type LogLevelName = "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR";
 
 /** A single log entry stored in the circular buffer */
 export interface LogEntry {
@@ -58,10 +62,14 @@ export interface LogEntry {
   id: number;
   /** HH:MM:SS timestamp captured when the entry was created */
   timestamp: string;
-  /** Log level — controls the colour badge in DiagnosticsPanel */
-  level: "debug" | "api" | "error" | "nav" | "auth";
+  /** Numeric log level (0–4) — controls filtering and badge colour */
+  level: LogLevel;
+  /** Human-readable level name — shown in the panel badge */
+  levelName: LogLevelName;
   /** The log message text */
   message: string;
+  /** Optional structured data attached to the log entry (expandable in panel) */
+  data?: unknown;
 }
 
 // ── Module-level state ───────────────────────────────────────────────────────
@@ -72,55 +80,75 @@ const MAX_ENTRIES = 200;
 /**
  * _enabled — master gate for all logging.
  *
- * When false (the default), every log function returns immediately without
- * doing any work. Set to true via setDiagnosticsEnabled(true) — called by
- * UserPreferencesContext when the user enables the diagnostics panel.
+ * When false (default), every log call returns without doing any work.
+ * Set via setDiagnosticsEnabled() — called by UserPreferencesContext.
  *
- * Initialised from localStorage so the gate is correct on module load (before
- * the React context has a chance to call setDiagnosticsEnabled).
+ * Initialised from localStorage so the gate is correct on module load,
+ * before the React context has a chance to call setDiagnosticsEnabled.
  */
 let _enabled = false;
 try {
   _enabled = localStorage.getItem("inl_diagnostics") === "true";
 } catch {
-  // localStorage unavailable (e.g. private browsing restrictions) — stay false
+  // localStorage unavailable (e.g. private browsing) — stay false
 }
 
-/** The in-memory circular log buffer */
+/**
+ * _minLevel — minimum log level to include in the buffer.
+ *
+ * Entries with level < _minLevel are discarded silently, even when _enabled.
+ * Default is 2 (INFO) — TRACE and DEBUG are filtered unless the user lowers it.
+ * Persisted to localStorage key 'inl_diagnostics_level'.
+ */
+let _minLevel: LogLevel = 2;
+try {
+  const stored = localStorage.getItem("inl_diagnostics_level");
+  if (stored !== null) {
+    const parsed = Number.parseInt(stored, 10);
+    if (parsed >= 0 && parsed <= 4) _minLevel = parsed as LogLevel;
+  }
+} catch {
+  // localStorage unavailable — use default
+}
+
+/** The in-memory circular log buffer — newest entries at the END */
 let logEntries: LogEntry[] = [];
 
 /** Monotonically increasing ID counter — never resets even after buffer trim */
 let nextId = 0;
 
 /**
- * listeners — callbacks registered by subscribers (DiagnosticsPanel registers one).
- * Each listener is called synchronously after every append() so the panel re-renders.
+ * listeners — callbacks registered by subscribers (DiagnosticsPanel).
+ * Each listener is called synchronously after every successful append().
  */
 const listeners: (() => void)[] = [];
+
+/** Maps numeric level to human-readable name — used when creating entries */
+const LEVEL_NAMES: LogLevelName[] = ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"];
 
 // ── Public control API ───────────────────────────────────────────────────────
 
 /**
- * setDiagnosticsEnabled — updates the gate that controls whether log calls
- * do any work. Must be called by UserPreferencesContext whenever the
- * `diagnosticsEnabled` preference changes.
+ * setDiagnosticsEnabled — updates the master gate.
  *
- * When switching from enabled → disabled, the existing buffer is cleared
- * so the panel doesn't show stale entries if it is re-opened later.
+ * FLOW:
+ *   UserPreferencesContext detects change → calls setDiagnosticsEnabled(bool)
+ *   → updates _enabled → persists to localStorage
+ *   → when disabling: clears buffer so stale entries don't appear on re-enable
+ *
+ * @param enabled - true to start logging, false to stop and clear buffer
  */
 export function setDiagnosticsEnabled(enabled: boolean): void {
   const wasEnabled = _enabled;
   _enabled = enabled;
 
-  // Clear the buffer when disabling — stale entries from a previous session
-  // would be confusing if diagnostics is re-enabled later.
+  // Clear buffer when disabling — stale entries would be confusing on re-enable
   if (wasEnabled && !enabled) {
     logEntries = [];
     nextId = 0;
+    for (const l of listeners) l(); // notify panel to clear its display
   }
 
-  // Persist to localStorage so the gate is correct on next page load
-  // (before UserPreferencesContext has a chance to call this again).
   try {
     localStorage.setItem("inl_diagnostics", String(enabled));
   } catch {
@@ -129,14 +157,39 @@ export function setDiagnosticsEnabled(enabled: boolean): void {
 }
 
 /**
- * subscribe — register a callback to be called after every new log entry.
+ * setDiagnosticsLevel — sets the minimum log level filter.
+ *
+ * FLOW:
+ *   UserPreferencesContext calls this after loading/saving preferences
+ *   → updates _minLevel → persists to localStorage
+ *   → existing buffer is NOT cleared (user can see older entries at new level)
+ *
+ * @param level - 0=TRACE, 1=DEBUG, 2=INFO (default), 3=WARN, 4=ERROR
+ */
+export function setDiagnosticsLevel(level: number): void {
+  const clamped = Math.max(0, Math.min(4, Math.round(level))) as LogLevel;
+  _minLevel = clamped;
+  try {
+    localStorage.setItem("inl_diagnostics_level", String(clamped));
+  } catch {
+    // localStorage unavailable — ignore
+  }
+}
+
+/** Returns the current minimum level filter value */
+export function getDiagnosticsLevel(): LogLevel {
+  return _minLevel;
+}
+
+/**
+ * subscribe — register a callback called after every new log entry.
  * Returns an unsubscribe function — call it in useEffect cleanup.
  *
- * Example:
- *   useEffect(() => {
- *     const unsub = subscribe(() => setEntries(getEntries()));
- *     return unsub; // called on unmount
- *   }, []);
+ * FLOW:
+ *   DiagnosticsPanel mounts
+ *   → calls subscribe(callback)
+ *   → callback updates panel state on every new entry
+ *   → DiagnosticsPanel unmounts → calls returned unsubscribe()
  */
 export function subscribe(listener: () => void): () => void {
   listeners.push(listener);
@@ -147,11 +200,16 @@ export function subscribe(listener: () => void): () => void {
 }
 
 /**
- * getEntries — returns a shallow copy of all current log entries.
+ * getEntries — returns log entries in DESCENDING order (newest first).
+ *
  * DiagnosticsPanel calls this after every subscribe notification.
+ * The reverse() here means the panel shows newest entries at the TOP —
+ * users see the most recent logs without scrolling to the bottom.
+ *
+ * NOTE: DiagnosticsPanel must NOT reverse again — getEntries already does it.
  */
 export function getEntries(): LogEntry[] {
-  return [...logEntries];
+  return [...logEntries].reverse();
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────────────
@@ -168,74 +226,146 @@ function now(): string {
 /**
  * append — the single write path for all log functions.
  *
- * GUARD: returns immediately if _enabled is false. This is intentional and
- * is the most performance-critical line in the entire logger — it prevents
- * ANY string allocation or array mutation when diagnostics is off.
+ * FLOW DIAGRAM:
+ *   1. Check _enabled gate — return if false (ZERO overhead path)
+ *   2. Check _minLevel gate — return if entry.level < _minLevel (filtered)
+ *   3. Build LogEntry with id, timestamp, level, levelName, message, data
+ *   4. Push to logEntries array
+ *   5. Trim circular buffer if over MAX_ENTRIES
+ *   6. Notify all subscribers synchronously
  *
- * After appending, trims the buffer to MAX_ENTRIES and notifies all listeners.
+ * VARIABLE INITIALIZATION:
+ *   - entry.id = nextId++ (monotonically increasing, never resets)
+ *   - entry.timestamp = now() (HH:MM:SS from current Date)
+ *   - entry.levelName = LEVEL_NAMES[level] (e.g. "INFO" for level 2)
+ *
+ * @param level   - Numeric log level 0–4
+ * @param message - Log message text
+ * @param data    - Optional structured data (displayed expandable in panel)
  */
-function append(level: LogEntry["level"], message: string): void {
-  // ── ZERO-OVERHEAD GATE ────────────────────────────────────────────────────
-  // This check MUST be the very first thing in this function.
-  // Do NOT move any allocations above this line.
+function append(level: LogLevel, message: string, data?: unknown): void {
+  // ── GATE 1: zero-overhead when diagnostics is disabled ────────────────────
+  // This MUST be the very first check — no allocations above this line.
   if (!_enabled) return;
-  // ─────────────────────────────────────────────────────────────────────────
 
-  const entry: LogEntry = { id: nextId++, timestamp: now(), level, message };
+  // ── GATE 2: level filter — discard entries below the minimum level ────────
+  // Example: if _minLevel = 2 (INFO), TRACE (0) and DEBUG (1) are discarded.
+  if (level < _minLevel) return;
+
+  // ── BUILD ENTRY ───────────────────────────────────────────────────────────
+  const entry: LogEntry = {
+    id: nextId++, // unique, monotonically increasing
+    timestamp: now(), // HH:MM:SS captured at log time
+    level, // numeric 0–4
+    levelName: LEVEL_NAMES[level], // "TRACE"|"DEBUG"|"INFO"|"WARN"|"ERROR"
+    message, // the log message text
+    ...(data !== undefined && { data }), // optional structured data
+  };
+
   logEntries.push(entry);
 
-  // Circular buffer: drop the oldest entries when over the limit
+  // ── CIRCULAR BUFFER: drop oldest entries when over the limit ──────────────
   if (logEntries.length > MAX_ENTRIES) {
     logEntries = logEntries.slice(logEntries.length - MAX_ENTRIES);
   }
 
-  // Notify all subscribers synchronously so the panel re-renders immediately
+  // ── NOTIFY SUBSCRIBERS ────────────────────────────────────────────────────
+  // Called synchronously so the DiagnosticsPanel re-renders immediately.
   for (const l of listeners) l();
 }
 
-// ── Public log functions ─────────────────────────────────────────────────────
+// ── Public numeric-level log functions ───────────────────────────────────────
 //
-// Each function is a thin wrapper around append(). All gating happens inside
-// append() — there is no need for callers to check _enabled before calling.
+// These are the primary API. Each is a thin wrapper around append().
+// All gating (enabled + minLevel) happens inside append().
 
 /**
- * logDebug — general debugging information.
- * Use for component lifecycle events, computed values, or flow checkpoints.
+ * log — generic log with explicit level.
+ * Use when you need fine-grained control over which level to emit.
+ *
+ * @param level   - 0=TRACE, 1=DEBUG, 2=INFO, 3=WARN, 4=ERROR
+ * @param message - Log message
+ * @param data    - Optional structured data (shown expandable in panel)
  */
-export function logDebug(message: string): void {
-  append("debug", message);
+export function log(level: LogLevel, message: string, data?: unknown): void {
+  append(level, message, data);
 }
 
 /**
- * logApi — backend actor call events.
- * Convention: "→ methodName args" before the call, "← methodName OK" after.
- * Do NOT log sensitive data (no passwords, no raw principals).
+ * logTrace — level 0 (TRACE).
+ * Use for: variable initialization, fine-grained flow checkpoints.
+ * Example: logTrace('Initialized profileKey', profileKey)
  */
-export function logApi(message: string): void {
-  append("api", message);
+export function logTrace(message: string, data?: unknown): void {
+  append(0, message, data);
 }
 
 /**
- * logError — caught exceptions or failed backend calls.
- * Pass the error message string, not the raw Error object, to keep entries readable.
+ * logDebug — level 1 (DEBUG).
+ * Use for: function entry, navigation events, role/permission checks.
+ * Example: logDebug('Entering fetchProfiles', { actor: !!actor })
  */
-export function logError(message: string): void {
-  append("error", message);
+export function logDebug(message: string, data?: unknown): void {
+  append(1, message, data);
 }
 
 /**
- * logNav — route / navigation transition events.
- * Called from App.tsx on every path change. Format: "NAV: /from → /to"
+ * logInfo — level 2 (INFO).
+ * Use for: API calls and responses, successful operations.
+ * Example: logInfo('getCustomers returned', { count: results.length })
  */
-export function logNav(message: string): void {
-  append("nav", message);
+export function logInfo(message: string, data?: unknown): void {
+  append(2, message, data);
 }
 
 /**
- * logAuth — authentication and role events.
- * Use for: login, logout, profile switch, role impersonation start/stop.
- * Do NOT log principals or other identity data.
+ * logWarn — level 3 (WARN).
+ * Use for: unexpected empty results, permission denied, fallback to default.
+ * Example: logWarn('getCustomers returned empty', { profileKey })
  */
-export function logAuth(message: string): void {
-  append("auth", message);
+export function logWarn(message: string, data?: unknown): void {
+  append(3, message, data);
+}
+
+/**
+ * logError — level 4 (ERROR).
+ * Use for: caught exceptions, failed mutations, backend call failures.
+ * Example: logError('createCustomer failed', error)
+ */
+export function logError(message: string, data?: unknown): void {
+  append(4, message, data);
+}
+
+// ── Backward-compatibility aliases ──────────────────────────────────────────
+//
+// These preserve existing call sites that use the old named-level API.
+// They map to numeric levels so the level filter works correctly.
+//
+//   logApi   → level 2 (INFO)  — backend actor call events
+//   logNav   → level 1 (DEBUG) — route/navigation transitions
+//   logAuth  → level 1 (DEBUG) — login / logout / role events
+
+/**
+ * logApi — backend actor call events (mapped to INFO = level 2).
+ * Convention: "→ methodName" before call, "← methodName OK" after.
+ * @deprecated Prefer logInfo() for new code. Kept for backward compatibility.
+ */
+export function logApi(message: string, data?: unknown): void {
+  append(2, message, data);
+}
+
+/**
+ * logNav — route/navigation transition events (mapped to DEBUG = level 1).
+ * @deprecated Prefer logDebug() for new code. Kept for backward compatibility.
+ */
+export function logNav(message: string, data?: unknown): void {
+  append(1, message, data);
+}
+
+/**
+ * logAuth — authentication and role events (mapped to DEBUG = level 1).
+ * @deprecated Prefer logDebug() for new code. Kept for backward compatibility.
+ */
+export function logAuth(message: string, data?: unknown): void {
+  append(1, message, data);
 }

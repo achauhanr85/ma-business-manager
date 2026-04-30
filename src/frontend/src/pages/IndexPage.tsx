@@ -1,3 +1,45 @@
+/*
+ * PAGE: IndexPage
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Public marketing page — accessible without login. Showcases all app
+ *   features and includes a lead/demo request form for potential customers.
+ *
+ * ROLE ACCESS:
+ *   public — no authentication required
+ *
+ * FLOW:
+ *   1. Mount / initialization
+ *      ├─ useHerbalTheme() applies the herbal CSS theme class unconditionally
+ *      │    (does not affect the stored user preference — restores on unmount)
+ *      └─ actor initialised for anonymous lead submission only
+ *   2. Render
+ *      ├─ Hero section with app name and call-to-action buttons
+ *      ├─ Features grid (FEATURES constant — 6 feature cards)
+ *      ├─ Roles section (what each role can do)
+ *      ├─ CTA section with "Get Started" and "Request Demo" links
+ *      └─ Lead form section (visible on page scroll or "Request Demo" click)
+ *   3. Lead form submission
+ *      ├─ formState: "idle" → "submitting"
+ *      ├─ actor.createLead(input) called (anonymous actor, no auth needed)
+ *      │    ├─ success → formState = "success", form cleared
+ *      │    └─ error   → formState = "error", message shown
+ *      └─ Super Admin will see this lead in their dashboard leads list
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VARIABLES INITIALIZED:
+ *   - formState: FormState = "idle"   // idle | submitting | success | error
+ *   - form: object = { name, business, phone, email, message }
+ *   - heroRef: React.RefObject         // used for scroll-to-form navigation
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SIDE EFFECTS (useEffect):
+ *   - Trigger: []  →  Action: apply herbal CSS theme class, restore on unmount
+ * ─────────────────────────────────────────────────────────────────────────────
+ * KEY HANDLERS:
+ *   - handleLeadSubmit: submits lead form to backend actor.createLead()
+ *   - scrollToForm: smooth-scrolls to the lead form section
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 import { createActor } from "@/backend";
 import type { LeadInput } from "@/backend";
 import { Badge } from "@/components/ui/badge";

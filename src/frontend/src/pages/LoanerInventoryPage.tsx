@@ -1,3 +1,59 @@
+/*
+ * PAGE: LoanerInventoryPage
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Manages borrowed/loaner stock. Admin and Staff can add items received from
+ *   a friend/external source into a virtual "Loaner" warehouse, then move them
+ *   to a staff warehouse for use in sales. Return-to-source flow clears the tag.
+ *
+ * ROLE ACCESS:
+ *   admin, staff — superAdmin when impersonating
+ *
+ * FLOW:
+ *   1. Mount / initialization
+ *      ├─ useGetInventoryLevels() → shows all batches including loaner-tagged ones
+ *      ├─ useGetProducts() → for product selection in add-loaner form
+ *      └─ useGetInventoryMovements() → to show loaned item movement history
+ *   2. Add Loaner Batch
+ *      ├─ "Add Loaned Items" button opens form
+ *      ├─ fields: product, quantity, unit_cost, loaned_source (friend/supplier name)
+ *      ├─ useAddLoanerBatch.mutateAsync(...)
+ *      │    └─ backend: adds batch to "Friend/Loaner" virtual warehouse with loaned flag
+ *      └─ success → toast + inventory levels refetch
+ *   3. Move Loaner to Staff Inventory
+ *      ├─ from Loaner Inventory row: "Move to My Inventory" button
+ *      ├─ useMoveLoanerToStaff.mutateAsync({ productId, quantity, toWarehouse })
+ *      │    └─ backend: transfers batch from Loaner → Staff warehouse, preserves loaned tag
+ *      └─ loaned items remain tagged so Admin is notified when they are sold
+ *   4. Return to Source
+ *      ├─ "Return to Source" button on a loaned batch row
+ *      ├─ useReturnToSource.mutateAsync({ batchId, quantity })
+ *      │    └─ backend: decrements Staff inventory, clears loaned tag
+ *      └─ success → toast + refetch
+ *   5. Archive returned loaned batch (Admin only)
+ *      ├─ after return, Admin sees "Archive" button
+ *      └─ useArchiveLoanedBatch.mutateAsync(batchId)
+ *   6. Loaned item tracking
+ *      ├─ loaned batches shown with "Loaned" badge throughout the app
+ *      └─ Admin notified via notification when a loaned item is sold
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VARIABLES INITIALIZED:
+ *   - addFormOpen: boolean = false          // add loaner form visible
+ *   - addForm: { productId, qty, cost, source } // new loaner batch form
+ *   - isAdding: boolean = false             // submission in progress
+ *   - helpOpen: boolean = false             // HelpPanel open state
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SIDE EFFECTS (useEffect):
+ *   none
+ * ─────────────────────────────────────────────────────────────────────────────
+ * KEY HANDLERS:
+ *   - handleAddLoaner: validates and calls useAddLoanerBatch
+ *   - handleMoveToStaff: calls useMoveLoanerToStaff for a batch
+ *   - handleReturnToSource: calls useReturnToSource for a batch
+ *   - handleArchive: calls useArchiveLoanedBatch for an archived batch
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 import { HelpPanel } from "@/components/HelpPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

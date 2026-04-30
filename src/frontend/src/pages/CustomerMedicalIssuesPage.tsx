@@ -1,3 +1,60 @@
+/*
+ * PAGE: CustomerMedicalIssuesPage
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Master data management for customer medical issues. Admin creates/edits/
+ *   deletes medical issue definitions (e.g. "Diabetes", "Hypertension") that
+ *   can be assigned to individual customers for tracking health context.
+ *
+ * ROLE ACCESS:
+ *   admin, superAdmin (impersonating) — staff view only, no edit
+ *
+ * FLOW:
+ *   1. Mount / initialization
+ *      ├─ profileKey resolved: ImpersonationContext.activeProfileKey if set,
+ *      │    else ProfileContext.userProfile.profile_key
+ *      │    (CRITICAL: impersonation-aware so Super Admin manages the correct
+ *      │     profile's medical issues when impersonating)
+ *      └─ useGetMedicalIssueMasterData(profileKey) → loads issues list
+ *   2. Issue list rendering
+ *      ├─ Loading → skeleton rows
+ *      ├─ Error / no profileKey → "Select a business profile" message
+ *      ├─ Empty → empty state with Add button
+ *      └─ Data → list of issues with Edit / Delete buttons per row
+ *   3. Add medical issue
+ *      ├─ "Add Issue" button or inline add at top
+ *      ├─ IssueDialog opens with empty form (name, description)
+ *      ├─ useCreateMedicalIssueMaster.mutateAsync({ profileKey, name, description })
+ *      └─ success → toast + list refetches
+ *   4. Edit medical issue
+ *      ├─ Pencil icon → IssueDialog opens pre-filled
+ *      ├─ useUpdateMedicalIssueMaster.mutateAsync({ id, name, description })
+ *      └─ success → toast + list refetches
+ *   5. Delete medical issue
+ *      ├─ Trash icon → AlertDialog confirmation
+ *      ├─ useDeleteMedicalIssueMaster.mutateAsync(id)
+ *      └─ success → toast + list refetches
+ *   6. CSV export / import
+ *      ├─ Export → CSV download
+ *      └─ Import → CSV parse → createMedicalIssueMaster per row
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VARIABLES INITIALIZED:
+ *   - dialogOpen: boolean = false                    // IssueDialog open state
+ *   - editingIssue: MedicalIssueMasterPublic | null  // null = create mode
+ *   - deleteTarget: bigint | null                    // pending delete confirm
+ *   - profileKey: string                             // impersonation-aware key
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SIDE EFFECTS (useEffect):
+ *   none
+ * ─────────────────────────────────────────────────────────────────────────────
+ * KEY HANDLERS:
+ *   - handleOpenCreate: clears form, opens dialog in create mode
+ *   - handleOpenEdit: populates form, opens dialog in edit mode
+ *   - handleDelete: confirms then calls useDeleteMedicalIssueMaster
+ *   - IssueDialog.handleSubmit: create or update mutation based on editingIssue
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 import {
   AlertDialog,
   AlertDialogAction,

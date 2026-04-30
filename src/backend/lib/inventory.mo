@@ -1,3 +1,60 @@
+/*
+ * FILE: lib/inventory.mo
+ * MODULE: lib
+ * ─────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Implements all inventory management logic: FIFO batch tracking, warehouse
+ *   transfers, loaner stock, stage inventory, and stock movement audit trail.
+ *
+ * FLOW:
+ *   PAGE: Inventory page (top-panel icon)
+ *     getInventoryLevels() → aggregate batches by product_id per warehouse
+ *       Admin/SuperAdmin: all warehouses in the profile
+ *       Staff: only their assigned warehouse
+ *
+ *   PAGE: Receive PO (mark PO as received)
+ *     receiveInventory(poId, items, warehouseName) → creates new InventoryBatch records
+ *       Each batch: quantity, unit_cost, date_received, profile_key, warehouse_name
+ *       Movement record written: type=#received
+ *
+ *   PAGE: Sale creation (called from lib/sales.mo)
+ *     deductFIFO(productId, qty, profileKey, warehouseName)
+ *       → sorts batches oldest-first by date_received
+ *       → decrements quantity_remaining from each batch in order
+ *       → returns #ok(cost) or #insufficientStock
+ *       → rollback available: all batch writes are in-memory, caller rolls back on error
+ *
+ *   PAGE: Warehouse Transfer (staff moves stock to their warehouse)
+ *     transferStock(batchId, qty, fromWarehouse, toWarehouse)
+ *       → decrements source batch
+ *       → creates new batch in destination warehouse
+ *       → writes movement records for both sides
+ *
+ *   PAGE: Stage Inventory (return order review)
+ *     Usable returned items land in warehouse_name="Stage Inventory"
+ *     Admin approves → moves to main warehouse via approveStageItem()
+ *
+ *   PAGE: Loaner Inventory
+ *     Items received in warehouse_name="Friend/Loaner Inventory" have is_loaned=true
+ *     Excluded from COGS and main inventory totals
+ *     Admin tracks via getLoanerInventory()
+ *
+ * DEPENDENCIES:
+ *   imports: mo:core/Map, mo:core/Time, mo:core/Runtime, mo:core/Int,
+ *            types/common, types/inventory, types/users
+ *   called by: mixins/inventory-api.mo, lib/sales.mo (deductFIFO),
+ *              lib/purchases.mo (receiveInventory)
+ *
+ * KEY TYPES:
+ *   BatchStore    — Map<BatchId, InventoryBatch>
+ *   MovementStore — Map<MovementId, InventoryMovement>
+ *
+ * KEY CONSTANTS:
+ *   LOANER_WAREHOUSE_NAME = "Friend/Loaner Inventory"
+ *   STAGE_WAREHOUSE_NAME  = "Stage Inventory"
+ * ─────────────────────────────────────────────────────────────────────
+ */
+
 import Map "mo:core/Map";
 import Time "mo:core/Time";
 import Runtime "mo:core/Runtime";

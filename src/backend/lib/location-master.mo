@@ -1,3 +1,37 @@
+/*
+ * FILE: lib/location-master.mo
+ * MODULE: lib
+ * ─────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Manages the Indian State / City / Country lookup table used for the
+ *   address dropdowns on the Customer create/edit page.
+ *   Pre-seeded with Indian states, major cities, and India as country.
+ *
+ * FLOW:
+ *   CANISTER START (main.mo):
+ *     LocationMasterLib.seedIfEmpty(locationMasterStore) → pre-populates all entries
+ *     Called synchronously at actor initialization; only runs if store is empty.
+ *
+ *   PAGE: Create / Edit Customer (address section)
+ *     getStates()                    → all entries where entry_type="state"
+ *     getCitiesByState(stateId)      → all entries where entry_type="city" AND parent_id=stateId
+ *     getCountries()                 → all entries where entry_type="country"
+ *     addEntry(entry)                → Admin can add a new city/state inline from the form
+ *     deleteEntry(entryId)           → Admin can remove a custom entry
+ *
+ * DEPENDENCIES:
+ *   imports: mo:core/Map, types/common (LocationMasterEntry)
+ *   called by: mixins/location-master-api.mo, main.mo (seedIfEmpty at start)
+ *
+ * KEY TYPES:
+ *   Store — Map<Text, LocationMasterEntry>
+ *
+ * IMPORTANT — Seeding:
+ *   seedIfEmpty() is called ONCE at canister start. If the store already has data
+ *   (e.g. after an upgrade) it does nothing. Never call it from an update function.
+ * ─────────────────────────────────────────────────────────────────────
+ */
+
 import Map "mo:core/Map";
 import Common "../types/common";
 

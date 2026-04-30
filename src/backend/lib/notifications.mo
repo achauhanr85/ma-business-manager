@@ -1,51 +1,66 @@
 /*
- * lib/notifications.mo — Notification Business Logic
+ * FILE: lib/notifications.mo
+ * MODULE: lib
+ * ─────────────────────────────────────────────────────────────────────
+ * PURPOSE:
+ *   Manages all notification creation, retrieval, and background job checks.
+ *   The notification system uses a sentinel design to scope system-level events
+ *   to Super Admin without tying them to a specific profile key.
  *
- * WHAT THIS FILE DOES:
- *   Manages all notification creation, retrieval, and background job checks:
- *     - Creating notifications (any type, targeted to a role or specific user)
- *     - Reading notifications per profile+role, or for a specific user principal
- *     - Marking notifications as read
- *     - Welcome notification on first login (user-targeted)
- *     - LoanedItemSold notification for Admin when a loaned item is sold
- *     - Background checks: overdue payments, 20-day customer follow-up,
- *       pending profile approvals (Super Admin), lead follow-up dates
- *     - Silent 3-month customer inactivity update (no notification, just marks #inactive)
+ * FLOW:
+ *   PAGE: Notification Panel (bell icon top-right)
+ *     Called via notifications-api.mo:
+ *       getNotifications(store, profileKey, targetRole) → unread for profile+role
+ *       getSuperAdminNotifications(store)               → unread SA system notifs
+ *       getNotificationsForUser(store, principalText)   → unread personal notifs
+ *       markNotificationRead(store, notifId)            → sets is_read=true
  *
- * WHO USES IT:
- *   - mixins/notifications-api.mo (getNotifications, markRead, manual trigger)
- *   - lib/profile.mo (notification on createProfile, joinProfile, createReferralUser)
- *   - lib/sales.mo (notification on loaned item sold)
- *   - main.mo background timer (runs runChecksForProfile etc. every 6 hours)
+ *   PAGE: Profile Approval (triggered by createProfile in lib/profile.mo)
+ *     createNotification(store, "superadmin", "NewProfilePendingApproval", msg,
+ *                         ?newProfileKey, "superAdmin")
+ *       → stored with profile_key="superadmin" sentinel + target_role="superAdmin"
+ *       → getSuperAdminNotifications() finds it by target_role only (no profileKey filter)
+ *       → appears in Super Admin panel regardless of which profile SA has active
  *
- * SUPER ADMIN NOTIFICATION DESIGN:
- *   Super Admin notifications (e.g. new profile registered) are stored with:
- *     profile_key = "superadmin"   ← sentinel value, NOT a real profile key
- *     target_role = "superAdmin"
+ *   PAGE: Profile Approval outcome (triggered by approveProfile in lib/profile.mo)
+ *     createNotification(store, profileKey, "ProfileApproved"/"ProfileRejected", msg,
+ *                         ?profileKey, "admin")
+ *       → stored with real profileKey + target_role="admin"
+ *       → visible to the profile's admin user in their notification panel
  *
- *   They are queried via getSuperAdminNotifications() which filters ONLY by
- *   target_role="superAdmin" (no profileKey filter at all). This means they
- *   ALWAYS appear in the Super Admin panel regardless of which profile the
- *   Super Admin is currently viewing or what profileKey argument is passed.
+ *   BACKGROUND JOBS (timer in main.mo, every 6 hours):
+ *     checkPendingProfiles(store, profileStore) → reminder notifs for SA
+ *     runChecksForProfile(store, saleStore, pk) →
+ *       checkOverduePayments + checkCustomerFollowUp for a single profile
+ *     checkCustomerInactivity(customerStore, saleStore, pk) → silent #inactive update
+ *     checkLeadFollowUp(store, customerStore, pk, adminPrincipal) → lead due alerts
  *
- *   ⚠️  FRONTEND USAGE WARNING:
- *   When the frontend calls getNotifications(profileKey, "admin") for the Data
- *   Inspector page or the notification panel, it will NOT see Super Admin system
- *   notifications because the query uses profileKey filtering. The correct call
- *   for Super Admin system notifications is one of:
- *     a. getSuperAdminNotifications()  — dedicated, always correct, no args needed
- *     b. getNotifications(anyKey, "superAdmin") — the mixin appends SA notifs
- *   NEVER call getNotifications(profileKey, "admin") for the Super Admin panel.
+ *   MANUAL TRIGGER (notifications-api.mo runBackgroundChecks / checkAndCreateNotifications)
+ *     Admin/SuperAdmin can trigger all checks on demand from the Dashboard.
  *
- * USER-TARGETED NOTIFICATIONS (welcome, personal):
- *   Stored with target_role = "user:<principalText>"
- *   Queried via getNotificationsForUser() using the caller's principal text.
- *   The welcome notification uses this path.
+ * DEPENDENCIES:
+ *   imports: mo:core/Map, mo:core/Time, types/common, types/sales, types/users,
+ *            types/profile, types/customers
+ *   called by: mixins/notifications-api.mo, lib/profile.mo, lib/sales.mo, main.mo timer
+ *
+ * KEY TYPES:
+ *   Notification — the stored record (id, profile_key, type, message, is_read, target_role)
+ *   Store        — Map<Text, Notification>
+ *
+ * SENTINEL DESIGN — Super Admin notifications:
+ *   profile_key = "superadmin"  → sentinel, NOT a real profile key
+ *   target_role = "superAdmin"  → queried by getSuperAdminNotifications() (role filter only)
+ *   related_id  = ?newProfileKey → enables deduplication in checkPendingProfiles()
  *
  * DEDUPLICATION:
- *   notificationExists() prevents duplicate notifications from background jobs.
+ *   notificationExists() prevents duplicate background-job notifications.
  *   A new check is skipped if an UNREAD notification of the same type + relatedId
  *   already exists for that profile.
+ *
+ * LOG LEVELS (diagnostics integration):
+ *   0=TRACE  1=DEBUG  2=INFO (default)  3=WARN  4=ERROR
+ *   Frontend diagnostics panel filters logs by the user's saved diagnostics_level.
+ * ─────────────────────────────────────────────────────────────────────
  */
 
 import Map "mo:core/Map";
