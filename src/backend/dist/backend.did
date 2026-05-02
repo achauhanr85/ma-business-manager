@@ -762,10 +762,17 @@ service : {
   createCategory: (input: CategoryInput) -> (CategoryId);
   createCustomer: (input: CustomerInput) -> (CustomerId);
   createCustomerFromSales: (input: CustomerInput) -> (CustomerId);
-  createGoal: (input: GoalMasterInput) -> (nat);
+  createGoal: (input: GoalMasterInput) -> (variant {
+                                             err: text;
+                                             ok: nat;
+                                           });
   createGoalMaster: (profileKey: ProfileKey, name: text, description:
    text) -> (GoalMasterPublic__1);
-  createMedicalIssue: (input: MedicalIssueMasterInput) -> (nat);
+  createMedicalIssue: (input: MedicalIssueMasterInput) ->
+   (variant {
+      err: text;
+      ok: nat;
+    });
   createMedicalIssueMaster: (profileKey: ProfileKey, name: text, description:
    text) -> (MedicalIssueMasterPublic__1);
   createProduct: (input: ProductInput) -> (opt ProductId);
@@ -914,10 +921,18 @@ service : {
   updateCustomer: (id: CustomerId, input: CustomerInput) -> (bool);
   updateCustomerNote: (noteId: nat, newText: text, profileKey: ProfileKey) ->
    (opt CustomerNotePublic);
-  updateGoal: (id: nat, input: GoalMasterInput) -> (bool);
+  updateGoal: (id: nat, input: GoalMasterInput) ->
+   (variant {
+      err: text;
+      ok: bool;
+    });
   updateGoalMaster: (id: nat, name: text, description: text, productBundle:
    vec ProductId) -> (bool);
-  updateMedicalIssue: (id: nat, input: MedicalIssueMasterInput) -> (bool);
+  updateMedicalIssue: (id: nat, input: MedicalIssueMasterInput) ->
+   (variant {
+      err: text;
+      ok: bool;
+    });
   updateMedicalIssueMaster: (id: nat, name: text, description: text) ->
    (bool);
   updatePaymentStatus: (saleId: SaleId, paymentStatus: PaymentStatus,

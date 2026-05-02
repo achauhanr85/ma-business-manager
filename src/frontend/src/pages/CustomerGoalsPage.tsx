@@ -22,17 +22,23 @@
  *      ├─ Empty → "No goals yet" empty state with Add button
  *      └─ Data → list of goals with Edit / Delete buttons per row
  *   3. Add goal
- *      ├─ "Add Goal" button or inline add form at top of list
- *      ├─ GoalDialog opens with empty form (name, description, product bundle)
+ *      ├─ "Add Goal" button → GoalDialog opens in CREATE mode (editing = null)
+ *      ├─ GoalDialog validates: name required + checks for DUPLICATE name (case-insensitive)
+ *      │    against currently loaded goals list BEFORE calling the backend
+ *      │    → inline error shown if duplicate found, submission blocked
  *      ├─ useCreateGoalMaster.mutateAsync({ profileKey, name, description })
- *      └─ success → toast + list refetches
+ *      │    → backend also enforces uniqueness per profile; error surfaced in UI
+ *      └─ success → toast + list refetches (React Query invalidation)
  *   4. Edit goal
- *      ├─ Pencil icon on a goal row → GoalDialog opens pre-filled
+ *      ├─ Pencil icon on a goal row → GoalDialog opens in EDIT mode (editing = goal)
+ *      ├─ GoalDialog pre-fills form with current name/description/product bundle
+ *      ├─ Duplicate check EXCLUDES the goal currently being edited
+ *      │    (a goal can keep its own name when editing other fields)
  *      ├─ useUpdateGoalMaster.mutateAsync({ id, name, description, productBundle })
  *      └─ success → toast + list refetches
  *   5. Delete goal
- *      ├─ Trash icon → AlertDialog confirmation
- *      ├─ useDeleteGoalMaster.mutateAsync(id)
+ *      ├─ Trash icon → AlertDialog shows "Are you sure you want to delete [name]?"
+ *      ├─ Confirm → useDeleteGoalMaster.mutateAsync(id)
  *      └─ success → toast + list refetches
  *   6. Product bundle management
  *      ├─ within GoalDialog: products can be added/removed from the bundle
@@ -44,17 +50,17 @@
  * VARIABLES INITIALIZED:
  *   - dialogOpen: boolean = false              // GoalDialog open state
  *   - editingGoal: GoalMasterPublic | null     // goal being edited (null = create)
- *   - deleteTarget: bigint | null              // goal id pending delete confirm
+ *   - deleteTarget: GoalMasterPublic | null    // goal pending delete confirm
  *   - profileKey: string                       // impersonation-aware active profile key
  * ─────────────────────────────────────────────────────────────────────────────
  * SIDE EFFECTS (useEffect):
- *   none
+ *   none — data loads via React Query (useGetGoalMasterData) on profileKey change
  * ─────────────────────────────────────────────────────────────────────────────
  * KEY HANDLERS:
- *   - handleOpenCreate: clears form, opens dialog in create mode
- *   - handleOpenEdit: fills form with goal data, opens dialog in edit mode
- *   - handleDelete: confirms then calls useDeleteGoalMaster
- *   - GoalDialog.handleSubmit: calls create or update mutation based on editingGoal
+ *   - openAdd: clears editing, opens dialog in create mode
+ *   - openEdit: sets editing goal, opens dialog in edit mode
+ *   - handleDelete: calls useDeleteGoalMaster after AlertDialog confirmation
+ *   - GoalDialog.handleSubmit: validates uniqueness, then calls create or update
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
@@ -151,23 +157,44 @@ function useGetProductsLocal() {
 }
 
 // ─── Goal Form Dialog ─────────────────────────────────────────────────────────
+//
+// Used for both CREATE and EDIT mode depending on whether `editing` is null.
+//
+// UNIQUE NAME VALIDATION:
+//   Before calling the backend, we check if a goal with the same name already
+//   exists in the loaded list. This is a client-side pre-check to give instant
+//   feedback without a round-trip. The backend will also reject duplicates —
+//   if the backend returns an error, we surface it in the UI as well.
+//
+//   CREATE: checks ALL existing goals (case-insensitive).
+//   EDIT:   checks all goals EXCEPT the one currently being edited
+//           (so a goal can keep its own name when only updating description/bundle).
 
 interface GoalDialogProps {
   open: boolean;
   editing: GoalMasterPublic | null;
   profileKey: string;
+  existingGoals: GoalMasterPublic[]; // pass the loaded list for duplicate check
   onClose: () => void;
 }
 
-function GoalDialog({ open, editing, profileKey, onClose }: GoalDialogProps) {
+function GoalDialog({
+  open,
+  editing,
+  profileKey,
+  existingGoals,
+  onClose,
+}: GoalDialogProps) {
   const products = useGetProductsLocal();
   const createGoal = useCreateGoalMaster();
   const updateGoal = useUpdateGoalMaster();
   const [form, setForm] = useState<GoalFormState>(EMPTY_FORM);
+  // nameError holds the inline duplicate error message (empty string = no error)
+  const [nameError, setNameError] = useState<string>("");
   const [productSearch, setProductSearch] = useState("");
   const prevOpenRef = useRef(open);
 
-  // Reset form whenever dialog opens
+  // Reset form and clear errors whenever the dialog opens/closes
   if (prevOpenRef.current !== open) {
     prevOpenRef.current = open;
     if (open) {
@@ -182,8 +209,29 @@ function GoalDialog({ open, editing, profileKey, onClose }: GoalDialogProps) {
             : EMPTY_FORM,
         );
         setProductSearch("");
+        setNameError(""); // clear any previous error when dialog re-opens
       }, 0);
     }
+  }
+
+  /**
+   * Check if the given name already exists in the loaded goals list.
+   *
+   * @param name - the name to check (will be trimmed + lowercased for comparison)
+   * @returns true if a DIFFERENT goal already has this name
+   *
+   * Why "different goal": when editing, the goal being edited should be excluded
+   * from the check. Otherwise typing the same name back in would incorrectly
+   * trigger the "already exists" error.
+   */
+  function isDuplicateName(name: string): boolean {
+    const normalised = name.trim().toLowerCase();
+    return existingGoals.some(
+      (g) =>
+        g.name.toLowerCase() === normalised &&
+        // Exclude the goal being edited so it can keep its own name
+        (!editing || g.id !== editing.id),
+    );
   }
 
   function toggleProduct(productId: bigint) {
@@ -202,14 +250,37 @@ function GoalDialog({ open, editing, profileKey, onClose }: GoalDialogProps) {
     p.name.toLowerCase().includes(productSearch.toLowerCase()),
   );
 
+  /**
+   * handleSubmit — validates the form, checks for duplicate names, then calls
+   * the appropriate backend mutation (create or update).
+   *
+   * Validation order:
+   *   1. Name must not be empty
+   *   2. Name must not duplicate an existing goal (client-side check)
+   *   3. Call backend — surface any backend error (e.g. race condition duplicate)
+   */
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    // Step 1: name required check
     if (!form.name.trim()) {
       toast.error("Goal name is required");
       return;
     }
+
+    // Step 2: client-side duplicate name check
+    // This prevents a backend round-trip and gives instant feedback.
+    if (isDuplicateName(form.name)) {
+      setNameError("A goal with this name already exists");
+      return;
+    }
+
+    // Clear any previous duplicate error before submitting
+    setNameError("");
+
     try {
       if (editing) {
+        // UPDATE MODE: update name, description, and product bundle
         await updateGoal.mutateAsync({
           id: editing.id,
           name: form.name.trim(),
@@ -218,6 +289,7 @@ function GoalDialog({ open, editing, profileKey, onClose }: GoalDialogProps) {
         });
         toast.success("Goal updated");
       } else {
+        // CREATE MODE: create a new goal in this profile
         await createGoal.mutateAsync({
           profileKey,
           name: form.name.trim(),
@@ -226,8 +298,20 @@ function GoalDialog({ open, editing, profileKey, onClose }: GoalDialogProps) {
         toast.success("Goal created");
       }
       onClose();
-    } catch {
-      toast.error(editing ? "Failed to update goal" : "Failed to create goal");
+    } catch (err) {
+      // Surface backend error message (e.g. backend duplicate rejection)
+      const msg = err instanceof Error ? err.message : String(err);
+      // Show a meaningful error — if the backend says "already exists" show that
+      if (
+        msg.toLowerCase().includes("already exists") ||
+        msg.toLowerCase().includes("duplicate")
+      ) {
+        setNameError("A goal with this name already exists");
+      } else {
+        toast.error(
+          editing ? "Failed to update goal" : "Failed to create goal",
+        );
+      }
     }
   }
 
@@ -251,11 +335,25 @@ function GoalDialog({ open, editing, profileKey, onClose }: GoalDialogProps) {
               id="goal-name"
               data-ocid="goal.name.input"
               value={form.name}
-              onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+              onChange={(e) => {
+                // Clear the duplicate error whenever the user changes the name field
+                setForm((p) => ({ ...p, name: e.target.value }));
+                if (nameError) setNameError("");
+              }}
               placeholder="e.g. Weight Loss, Muscle Gain"
               required
               autoFocus
+              className={nameError ? "border-destructive" : ""}
             />
+            {/* Inline duplicate name error — shown when user tries to submit a duplicate */}
+            {nameError && (
+              <p
+                className="text-xs text-destructive flex items-center gap-1"
+                data-ocid="goal.name.field_error"
+              >
+                {nameError}
+              </p>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="goal-desc">Description</Label>
@@ -725,11 +823,12 @@ export function CustomerGoalsPage({
         </div>
       )}
 
-      {/* Goal form dialog */}
+      {/* Goal form dialog — pass existingGoals so the dialog can check for duplicates */}
       <GoalDialog
         open={dialogOpen}
         editing={editing}
         profileKey={profileKey}
+        existingGoals={goals}
         onClose={() => {
           setDialogOpen(false);
           setEditing(null);

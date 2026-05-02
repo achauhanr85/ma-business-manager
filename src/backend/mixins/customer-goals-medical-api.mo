@@ -2,43 +2,65 @@
  * mixins/customer-goals-medical-api.mo — ACTIVE Goals, Medical Issues, Body Inches,
  *                                        Customer Notes, Customer Assignments, and Cycles Public API
  *
- * STATUS: Active — all current frontend calls for goals/medical/inches/notes use these functions.
- *
+ * ─────────────────────────────────────────────────────────────────────
  * WHAT THIS FILE DOES:
  *   Exposes public canister functions for:
  *     - Goal master CRUD (listGoals, getGoal, createGoal, updateGoal, deleteGoal)
  *     - Medical issue master CRUD (listMedicalIssues, getMedicalIssue, createMedicalIssue, etc.)
  *     - Customer ↔ Goal assignments (addGoalToCustomer, removeGoalFromCustomer, getCustomerGoals)
- *     - Customer ↔ Medical Issue assignments (addMedicalIssueToCustomer, removeMedicalIssueFromCustomer,
- *       getCustomerMedicalIssues)
+ *     - Customer ↔ Medical Issue assignments (addMedicalIssueToCustomer, etc.)
  *     - Customer body inches entries (createBodyInchesEntry, listBodyInchesHistory, deleteBodyInchesEntry)
- *     - Customer notes (addCustomerNote, listCustomerNotes, deleteCustomerNote)
+ *     - Customer notes (addCustomerNote, listCustomerNotes, deleteCustomerNoteEmbedded)
  *     - Canister cycles info for Super Admin (getCyclesInfo)
  *
- * WHO USES IT:
- *   The frontend's Goals page, Medical Issues page, Customer body inches tab,
- *   Customer notes section, Customer detail goals/medical tab, and Super Admin
- *   dashboard all call functions from here.
+ * KEY BEHAVIOURS:
+ *   - createGoal / updateGoal now return Result<Nat, Text> / Result<Bool, Text>
+ *     so the frontend can display "A goal with this name already exists" instead of silently failing.
+ *   - createMedicalIssue / updateMedicalIssue have the same Result pattern.
+ *   - All other functions remain Bool / direct value as before.
  *
- * HOW IT DIFFERS FROM THE LEGACY goals-api.mo:
- *   - No profileKey parameter — auto-derived from the caller's userStore entry
- *   - Uses GoalMasterInput / MedicalIssueMasterInput (structured input types)
- *   - Returns timestamps in public types
- *   - Notes flow through CustomersLib (stored on customer record) not a separate noteStore
- *   - Provides assignment functions to link goals/medical issues to specific customers
+ * FLOW — Goals Page:
+ *   Load:    listGoals() → [GoalMasterPublic]
+ *   Add:     createGoal(input) → Result<Nat, Text>
+ *              #ok(newId) → success, show new goal in list
+ *              #err(msg)  → show error toast "A goal with this name already exists"
+ *   Edit:    updateGoal(id, input) → Result<Bool, Text>
+ *              #ok(true)  → success
+ *              #err(msg)  → show error toast
+ *   Delete:  deleteGoal(id) → Bool
+ *
+ * FLOW — Medical Issues Page:
+ *   Load:    listMedicalIssues() → [MedicalIssueMasterPublic]
+ *   Add:     createMedicalIssue(input) → Result<Nat, Text>
+ *   Edit:    updateMedicalIssue(id, input) → Result<Bool, Text>
+ *   Delete:  deleteMedicalIssue(id) → Bool
+ *
+ * FLOW — Customer Detail (Goals/Medical tab):
+ *   Load goals:      getCustomerGoals(customerId) → [GoalMasterPublic]
+ *   Assign goal:     addGoalToCustomer(customerId, goalId) → Bool
+ *   Unassign goal:   removeGoalFromCustomer(customerId, goalId) → Bool
+ *   (same pattern for medical issues)
+ *
+ * FLOW — Body Inches Tab:
+ *   Load:    listBodyInchesHistory(customerId) → sorted newest-first
+ *   Add:     createBodyInchesEntry(customerId, input) → BodyInchesPublic
+ *   Delete:  deleteBodyInchesEntry(id) → Bool
+ *
+ * WHO USES IT:
+ *   Frontend: Goals page, Medical Issues page, Customer body inches tab,
+ *   Customer notes section, Customer detail goals/medical tab, Super Admin dashboard
+ *
+ * ROLE ACCESS (enforced here before delegating to lib):
+ *   createGoal / updateGoal / deleteGoal                   → Admin or Super Admin
+ *   createMedicalIssue / updateMedicalIssue / delete...    → Admin or Super Admin
+ *   All list/get/assign/unassign/bodyInches functions       → any authenticated profile user
+ *   getCyclesInfo                                           → Super Admin only
  *
  * NOTE ON SUPER ADMIN RECORDS:
- *   Super Admin does not have a profile_key in their userStore entry by default.
- *   When Super Admin impersonates a profile via setSuperAdminActiveProfile(), their
- *   profile_key is updated — and all create/list calls will then scope to that profile.
- *   This is how Super Admin records become visible to Admin/Staff of that profile.
- *
- * NOTE ON CUSTOMER ASSIGNMENT FUNCTIONS:
- *   addGoalToCustomer / removeGoalFromCustomer / getCustomerGoals manage the
- *   primary_goal_ids array on the Customer record. These IDs reference GoalMaster entries.
- *   addMedicalIssueToCustomer / removeMedicalIssueFromCustomer / getCustomerMedicalIssues
- *   manage the medical_issue_ids array in the same pattern.
- *   Both are idempotent — duplicate assignments and no-op removals are safe.
+ *   Super Admin does not have a profile_key by default.
+ *   After setSuperAdminActiveProfile(), their profile_key is updated and all create/list
+ *   calls scope to that profile — making their records visible to Admin/Staff of that profile.
+ * ─────────────────────────────────────────────────────────────────────
  */
 
 import Runtime "mo:core/Runtime";
@@ -83,23 +105,41 @@ mixin (
   };
 
   /// Creates a new goal definition. Only Admin and Super Admin can create goals.
-  /// Returns the newly assigned goal ID.
-  public shared ({ caller }) func createGoal(input : GoalMedicalTypes.GoalMasterInput) : async Nat {
+  ///
+  /// RETURNS:
+  ///   #ok(newId) — goal created; the returned ID can be used to reference the goal
+  ///   #err(msg)  — a goal with the same name already exists in this profile;
+  ///                the frontend should show msg as an error toast or inline message
+  ///
+  /// DUPLICATE CHECK: case-insensitive name match within the caller's profile.
+  public shared ({ caller }) func createGoal(input : GoalMedicalTypes.GoalMasterInput) : async { #ok : Nat; #err : Text } {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
     let up = switch (userStore.get(caller)) {
       case (?u) u;
       case null Runtime.trap("Caller has no profile");
     };
     if (up.role != #admin and up.role != #superAdmin) Runtime.trap("Admin access required");
-    let id = GoalMedicalLib.createGoal(goalMasterStore, userStore, caller, nextGoalId, input);
-    nextGoalId += 1;
-    id
+    // Delegate to lib — lib returns #ok(id) or #err(msg)
+    let result = GoalMedicalLib.createGoal(goalMasterStore, userStore, caller, nextGoalId, input);
+    switch (result) {
+      case (#ok(_id)) { nextGoalId += 1 }; // only increment on success
+      case (#err(_)) {};
+    };
+    result
   };
 
   /// Updates a goal's name, description, and product bundle.
   /// Only Admin and Super Admin can update goals.
-  /// Returns true on success, false if not found or access denied.
-  public shared ({ caller }) func updateGoal(id : Nat, input : GoalMedicalTypes.GoalMasterInput) : async Bool {
+  ///
+  /// RETURNS:
+  ///   #ok(true)  — update succeeded
+  ///   #ok(false) — goal not found or belongs to a different profile (no change)
+  ///   #err(msg)  — a different goal in the same profile already has the same name;
+  ///                the frontend should show msg as an error toast or inline message
+  ///
+  /// DUPLICATE CHECK: case-insensitive name match within the caller's profile,
+  ///   excluding the record being updated (so renaming with the same name is allowed).
+  public shared ({ caller }) func updateGoal(id : Nat, input : GoalMedicalTypes.GoalMasterInput) : async { #ok : Bool; #err : Text } {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
     let up = switch (userStore.get(caller)) {
       case (?u) u;
@@ -136,22 +176,41 @@ mixin (
   };
 
   /// Creates a new medical issue definition. Only Admin and Super Admin can create.
-  /// Returns the newly assigned ID.
-  public shared ({ caller }) func createMedicalIssue(input : GoalMedicalTypes.MedicalIssueMasterInput) : async Nat {
+  ///
+  /// RETURNS:
+  ///   #ok(newId) — issue created successfully
+  ///   #err(msg)  — a medical issue with the same name already exists in this profile;
+  ///                the frontend should show msg as an error toast or inline message
+  ///
+  /// DUPLICATE CHECK: case-insensitive name match within the caller's profile.
+  public shared ({ caller }) func createMedicalIssue(input : GoalMedicalTypes.MedicalIssueMasterInput) : async { #ok : Nat; #err : Text } {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
     let up = switch (userStore.get(caller)) {
       case (?u) u;
       case null Runtime.trap("Caller has no profile");
     };
     if (up.role != #admin and up.role != #superAdmin) Runtime.trap("Admin access required");
-    let id = GoalMedicalLib.createMedicalIssue(medicalIssueStore, userStore, caller, nextMedicalIssueId, input);
-    nextMedicalIssueId += 1;
-    id
+    // Delegate to lib — lib returns #ok(id) or #err(msg)
+    let result = GoalMedicalLib.createMedicalIssue(medicalIssueStore, userStore, caller, nextMedicalIssueId, input);
+    switch (result) {
+      case (#ok(_id)) { nextMedicalIssueId += 1 }; // only increment on success
+      case (#err(_)) {};
+    };
+    result
   };
 
   /// Updates an existing medical issue's name and description.
   /// Only Admin and Super Admin can update.
-  public shared ({ caller }) func updateMedicalIssue(id : Nat, input : GoalMedicalTypes.MedicalIssueMasterInput) : async Bool {
+  ///
+  /// RETURNS:
+  ///   #ok(true)  — update succeeded
+  ///   #ok(false) — issue not found or belongs to a different profile (no change)
+  ///   #err(msg)  — a different issue in the same profile already has the same name;
+  ///                the frontend should show msg as an error toast or inline message
+  ///
+  /// DUPLICATE CHECK: case-insensitive name match within the caller's profile,
+  ///   excluding the record being updated.
+  public shared ({ caller }) func updateMedicalIssue(id : Nat, input : GoalMedicalTypes.MedicalIssueMasterInput) : async { #ok : Bool; #err : Text } {
     if (caller.isAnonymous()) Runtime.trap("Anonymous caller not allowed");
     let up = switch (userStore.get(caller)) {
       case (?u) u;

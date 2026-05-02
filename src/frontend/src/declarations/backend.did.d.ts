@@ -688,12 +688,20 @@ export interface _SERVICE {
   'createCategory' : ActorMethod<[CategoryInput], CategoryId>,
   'createCustomer' : ActorMethod<[CustomerInput], CustomerId>,
   'createCustomerFromSales' : ActorMethod<[CustomerInput], CustomerId>,
-  'createGoal' : ActorMethod<[GoalMasterInput], bigint>,
+  'createGoal' : ActorMethod<
+    [GoalMasterInput],
+    { 'ok' : bigint } |
+      { 'err' : string }
+  >,
   'createGoalMaster' : ActorMethod<
     [ProfileKey, string, string],
     GoalMasterPublic__1
   >,
-  'createMedicalIssue' : ActorMethod<[MedicalIssueMasterInput], bigint>,
+  'createMedicalIssue' : ActorMethod<
+    [MedicalIssueMasterInput],
+    { 'ok' : bigint } |
+      { 'err' : string }
+  >,
   'createMedicalIssueMaster' : ActorMethod<
     [ProfileKey, string, string],
     MedicalIssueMasterPublic__1
@@ -871,14 +879,19 @@ export interface _SERVICE {
     [bigint, string, ProfileKey],
     [] | [CustomerNotePublic]
   >,
-  'updateGoal' : ActorMethod<[bigint, GoalMasterInput], boolean>,
+  'updateGoal' : ActorMethod<
+    [bigint, GoalMasterInput],
+    { 'ok' : boolean } |
+      { 'err' : string }
+  >,
   'updateGoalMaster' : ActorMethod<
     [bigint, string, string, Array<ProductId>],
     boolean
   >,
   'updateMedicalIssue' : ActorMethod<
     [bigint, MedicalIssueMasterInput],
-    boolean
+    { 'ok' : boolean } |
+      { 'err' : string }
   >,
   'updateMedicalIssueMaster' : ActorMethod<[bigint, string, string], boolean>,
   'updatePaymentStatus' : ActorMethod<

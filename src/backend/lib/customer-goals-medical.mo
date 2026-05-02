@@ -1,31 +1,68 @@
 /*
  * lib/customer-goals-medical.mo — ACTIVE Goals, Medical Issues, Body Inches and Notes Logic
  *
- * STATUS: Active — all new goal/medical/inches/notes features use this module.
- *
+ * ─────────────────────────────────────────────────────────────────────
  * WHAT THIS FILE DOES:
  *   Implements all CRUD business logic for:
  *     - Goal master data (profile-level goal definitions)
  *     - Medical issue master data (profile-level condition definitions)
+ *     - Customer ↔ Goal assignments (link/unlink goal IDs to customers)
+ *     - Customer ↔ Medical Issue assignments (link/unlink issue IDs to customers)
  *     - Customer body inches measurements (time-series per customer)
- *     - Customer notes (structured dated notes stored on the customer record)
+ *     - Customer notes (structured dated notes)
  *     - Canister cycles info (Super Admin only)
  *
- *   Unlike the legacy lib/goals.mo, this module:
- *     - Auto-derives the profileKey from the userStore (caller does not need to pass it)
- *     - Uses structured Input types (GoalMasterInput, MedicalIssueMasterInput)
- *     - Stores created_by / last_updated_by as Principal (not Text)
+ * KEY BEHAVIOURS:
+ *   - Auto-derives the caller's profileKey from userStore (no need to pass it)
+ *   - createGoal / updateGoal enforce unique name per profile (case-insensitive)
+ *   - createMedicalIssue / updateMedicalIssue enforce unique name per profile (case-insensitive)
+ *   - Duplicate names return #err("...") using Result<Nat, Text> / Result<Bool, Text>
+ *   - Body inches sorted newest-first by entry_date
+ *
+ * FLOW — Goals Page:
+ *   Frontend loads → listGoals() → [GoalMasterPublic]
+ *   Admin clicks Add → createGoal(input) → #ok(newId) or #err("name exists")
+ *   Admin clicks Edit → updateGoal(id, input) → #ok(true) or #err("name exists")
+ *   Admin clicks Delete → deleteGoal(id) → Bool
+ *
+ * FLOW — Medical Issues Page:
+ *   Frontend loads → listMedicalIssues() → [MedicalIssueMasterPublic]
+ *   Admin clicks Add → createMedicalIssue(input) → #ok(newId) or #err("name exists")
+ *   Admin clicks Edit → updateMedicalIssue(id, input) → #ok(true) or #err("name exists")
+ *   Admin clicks Delete → deleteMedicalIssue(id) → Bool
+ *
+ * FLOW — Customer Detail (Goals/Medical tab):
+ *   Load → getCustomerGoals(customerId) → [GoalMasterPublic]
+ *   Assign → addGoalToCustomer(customerId, goalId) → Bool
+ *   Unassign → removeGoalFromCustomer(customerId, goalId) → Bool
+ *   (same pattern for medical issues)
+ *
+ * FLOW — Body Inches Tab:
+ *   Load → listBodyInchesHistory(customerId) → sorted newest-first
+ *   Add → createBodyInchesEntry(customerId, input) → BodyInchesPublic
+ *   Delete → deleteBodyInchesEntry(id) → Bool
  *
  * WHO USES IT:
- *   mixins/customer-goals-medical-api.mo (the public API layer that delegates here)
+ *   mixins/customer-goals-medical-api.mo (public API layer that delegates here)
+ *
+ * ROLE ACCESS:
+ *   listGoals / listMedicalIssues / getCustomerGoals / getCustomerMedicalIssues
+ *     → any authenticated user in the profile
+ *   createGoal / updateGoal / deleteGoal / createMedicalIssue / updateMedicalIssue / deleteMedicalIssue
+ *     → Admin or Super Admin only (enforced in the mixin, not here)
+ *   addGoalToCustomer / removeGoalFromCustomer / addMedicalIssueToCustomer / removeMedicalIssueFromCustomer
+ *     → any authenticated user in the profile
+ *   createBodyInchesEntry / deleteBodyInchesEntry / listBodyInchesHistory
+ *     → any authenticated user in the profile
+ *   getCyclesInfo → Super Admin only (enforced in the mixin)
  *
  * NOTE ON CUSTOMER NOTES:
  *   Notes are stored as an embedded array on the Customer record (Customer.notes).
  *   The customerNoteStore in main.mo is used only as a note-ID registry —
  *   the actual note content lives on the customer record itself, maintained by
  *   CustomersLib.addCustomerNote / CustomersLib.deleteCustomerNote.
- *   This means: to read notes, fetch the customer via getCustomer() — the notes
- *   array is included in CustomerPublic.
+ *   To read notes: fetch the customer via getCustomer() — the notes array is included.
+ * ─────────────────────────────────────────────────────────────────────
  */
 
 import Map "mo:core/Map";
@@ -127,16 +164,47 @@ module {
     }
   };
 
-  /// Creates a new goal and stores it. Returns the newly assigned ID (nextId).
-  /// The caller's profileKey is auto-derived — no need to pass it explicitly.
+  /// Creates a new goal and stores it.
+  ///
+  /// INPUTS:
+  ///   store        — the GoalMasterStore where goals are saved
+  ///   userStore    — used to auto-derive the caller's profileKey
+  ///   caller       — the authenticated user's principal
+  ///   nextId       — the ID to assign to the new goal (provided by the mixin counter)
+  ///   input        — name, description, and product_bundle from the frontend form
+  ///
+  /// RETURNS:
+  ///   #ok(newId)  — goal was created successfully; caller should increment nextId
+  ///   #err(msg)   — a goal with the same name (case-insensitive) already exists
+  ///                 in this profile; no record is written
+  ///
+  /// DUPLICATE CHECK:
+  ///   Scans all existing GoalMaster records for the same profile_key.
+  ///   Comparison is case-insensitive (both sides lowercased via Text.toLower).
+  ///   This prevents "Weight Loss" and "weight loss" from coexisting.
   public func createGoal(
     store : GoalMasterStore,
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
     caller : Common.UserId,
     nextId : Nat,
     input : GoalMedicalTypes.GoalMasterInput,
-  ) : Nat {
+  ) : { #ok : Nat; #err : Text } {
     let profileKey = callerProfileKey(userStore, caller);
+    // ── Duplicate name check ──────────────────────────────────────────────
+    // Look for any existing goal in the same profile with the same name
+    // (case-insensitive so "Weight Loss" and "WEIGHT LOSS" are the same).
+    let inputNameLower = input.name.toLower();
+    let duplicate = store.entries().find(func((_id, g) : (Nat, GoalMedicalTypes.GoalMaster)) : Bool {
+      g.profile_key == profileKey and g.name.toLower() == inputNameLower
+    });
+    switch (duplicate) {
+      case (?(_, _)) {
+        // A goal with this name already exists — return error without writing
+        return #err("A goal with this name already exists in your profile");
+      };
+      case null {};
+    };
+    // ── Write the new goal ────────────────────────────────────────────────
     let now = Time.now();
     let goal : GoalMedicalTypes.GoalMaster = {
       id = nextId;
@@ -150,23 +218,54 @@ module {
       last_update_date = now;
     };
     store.add(nextId, goal);
-    nextId // return the new ID so the mixin can increment its counter
+    #ok(nextId) // return the new ID so the mixin can increment its counter
   };
 
   /// Updates an existing goal's name, description, and product bundle.
-  /// Returns false if the goal does not exist or belongs to a different profile.
+  ///
+  /// INPUTS:
+  ///   store    — the GoalMasterStore
+  ///   userStore — used to auto-derive the caller's profileKey
+  ///   caller   — the authenticated user's principal
+  ///   id       — the ID of the goal to update
+  ///   input    — new name, description, and product_bundle from the frontend form
+  ///
+  /// RETURNS:
+  ///   #ok(true)  — goal was updated successfully
+  ///   #ok(false) — goal not found or belongs to a different profile (no change made)
+  ///   #err(msg)  — a DIFFERENT goal in the same profile already has the same name
+  ///                (case-insensitive); no record is written
+  ///
+  /// DUPLICATE CHECK:
+  ///   Same as createGoal but excludes the record being updated (id != input.id).
+  ///   This allows updating a goal's description without changing the name.
   public func updateGoal(
     store : GoalMasterStore,
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
     caller : Common.UserId,
     id : Nat,
     input : GoalMedicalTypes.GoalMasterInput,
-  ) : Bool {
+  ) : { #ok : Bool; #err : Text } {
     let profileKey = callerProfileKey(userStore, caller);
     switch (store.get(id)) {
-      case null false; // goal not found
+      case null #ok(false); // goal not found — return false (not an error)
       case (?existing) {
-        if (existing.profile_key != profileKey) return false; // wrong profile — deny
+        if (existing.profile_key != profileKey) return #ok(false); // wrong profile — deny
+        // ── Duplicate name check (exclude this record) ────────────────────
+        // Check if any OTHER goal in the same profile has the same name.
+        // We exclude the current record (g.id != id) so a no-name-change update succeeds.
+        let inputNameLower = input.name.toLower();
+        let duplicate = store.entries().find(func((gId, g) : (Nat, GoalMedicalTypes.GoalMaster)) : Bool {
+          gId != id and g.profile_key == profileKey and g.name.toLower() == inputNameLower
+        });
+        switch (duplicate) {
+          case (?(_, _)) {
+            // Another goal has the same name — return error without writing
+            return #err("A goal with this name already exists in your profile");
+          };
+          case null {};
+        };
+        // ── Apply the update ───────────────────────────────────────────────
         store.add(id, {
           existing with
           name = input.name;
@@ -175,7 +274,7 @@ module {
           last_updated_by = caller;
           last_update_date = Time.now();
         });
-        true
+        #ok(true)
       };
     }
   };
@@ -244,15 +343,43 @@ module {
     }
   };
 
-  /// Creates a new medical issue. Returns the newly assigned ID.
+  /// Creates a new medical issue definition and stores it.
+  ///
+  /// INPUTS:
+  ///   store    — the MedicalIssueMasterStore
+  ///   userStore — used to auto-derive the caller's profileKey
+  ///   caller   — the authenticated user's principal
+  ///   nextId   — the ID to assign (provided by the mixin counter)
+  ///   input    — name and description from the frontend form
+  ///
+  /// RETURNS:
+  ///   #ok(newId) — issue was created; caller should increment nextId
+  ///   #err(msg)  — a medical issue with the same name (case-insensitive) already
+  ///                exists in this profile; no record is written
+  ///
+  /// DUPLICATE CHECK:
+  ///   Scans all MedicalIssueMaster records for the same profile_key.
+  ///   Comparison is case-insensitive (both sides lowercased).
   public func createMedicalIssue(
     store : MedicalIssueMasterStore,
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
     caller : Common.UserId,
     nextId : Nat,
     input : GoalMedicalTypes.MedicalIssueMasterInput,
-  ) : Nat {
+  ) : { #ok : Nat; #err : Text } {
     let profileKey = callerProfileKey(userStore, caller);
+    // ── Duplicate name check ──────────────────────────────────────────────
+    let inputNameLower = input.name.toLower();
+    let duplicate = store.entries().find(func((_id, m) : (Nat, GoalMedicalTypes.MedicalIssueMaster)) : Bool {
+      m.profile_key == profileKey and m.name.toLower() == inputNameLower
+    });
+    switch (duplicate) {
+      case (?(_, _)) {
+        return #err("A medical issue with this name already exists in your profile");
+      };
+      case null {};
+    };
+    // ── Write the new medical issue ───────────────────────────────────────
     let now = Time.now();
     let issue : GoalMedicalTypes.MedicalIssueMaster = {
       id = nextId;
@@ -265,23 +392,50 @@ module {
       last_update_date = now;
     };
     store.add(nextId, issue);
-    nextId
+    #ok(nextId)
   };
 
   /// Updates an existing medical issue's name and description.
-  /// Returns false if not found or wrong profile.
+  ///
+  /// INPUTS:
+  ///   store    — the MedicalIssueMasterStore
+  ///   userStore — used to auto-derive the caller's profileKey
+  ///   caller   — the authenticated user's principal
+  ///   id       — the ID of the issue to update
+  ///   input    — new name and description from the frontend form
+  ///
+  /// RETURNS:
+  ///   #ok(true)  — issue was updated successfully
+  ///   #ok(false) — issue not found or belongs to a different profile (no change)
+  ///   #err(msg)  — a DIFFERENT issue in the same profile already has the same name
+  ///                (case-insensitive); no record is written
+  ///
+  /// DUPLICATE CHECK:
+  ///   Same as createMedicalIssue but excludes the record being updated (id != existing.id).
   public func updateMedicalIssue(
     store : MedicalIssueMasterStore,
     userStore : Map.Map<Common.UserId, UserTypes.UserProfile>,
     caller : Common.UserId,
     id : Nat,
     input : GoalMedicalTypes.MedicalIssueMasterInput,
-  ) : Bool {
+  ) : { #ok : Bool; #err : Text } {
     let profileKey = callerProfileKey(userStore, caller);
     switch (store.get(id)) {
-      case null false;
+      case null #ok(false);
       case (?existing) {
-        if (existing.profile_key != profileKey) return false;
+        if (existing.profile_key != profileKey) return #ok(false);
+        // ── Duplicate name check (exclude this record) ────────────────────
+        let inputNameLower = input.name.toLower();
+        let duplicate = store.entries().find(func((mId, m) : (Nat, GoalMedicalTypes.MedicalIssueMaster)) : Bool {
+          mId != id and m.profile_key == profileKey and m.name.toLower() == inputNameLower
+        });
+        switch (duplicate) {
+          case (?(_, _)) {
+            return #err("A medical issue with this name already exists in your profile");
+          };
+          case null {};
+        };
+        // ── Apply the update ───────────────────────────────────────────────
         store.add(id, {
           existing with
           name = input.name;
@@ -289,7 +443,7 @@ module {
           last_updated_by = caller;
           last_update_date = Time.now();
         });
-        true
+        #ok(true)
       };
     }
   };

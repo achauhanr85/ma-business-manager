@@ -418,10 +418,26 @@ function PendingApprovalScreen() {
 // ─── Create Tab ───────────────────────────────────────────────────────────────
 
 /**
- * BUG-14 fix:
- * createProfile() on the backend assigns the caller as Admin.
- * joinProfile() by the profile creator must preserve Admin role (not downgrade to Staff).
- * After success, we check getRoutingStatus() to handle profile_pending_super_admin correctly.
+ * Create Profile tab.
+ *
+ * SEQUENCE:
+ *   1. createProfile()  — creates the Profile record + sets caller role = #admin
+ *   2. joinProfile()    — stores display_name + warehouse_name on the UserProfile record
+ *
+ * WHY TWO CALLS:
+ *   createProfile() only creates the Profile (business record). It does NOT store the
+ *   user's display_name or warehouse_name — those live on the UserProfile record which
+ *   is written by joinProfile().
+ *
+ * OWNER-PRESERVATION (prevents role regression):
+ *   The backend joinProfile() checks whether the caller already has a UserProfile
+ *   with role=#admin for this profile_key. If yes, it preserves role=#admin and sets
+ *   approval_status="approved" instead of downgrading to #staff / pending.
+ *   This means calling joinProfile() after createProfile() is always safe — the
+ *   caller's Admin role is never overwritten by this sequence.
+ *
+ * After success, we check getRoutingStatus() to handle profile_pending_super_admin
+ * (new profiles require Super Admin approval before becoming active).
  */
 function CreateTab({
   onSuccess,
@@ -492,10 +508,18 @@ function CreateTab({
     }
 
     try {
-      // Step 1: init super admin (no-op if already set)
+      // Step 1: init super admin (no-op if already set — safe to call every time)
       await initSuperAdmin.mutateAsync();
 
-      // Step 2: Create the business profile (backend assigns caller as Admin)
+      // Step 2: CREATE the business profile.
+      //
+      // ROLE ASSIGNMENT (BUG-14 fix):
+      // createProfile() on the backend records the CALLER's principal as the
+      // profile "owner" and sets their role to #admin.
+      //
+      // The profile is set to approval_status = #pending_super_admin_approval
+      // until Super Admin approves it. The creator will see the approval-pending
+      // screen after this step completes.
       const ok = await createProfile.mutateAsync({
         business_name: form.business_name,
         profile_key: form.profile_key,
@@ -514,22 +538,35 @@ function CreateTab({
         return;
       }
 
-      // Step 3: Register the user's display name + warehouse in the profile.
-      // The backend must detect that the caller is the profile creator and
-      // preserve/set Admin role — NOT downgrade to Staff (BUG-14 root cause).
+      // Step 3: Register the user's display name and warehouse via joinProfile.
+      //
+      // IMPORTANT — WHY joinProfile IS CALLED HERE:
+      // createProfile() above creates the profile record and sets the owner's role
+      // to #admin in the backend. However, it does NOT store the user's display_name
+      // or warehouse_name — those are stored on the UserProfile record.
+      //
+      // joinProfile() is the function that creates/updates the UserProfile record
+      // with display_name + warehouse_name. When the backend detects that the caller
+      // is the profile owner (principal matches), it MUST preserve the #admin role
+      // instead of downgrading to #staff (which is the default for normal joins).
+      //
+      // If joinProfile downgrades the owner to #staff, that is BUG-14.
+      // The backend should check: if caller === profile.owner → keep role = #admin.
       await joinProfile.mutateAsync({
         profileKey: form.profile_key,
         displayName: form.display_name,
         warehouseName: form.warehouse_name,
       });
 
-      // Step 4: Check routing to determine next screen
+      // Step 4: Check routing status to determine the next screen.
+      // profile_pending_super_admin → show the "awaiting approval" screen.
+      // Any other status → refetch profile and proceed to the dashboard.
       let rs: RoutingStatus | undefined;
       if (actor) {
         try {
           rs = await actor.getRoutingStatus();
         } catch {
-          // non-fatal
+          // Non-fatal — if this fails, fall through to default routing
         }
       }
 
@@ -800,6 +837,17 @@ function JoinTab({ onSuccess }: { onSuccess: () => Promise<void> }) {
     }
 
     try {
+      // JOIN FLOW — calls joinProfile ONLY (no createProfile).
+      //
+      // This is deliberately different from the Create tab, which calls both
+      // createProfile() AND joinProfile(). Here we are joining an EXISTING profile,
+      // so the backend will:
+      //   - Create/update the UserProfile record with display_name + warehouse_name
+      //   - Assign role = #staff (pending Admin approval)
+      //   - Set approval_status = #pending
+      //
+      // After this succeeds, the user sees the "awaiting Admin approval" screen
+      // and is logged out so they must log back in once approved.
       const ok = await joinProfile.mutateAsync({
         profileKey: form.profile_key,
         displayName: form.display_name,
@@ -812,6 +860,7 @@ function JoinTab({ onSuccess }: { onSuccess: () => Promise<void> }) {
       }
 
       toast.success(`Joined ${foundProfile.business_name}! Welcome 🌿`);
+      // Trigger profile refetch — App.tsx will route to pending screen if needed
       await onSuccess();
     } catch {
       toast.error("Something went wrong. Please try again.");

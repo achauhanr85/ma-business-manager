@@ -702,9 +702,21 @@ export interface backendInterface {
     createCategory(input: CategoryInput): Promise<CategoryId>;
     createCustomer(input: CustomerInput): Promise<CustomerId>;
     createCustomerFromSales(input: CustomerInput): Promise<CustomerId>;
-    createGoal(input: GoalMasterInput): Promise<bigint>;
+    createGoal(input: GoalMasterInput): Promise<{
+        __kind__: "ok";
+        ok: bigint;
+    } | {
+        __kind__: "err";
+        err: string;
+    }>;
     createGoalMaster(profileKey: ProfileKey, name: string, description: string): Promise<GoalMasterPublic__1>;
-    createMedicalIssue(input: MedicalIssueMasterInput): Promise<bigint>;
+    createMedicalIssue(input: MedicalIssueMasterInput): Promise<{
+        __kind__: "ok";
+        ok: bigint;
+    } | {
+        __kind__: "err";
+        err: string;
+    }>;
     createMedicalIssueMaster(profileKey: ProfileKey, name: string, description: string): Promise<MedicalIssueMasterPublic__1>;
     createProduct(input: ProductInput): Promise<ProductId | null>;
     createProfile(input: ProfileInput): Promise<boolean>;
@@ -832,9 +844,21 @@ export interface backendInterface {
     updateCategory(id: CategoryId, input: CategoryInput): Promise<boolean>;
     updateCustomer(id: CustomerId, input: CustomerInput): Promise<boolean>;
     updateCustomerNote(noteId: bigint, newText: string, profileKey: ProfileKey): Promise<CustomerNotePublic | null>;
-    updateGoal(id: bigint, input: GoalMasterInput): Promise<boolean>;
+    updateGoal(id: bigint, input: GoalMasterInput): Promise<{
+        __kind__: "ok";
+        ok: boolean;
+    } | {
+        __kind__: "err";
+        err: string;
+    }>;
     updateGoalMaster(id: bigint, name: string, description: string, productBundle: Array<ProductId>): Promise<boolean>;
-    updateMedicalIssue(id: bigint, input: MedicalIssueMasterInput): Promise<boolean>;
+    updateMedicalIssue(id: bigint, input: MedicalIssueMasterInput): Promise<{
+        __kind__: "ok";
+        ok: boolean;
+    } | {
+        __kind__: "err";
+        err: string;
+    }>;
     updateMedicalIssueMaster(id: bigint, name: string, description: string): Promise<boolean>;
     updatePaymentStatus(saleId: SaleId, paymentStatus: PaymentStatus, amountPaid: number | null, paymentDueDate: string | null): Promise<boolean>;
     updateProduct(id: ProductId, input: ProductInput): Promise<boolean>;

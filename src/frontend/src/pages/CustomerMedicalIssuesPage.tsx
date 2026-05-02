@@ -22,17 +22,22 @@
  *      ├─ Empty → empty state with Add button
  *      └─ Data → list of issues with Edit / Delete buttons per row
  *   3. Add medical issue
- *      ├─ "Add Issue" button or inline add at top
- *      ├─ IssueDialog opens with empty form (name, description)
+ *      ├─ "Add Issue" button → IssueDialog opens in CREATE mode (editing = null)
+ *      ├─ IssueDialog validates: name required + checks for DUPLICATE name
+ *      │    (case-insensitive) against currently loaded issues list BEFORE backend
+ *      │    → inline error shown if duplicate found, submission blocked
  *      ├─ useCreateMedicalIssueMaster.mutateAsync({ profileKey, name, description })
- *      └─ success → toast + list refetches
+ *      │    → backend also enforces uniqueness; error surfaced in UI if rejected
+ *      └─ success → toast + list refetches (React Query invalidation)
  *   4. Edit medical issue
- *      ├─ Pencil icon → IssueDialog opens pre-filled
+ *      ├─ Pencil icon → IssueDialog opens in EDIT mode (editing = issue)
+ *      ├─ IssueDialog pre-fills form with current name/description
+ *      ├─ Duplicate check EXCLUDES the issue currently being edited
  *      ├─ useUpdateMedicalIssueMaster.mutateAsync({ id, name, description })
  *      └─ success → toast + list refetches
  *   5. Delete medical issue
- *      ├─ Trash icon → AlertDialog confirmation
- *      ├─ useDeleteMedicalIssueMaster.mutateAsync(id)
+ *      ├─ Trash icon → AlertDialog shows "Are you sure you want to delete [name]?"
+ *      ├─ Confirm → useDeleteMedicalIssueMaster.mutateAsync(id)
  *      └─ success → toast + list refetches
  *   6. CSV export / import
  *      ├─ Export → CSV download
@@ -41,17 +46,17 @@
  * VARIABLES INITIALIZED:
  *   - dialogOpen: boolean = false                    // IssueDialog open state
  *   - editingIssue: MedicalIssueMasterPublic | null  // null = create mode
- *   - deleteTarget: bigint | null                    // pending delete confirm
+ *   - deleteTarget: MedicalIssueMasterPublic | null  // pending delete confirm
  *   - profileKey: string                             // impersonation-aware key
  * ─────────────────────────────────────────────────────────────────────────────
  * SIDE EFFECTS (useEffect):
- *   none
+ *   none — data loads via React Query (useGetMedicalIssueMasterData) on profileKey change
  * ─────────────────────────────────────────────────────────────────────────────
  * KEY HANDLERS:
- *   - handleOpenCreate: clears form, opens dialog in create mode
- *   - handleOpenEdit: populates form, opens dialog in edit mode
- *   - handleDelete: confirms then calls useDeleteMedicalIssueMaster
- *   - IssueDialog.handleSubmit: create or update mutation based on editingIssue
+ *   - openAdd: clears editing, opens dialog in create mode
+ *   - openEdit: sets editing issue, opens dialog in edit mode
+ *   - handleDelete: calls useDeleteMedicalIssueMaster after AlertDialog confirmation
+ *   - IssueDialog.handleSubmit: validates uniqueness, then calls create or update
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
@@ -105,21 +110,41 @@ interface IssueFormState {
 const EMPTY_FORM: IssueFormState = { name: "", description: "" };
 
 // ─── Issue Form Dialog ────────────────────────────────────────────────────────
+//
+// Used for both CREATE and EDIT mode depending on whether `editing` is null.
+//
+// UNIQUE NAME VALIDATION:
+//   Before calling the backend, we check if an issue with the same name already
+//   exists in the loaded list. Gives instant feedback without a backend round-trip.
+//   The backend will also reject duplicates — if it returns an error, we surface it.
+//
+//   CREATE: checks ALL existing issues (case-insensitive).
+//   EDIT:   checks all issues EXCEPT the one currently being edited
+//           (so an issue can keep its own name when only updating description).
 
 interface IssueDialogProps {
   open: boolean;
   editing: MedicalIssueMasterPublic | null;
   profileKey: string;
+  existingIssues: MedicalIssueMasterPublic[]; // loaded list for duplicate check
   onClose: () => void;
 }
 
-function IssueDialog({ open, editing, profileKey, onClose }: IssueDialogProps) {
+function IssueDialog({
+  open,
+  editing,
+  profileKey,
+  existingIssues,
+  onClose,
+}: IssueDialogProps) {
   const createIssue = useCreateMedicalIssueMaster();
   const updateIssue = useUpdateMedicalIssueMaster();
   const [form, setForm] = useState<IssueFormState>(EMPTY_FORM);
+  // nameError holds the inline duplicate error message (empty string = no error)
+  const [nameError, setNameError] = useState<string>("");
   const prevOpenRef = useRef(open);
 
-  // Reset form whenever dialog opens
+  // Reset form and clear errors whenever the dialog opens or switches mode
   if (prevOpenRef.current !== open) {
     prevOpenRef.current = open;
     if (open) {
@@ -129,18 +154,60 @@ function IssueDialog({ open, editing, profileKey, onClose }: IssueDialogProps) {
             ? { name: editing.name, description: editing.description }
             : EMPTY_FORM,
         );
+        setNameError(""); // clear any previous error when dialog re-opens
       }, 0);
     }
   }
 
+  /**
+   * Check if the given name already exists in the loaded issues list.
+   *
+   * @param name - the name to check (trimmed + lowercased for comparison)
+   * @returns true if a DIFFERENT issue already has this name
+   *
+   * Why "different issue": when editing, the issue being edited is excluded
+   * so it can keep its own name when only updating the description.
+   */
+  function isDuplicateName(name: string): boolean {
+    const normalised = name.trim().toLowerCase();
+    return existingIssues.some(
+      (i) =>
+        i.name.toLowerCase() === normalised &&
+        // Exclude the issue being edited so it can keep its own name
+        (!editing || i.id !== editing.id),
+    );
+  }
+
+  /**
+   * handleSubmit — validates the form, checks for duplicate names, then calls
+   * the appropriate backend mutation (create or update).
+   *
+   * Validation order:
+   *   1. Name must not be empty
+   *   2. Name must not duplicate an existing issue (client-side check)
+   *   3. Call backend — surface any backend error (e.g. race condition duplicate)
+   */
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    // Step 1: name required check
     if (!form.name.trim()) {
       toast.error("Issue name is required");
       return;
     }
+
+    // Step 2: client-side duplicate name check for instant feedback
+    if (isDuplicateName(form.name)) {
+      setNameError("A medical issue with this name already exists");
+      return;
+    }
+
+    // Clear any previous duplicate error before submitting
+    setNameError("");
+
     try {
       if (editing) {
+        // UPDATE MODE
         await updateIssue.mutateAsync({
           id: editing.id,
           name: form.name.trim(),
@@ -148,6 +215,7 @@ function IssueDialog({ open, editing, profileKey, onClose }: IssueDialogProps) {
         });
         toast.success("Medical issue updated");
       } else {
+        // CREATE MODE
         await createIssue.mutateAsync({
           profileKey,
           name: form.name.trim(),
@@ -156,12 +224,21 @@ function IssueDialog({ open, editing, profileKey, onClose }: IssueDialogProps) {
         toast.success("Medical issue created");
       }
       onClose();
-    } catch {
-      toast.error(
-        editing
-          ? "Failed to update medical issue"
-          : "Failed to create medical issue",
-      );
+    } catch (err) {
+      // Surface backend error — if it says "already exists", show inline error
+      const msg = err instanceof Error ? err.message : String(err);
+      if (
+        msg.toLowerCase().includes("already exists") ||
+        msg.toLowerCase().includes("duplicate")
+      ) {
+        setNameError("A medical issue with this name already exists");
+      } else {
+        toast.error(
+          editing
+            ? "Failed to update medical issue"
+            : "Failed to create medical issue",
+        );
+      }
     }
   }
 
@@ -182,11 +259,25 @@ function IssueDialog({ open, editing, profileKey, onClose }: IssueDialogProps) {
               id="issue-name"
               data-ocid="medical_issue.name.input"
               value={form.name}
-              onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+              onChange={(e) => {
+                // Clear the duplicate error whenever the user changes the name field
+                setForm((p) => ({ ...p, name: e.target.value }));
+                if (nameError) setNameError("");
+              }}
               placeholder="e.g. Diabetes, Hypertension"
               required
               autoFocus
+              className={nameError ? "border-destructive" : ""}
             />
+            {/* Inline duplicate name error — shown when user tries to submit a duplicate */}
+            {nameError && (
+              <p
+                className="text-xs text-destructive flex items-center gap-1"
+                data-ocid="medical_issue.name.field_error"
+              >
+                {nameError}
+              </p>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="issue-desc">Description</Label>
@@ -583,11 +674,12 @@ export function CustomerMedicalIssuesPage({
         </div>
       )}
 
-      {/* Issue form dialog */}
+      {/* Issue form dialog — pass existingIssues so the dialog can check for duplicates */}
       <IssueDialog
         open={dialogOpen}
         editing={editing}
         profileKey={profileKey}
+        existingIssues={issues}
         onClose={() => {
           setDialogOpen(false);
           setEditing(null);

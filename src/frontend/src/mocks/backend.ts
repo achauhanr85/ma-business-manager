@@ -268,8 +268,9 @@ export const mockBackend: backendInterface = {
   updateMedicalIssueMaster: async () => true,
   deleteMedicalIssueMaster: async () => true,
   // Goals & medical issues (new backend)
-  createGoal: async () => BigInt(1),
-  createMedicalIssue: async () => BigInt(1),
+  // createGoal / createMedicalIssue return Result<bigint, string>
+  createGoal: async () => ({ __kind__: "ok" as const, ok: BigInt(1) }),
+  createMedicalIssue: async () => ({ __kind__: "ok" as const, ok: BigInt(1) }),
   deleteGoal: async () => true,
   deleteMedicalIssue: async () => true,
   getGoal: async () => null,
@@ -282,8 +283,9 @@ export const mockBackend: backendInterface = {
     { id: BigInt(1), name: "Diabetes Type 2", description: "High blood sugar condition", creation_date: NOW_NS, last_update_date: NOW_NS },
     { id: BigInt(2), name: "Thyroid", description: "Thyroid gland disorder", creation_date: NOW_NS, last_update_date: NOW_NS },
   ],
-  updateGoal: async () => true,
-  updateMedicalIssue: async () => true,
+  // updateGoal / updateMedicalIssue return Result<boolean, string>
+  updateGoal: async () => ({ __kind__: "ok" as const, ok: true }),
+  updateMedicalIssue: async () => ({ __kind__: "ok" as const, ok: true }),
   // Payment
   updatePaymentStatus: async () => true,
   addPaymentEntry: async () => true,

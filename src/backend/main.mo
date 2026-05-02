@@ -116,14 +116,14 @@ import LeadsApi "mixins/leads-api";
 // ── Migration import ──────────────────────────────────────────────────────────
 // Handles the userStore schema change: adds diagnostics_level field to UserProfile
 // with default value 2 (INFO) for all existing users on canister upgrade.
-import Migration "migration";
+
 
 // ── Shared type imports ───────────────────────────────────────────────────────
 import Common "types/common";
 import UserTypes "types/users";
 
 
-(with migration = Migration.run)
+
 actor {
 
   // ── Profile and User stores ───────────────────────────────────────────────

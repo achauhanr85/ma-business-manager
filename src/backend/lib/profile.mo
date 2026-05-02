@@ -502,23 +502,67 @@ module {
     }
   };
 
-  /// Join an existing profile by profile_key; assigns #staff role with pending approval.
-  /// Sends a #StaffPendingApproval notification to Admin.
+  /// Join an existing profile by profile_key.
+  ///
+  /// OWNER-PRESERVATION LOGIC (BUG-14 fix):
+  ///   The Create flow on OnboardingPage calls createProfile() first (which sets
+  ///   the caller's role to #admin in userStore), then calls joinProfile() to
+  ///   store display_name and warehouse_name on the UserProfile record.
+  ///
+  ///   If joinProfile() blindly writes role=#staff, the #admin set by createProfile()
+  ///   is overwritten — the profile owner ends up as Staff with a pending status.
+  ///
+  ///   Fix: before writing the UserProfile record, check whether the caller already
+  ///   has a UserProfile entry for this profile_key in userStore.
+  ///     a) Existing UserProfile found AND role == #admin (owner is re-joining to
+  ///        update display_name / warehouse_name after createProfile):
+  ///        → preserve role = #admin, set approval_status = ?"approved"
+  ///        → do NOT send StaffPendingApproval notification (owner needs no approval)
+  ///     b) No existing UserProfile (genuine new member joining for the first time):
+  ///        → assign role = #staff, approval_status = ?"pending"
+  ///        → send StaffPendingApproval notification to Admin
+  ///
+  /// Sends a #StaffPendingApproval notification to Admin only for genuine new members.
   public func joinProfile(store : Store, userStore : UserStore, notificationsStore : NotificationsLib.Store, caller : Common.UserId, profile_key : Common.ProfileKey, display_name : Text, warehouse_name : Common.WarehouseName) : Bool {
     switch (store.get(profile_key)) {
       case null false; // profile_key does not exist
       case (?_) {
         let now = Time.now();
+
+        // ── Owner-preservation check ─────────────────────────────────────────
+        // Look up whether the caller already has a UserProfile record.
+        // This happens when OnboardingPage calls createProfile() then joinProfile()
+        // in sequence to set display_name + warehouse_name for the profile creator.
+        let (resolvedRole, resolvedApprovalStatus, isOwnerUpdate) : (Common.UserRole, ?Text, Bool) = switch (userStore.get(caller)) {
+          case (?existing) {
+            // Caller has an existing record — check if they are already #admin
+            // for this profile (set by createProfile above in the Create flow).
+            if (existing.role == #admin and existing.profile_key == profile_key) {
+              // Owner is updating their display_name / warehouse_name.
+              // Preserve Admin role and approved status — do NOT downgrade.
+              (#admin, ?"approved", true)
+            } else {
+              // Existing user in a different profile, or non-admin role.
+              // Treat as a normal staff join (will overwrite their record).
+              (#staff, ?"pending", false)
+            }
+          };
+          case null {
+            // Brand-new user with no record — normal staff join.
+            (#staff, ?"pending", false)
+          };
+        };
+
         let up : UserTypes.UserProfile = {
           principal = caller;
           profile_key;
-          role = #staff;
+          role = resolvedRole;
           warehouse_name;
           display_name;
           email = null;
           joined_at = now;
-          // Staff members start as pending until approved by Admin
-          approval_status = ?"pending";
+          // Admin (owner): approved immediately. Staff: pending Admin approval.
+          approval_status = resolvedApprovalStatus;
           module_access = null;
           // User preferences — default to English / DD/MM/YYYY / herbal theme
           language_preference = "en";
@@ -534,15 +578,19 @@ module {
           last_update_date = now;
         };
         userStore.add(caller, up);
-        // Notify Admin that a new staff member is pending approval
-        let _ = NotificationsLib.createNotification(
-          notificationsStore,
-          profile_key,
-          "StaffPendingApproval",
-          "New staff member '" # display_name # "' has joined and is awaiting Admin approval.",
-          ?(caller.toText()),
-          "admin",
-        );
+
+        // Only notify Admin for genuine new staff members — not for the owner
+        // updating their own display_name / warehouse_name after profile creation.
+        if (not isOwnerUpdate) {
+          let _ = NotificationsLib.createNotification(
+            notificationsStore,
+            profile_key,
+            "StaffPendingApproval",
+            "New staff member '" # display_name # "' has joined and is awaiting Admin approval.",
+            ?(caller.toText()),
+            "admin",
+          );
+        };
         true
       };
     }

@@ -719,13 +719,21 @@ export const idlService = IDL.Service({
   'createCategory' : IDL.Func([CategoryInput], [CategoryId], []),
   'createCustomer' : IDL.Func([CustomerInput], [CustomerId], []),
   'createCustomerFromSales' : IDL.Func([CustomerInput], [CustomerId], []),
-  'createGoal' : IDL.Func([GoalMasterInput], [IDL.Nat], []),
+  'createGoal' : IDL.Func(
+      [GoalMasterInput],
+      [IDL.Variant({ 'ok' : IDL.Nat, 'err' : IDL.Text })],
+      [],
+    ),
   'createGoalMaster' : IDL.Func(
       [ProfileKey, IDL.Text, IDL.Text],
       [GoalMasterPublic__1],
       [],
     ),
-  'createMedicalIssue' : IDL.Func([MedicalIssueMasterInput], [IDL.Nat], []),
+  'createMedicalIssue' : IDL.Func(
+      [MedicalIssueMasterInput],
+      [IDL.Variant({ 'ok' : IDL.Nat, 'err' : IDL.Text })],
+      [],
+    ),
   'createMedicalIssueMaster' : IDL.Func(
       [ProfileKey, IDL.Text, IDL.Text],
       [MedicalIssueMasterPublic__1],
@@ -1010,7 +1018,11 @@ export const idlService = IDL.Service({
       [IDL.Opt(CustomerNotePublic)],
       [],
     ),
-  'updateGoal' : IDL.Func([IDL.Nat, GoalMasterInput], [IDL.Bool], []),
+  'updateGoal' : IDL.Func(
+      [IDL.Nat, GoalMasterInput],
+      [IDL.Variant({ 'ok' : IDL.Bool, 'err' : IDL.Text })],
+      [],
+    ),
   'updateGoalMaster' : IDL.Func(
       [IDL.Nat, IDL.Text, IDL.Text, IDL.Vec(ProductId)],
       [IDL.Bool],
@@ -1018,7 +1030,7 @@ export const idlService = IDL.Service({
     ),
   'updateMedicalIssue' : IDL.Func(
       [IDL.Nat, MedicalIssueMasterInput],
-      [IDL.Bool],
+      [IDL.Variant({ 'ok' : IDL.Bool, 'err' : IDL.Text })],
       [],
     ),
   'updateMedicalIssueMaster' : IDL.Func(
@@ -1765,13 +1777,21 @@ export const idlFactory = ({ IDL }) => {
     'createCategory' : IDL.Func([CategoryInput], [CategoryId], []),
     'createCustomer' : IDL.Func([CustomerInput], [CustomerId], []),
     'createCustomerFromSales' : IDL.Func([CustomerInput], [CustomerId], []),
-    'createGoal' : IDL.Func([GoalMasterInput], [IDL.Nat], []),
+    'createGoal' : IDL.Func(
+        [GoalMasterInput],
+        [IDL.Variant({ 'ok' : IDL.Nat, 'err' : IDL.Text })],
+        [],
+      ),
     'createGoalMaster' : IDL.Func(
         [ProfileKey, IDL.Text, IDL.Text],
         [GoalMasterPublic__1],
         [],
       ),
-    'createMedicalIssue' : IDL.Func([MedicalIssueMasterInput], [IDL.Nat], []),
+    'createMedicalIssue' : IDL.Func(
+        [MedicalIssueMasterInput],
+        [IDL.Variant({ 'ok' : IDL.Nat, 'err' : IDL.Text })],
+        [],
+      ),
     'createMedicalIssueMaster' : IDL.Func(
         [ProfileKey, IDL.Text, IDL.Text],
         [MedicalIssueMasterPublic__1],
@@ -2080,7 +2100,11 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Opt(CustomerNotePublic)],
         [],
       ),
-    'updateGoal' : IDL.Func([IDL.Nat, GoalMasterInput], [IDL.Bool], []),
+    'updateGoal' : IDL.Func(
+        [IDL.Nat, GoalMasterInput],
+        [IDL.Variant({ 'ok' : IDL.Bool, 'err' : IDL.Text })],
+        [],
+      ),
     'updateGoalMaster' : IDL.Func(
         [IDL.Nat, IDL.Text, IDL.Text, IDL.Vec(ProductId)],
         [IDL.Bool],
@@ -2088,7 +2112,7 @@ export const idlFactory = ({ IDL }) => {
       ),
     'updateMedicalIssue' : IDL.Func(
         [IDL.Nat, MedicalIssueMasterInput],
-        [IDL.Bool],
+        [IDL.Variant({ 'ok' : IDL.Bool, 'err' : IDL.Text })],
         [],
       ),
     'updateMedicalIssueMaster' : IDL.Func(

@@ -2765,7 +2765,7 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
                     </p>
                   )}
                 </div>
-                {/* Inline add new goal */}
+                {/* Inline add new goal — validates name is not a duplicate before calling backend */}
                 {addingGoal ? (
                   <div className="flex gap-1.5">
                     <Input
@@ -2781,6 +2781,15 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
                           profileKey
                         ) {
                           e.preventDefault();
+                          // Duplicate check: don't create if a goal with this name already exists
+                          const nameLower = newGoalName.trim().toLowerCase();
+                          const isDup = allGoals.some(
+                            (g) => g.name.toLowerCase() === nameLower,
+                          );
+                          if (isDup) {
+                            toast.error("A goal with this name already exists");
+                            return;
+                          }
                           try {
                             const result = await createGoal.mutateAsync({
                               profileKey,
@@ -2807,6 +2816,15 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
                       className="h-7 px-2 text-xs"
                       onClick={async () => {
                         if (!newGoalName.trim() || !profileKey) return;
+                        // Duplicate check before calling backend
+                        const nameLower = newGoalName.trim().toLowerCase();
+                        const isDup = allGoals.some(
+                          (g) => g.name.toLowerCase() === nameLower,
+                        );
+                        if (isDup) {
+                          toast.error("A goal with this name already exists");
+                          return;
+                        }
                         try {
                           const result = await createGoal.mutateAsync({
                             profileKey,
@@ -2913,7 +2931,7 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
                     </p>
                   )}
                 </div>
-                {/* Inline add new issue */}
+                {/* Inline add new issue — validates name is not a duplicate before calling backend */}
                 {addingIssue ? (
                   <div className="flex gap-1.5">
                     <Input
@@ -2929,6 +2947,17 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
                           profileKey
                         ) {
                           e.preventDefault();
+                          // Duplicate check: don't create if an issue with this name already exists
+                          const nameLower = newIssueName.trim().toLowerCase();
+                          const isDup = allIssues.some(
+                            (i) => i.name.toLowerCase() === nameLower,
+                          );
+                          if (isDup) {
+                            toast.error(
+                              "A medical issue with this name already exists",
+                            );
+                            return;
+                          }
                           try {
                             const result = await createIssue.mutateAsync({
                               profileKey,
@@ -2954,6 +2983,17 @@ function CustomerDialog({ open, editing, onClose }: CustomerDialogProps) {
                       className="h-7 px-2 text-xs"
                       onClick={async () => {
                         if (!newIssueName.trim() || !profileKey) return;
+                        // Duplicate check before calling backend
+                        const nameLower = newIssueName.trim().toLowerCase();
+                        const isDup = allIssues.some(
+                          (i) => i.name.toLowerCase() === nameLower,
+                        );
+                        if (isDup) {
+                          toast.error(
+                            "A medical issue with this name already exists",
+                          );
+                          return;
+                        }
                         try {
                           const result = await createIssue.mutateAsync({
                             profileKey,
